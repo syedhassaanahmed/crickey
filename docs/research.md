@@ -1,17 +1,17 @@
 # Research notes
 
-Everything learned while planning crickey, so it doesn't need to be redone. Unless marked otherwise, items were observed directly on 3 October 2026.
+Everything learned while planning crickey, so it doesn't need to be redone. Unless marked otherwise, items were observed directly on 3–4 October 2026.
 - **(search summary)** marks facts from a web-search summary rather than the primary page.
 - **(unverified)** marks facts seen in other people's code that we haven't tested.
 
 Pages fetched during research aren't committed to this repo.
 
 ## Contents
-1. Access, robots.txt and terms
+1. Access and robots.txt
 2. Statsguru URL model
 3. Match classes and record types
-4. Filter catalogue (advanced batting form)
-5. Minimums and sort options by view (batting)
+4. Filter catalogue (basic and advanced forms)
+5. Minimums and sort options by view
 6. Player pages
 7. Player search
 8. Results pages
@@ -21,16 +21,16 @@ Pages fetched during research aren't committed to this repo.
 12. MCP protocol and Python SDK
 13. Client configuration
 14. Distribution options
-15. Library versions and development environment
+15. Versions and development environment
 16. Open questions
 
-## 1. Access, robots.txt and terms
+## 1. Access and robots.txt
 
 ### Hosts
 - Statsguru is served from `stats.cricinfo.com`; `stats.espncricinfo.com` redirects there.
 - Pages are server-rendered HTML. Result tables are `<table class="engineTable">` with data rows `<tr class="data1">`.
 - Generic page readers that convert pages to markdown only see the cookie banner, so pages must be parsed as raw HTML.
-- `www.cricinfo.com` and `www.espncricinfo.com` return 403 to scripts (bot protection), including their robots.txt and terms pages.
+- `www.cricinfo.com` and `www.espncricinfo.com` return 403 to scripts (bot protection), including their robots.txt and player profile pages (for example `https://www.cricinfo.com/cricketers/babar-azam-348144` returned 403 with curl's User-Agent).
 
 ### robots.txt for stats.cricinfo.com
 ```
@@ -52,11 +52,6 @@ Disallow: /country-fragment2/
 - Results pages (`template=results`) are disallowed for every crawler, and the crawl delay is 15 s.
 - Filter forms (`index.html` without `template=results`), player search (`analysis.html`) and the records index aren't disallowed.
 
-### Terms of use
-- The Statsguru footer shows "© Jiostar India Pvt Ltd" and links to the Terms of Use (https://www.cricinfo.com/terms-of-use) and Privacy Policy (https://www.cricinfo.com/privacy-notice). The terms page returns 403 to scripts, so read it in a browser.
-- **(search summary)** Cricinfo's Terms of Use, operated by JioStar and last updated 1 June 2026, say users may not "use data mining, robots, or similar data collection or extraction tools", or make unauthorised back-up or archival copies.
-- Disney's Terms of Use (last updated 24 May 2024), which cover ESPN-branded products, ban extracting content "using a robot, spider, script, or other automated means", including for "creating or developing any AI Tool, data mining or web scraping". The Statsguru footer now points to JioStar's terms instead.
-
 ### User-Agent tests
 All on the same results page: `https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=runs;size=10;template=results;type=batting`
 
@@ -66,8 +61,9 @@ All on the same results page: `https://stats.cricinfo.com/ci/engine/stats/index.
 | `python-httpx/0.28.1` (httpx's default) | 403 |
 | `curl/8.21.0` (curl's default) | 200 |
 | `crickey/0.1` | 200 |
+| httpx 0.28.1 sending `curl/8.21.0` (4 Oct) | 200 |
 
-Earlier the same day, `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 on form, results and player pages. Not yet tested: httpx sending curl's User-Agent string.
+Earlier on 3 Oct, `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 on form, results and player pages.
 
 ## 2. Statsguru URL model
 
@@ -81,11 +77,13 @@ Earlier the same day, `Mozilla/5.0` and a full Chrome-like User-Agent also got 2
 
 - **Separators:** parameters are separated by `;`, and `&` also works. Cricinfo redirects every query to a standard URL with parameters sorted alphabetically, for example `?class=2;orderby=hundreds;qualmin1=10;qualval1=hundreds;template=results;type=batting`.
 - **Links inside pages:** player profiles are `/ci/content/player/<id>.html`; matches are `/ci/engine/match/<id>.html`.
-- **Date range:** `spanmin1=12+Jun+2010;spanmax1=29+Jun+2024;spanval1=span`, with dates as `DD Mon YYYY`. The form's hidden `spanmin0` and `spanmax0` hold the class's first and latest match dates (Tests: 15 Mar 1877 to 09 Sep 2026 at the time).
+- **Date range:** `spanmin1=07+Sep+2016;spanmax1=24+Feb+2026;spanval1=span`, with dates as `DD Mon YYYY`. The form's hidden `spanmin0` and `spanmax0` hold the class's first and latest match dates. First match dates: Tests 15 Mar 1877, ODIs 05 Jan 1971, T20Is 17 Feb 2005, all T20 13 Jun 2003 and combined internationals 15 Mar 1877.
 - **Minimums:** `qualval1=<field>;qualmin1=<n>`, with optional `qualmax1`. The form shows only one, but `qualval2`/`qualmin2` and `qualval3`/`qualmin3` also work: a query with three minimums returned only rows meeting all three.
+- **Minimum precision:** minimums are compared with exact values, to at least 4 decimals. Babar Azam's T20I average is 38.94915…; `qualmin2=38.9491` kept his row, while `qualmin2=38.9492` returned "No records available to match this query".
 - **Sort:** `orderby=<field>`; `orderbyad=reverse` reverses the order.
-- **Page size:** `size` is 10, 25, 50 (default), 100, 150 or 200. Results show "Page X of Y". The page-number parameter hasn't been confirmed.
-- **Truncated decimals:** averages and strike rates are cut off, not rounded. Kohli's T20I average is 4188 ÷ 86 = 48.698, shown as 48.69.
+- **Paging:** `size` is 10, 25, 50 (default), 100, 150 or 200, and `page=<n>` selects later pages. Each page shows the total, for example "Page 2 of 5 Showing 201 - 400 of 850", so the first page tells how many pages a query needs. A 200-row page is about 1 MB of HTML.
+- **Truncated decimals:** averages and strike rates are cut off, not rounded. Babar Azam's T20I average is 4596 ÷ 118 = 38.949, shown as 38.94 (rounding would give 38.95). Bowling figures are truncated too (R8).
+- **Trailing zeros** are dropped from displayed numbers, for example "47.8" and "55".
 
 ## 3. Match classes and record types
 
@@ -94,25 +92,96 @@ Earlier the same day, `Mozilla/5.0` and a full Chrome-like User-Agent also got 2
 | 1 | Tests | Index tabs; player search ("Test matches") |
 | 2 | ODIs | Index tabs |
 | 3 | T20Is | Index tabs |
-| 4 | First-class matches | Records index; the query engine returns 503 |
-| 5 | List A matches | Records index; the query engine returns 503 |
+| 4 | First-class matches | Records index; the query engine refuses it (R9) |
+| 5 | List A matches | Records index; the query engine refuses it (R9) |
 | 6 | Twenty20 (all T20, including domestic and franchise leagues) | Index tabs; player search ("Twenty20 matches") |
 | 8 | Women's Tests | Index "other" menu |
 | 9 | Women's ODIs | Index tabs |
 | 10 | Women's T20Is | Index tabs |
 | 11 | All Test/ODI/T20I combined | Index tabs |
+| 12 | Combined First-class, List A and Twenty20 | Records index |
+| 13 | All cricket records (including minor cricket) | Records index |
+| 16 | Minor cricket (Twenty20) | Records index |
 | 20 | Youth Tests | Index "other" menu |
 | 21 | Youth ODIs | Index "other" menu |
 | 22 | Youth T20Is | Index "other" menu |
 | 23 | Women's T20 (all) | Index "other" menu |
 
-- The records index also links classes 12, 13 and 16. One of its labels is "Combined First-class, List A and Twenty20", but which number it belongs to wasn't captured.
 - Every class on the index page (1, 2, 3, 6, 8, 9, 10, 11, 20, 21, 22, 23) offers the same record types: `batting`, `bowling`, `fielding`, `allround`, `fow` (partnerships), `team`, `aggregate` and `official` (umpires and referees).
-- The class 6 form lists domestic and franchise teams (for example Abahani Limited, Abbottabad Falcons, Adelaide Strikers, AJK Jaguars) as well as national teams. Their IDs haven't been captured yet.
+- Each class has its own lists of teams, grounds, series and trophies (R4).
 
-## 4. Filter catalogue (advanced batting form)
-Taken from the Tests form (`index.html?class=1;filter=advanced;type=batting`). Other classes have different values (more teams, other trophies), so each class needs its own lists.
+## 4. Filter catalogue (basic and advanced forms)
+Taken from the Tests batting forms: basic `index.html?class=1;type=batting` and advanced `index.html?class=1;filter=advanced;type=batting`. Other classes have different values (more teams, other trophies), so each class needs its own lists.
 
+### Basic and advanced forms
+Statsguru's own labels, in form order, with the parameter names behind them.
+
+**Basic form:**
+
+| Statsguru label | Parameters |
+|---|---|
+| Team | `team` |
+| Opposition | `opposition` |
+| Home or away | `home_or_away` |
+| Host country | `host` |
+| Ground | `ground` |
+| Starting date (from, to, or quick pick) | `spanmin1`, `spanmax1`, `spanquickpick` |
+| Season | `season` |
+| Match result | `result` |
+| View format | `view` |
+
+**Advanced form:** all of the basic form, plus these (shown in form order, mixed in with the basic fields):
+
+| Statsguru label | Parameters |
+|---|---|
+| Continent | `continent` |
+| Series | `series` |
+| Trophy | `trophy` |
+| Tournament type | `tournament_type` |
+| Match type | `final_type` |
+| Day/night matches | `floodlit` |
+| Toss result | `toss` |
+| Batting or fielding first | `batting_fielding_first` |
+| Captaincy | `captain` |
+| Wicketkeeper | `keeper` |
+| Debut or last match | `debut_or_last` |
+| Type of Batter | `batting_hand` |
+| Age at start of match | `agemin1`, `agemax1`, `agequickpick` |
+| Match involving players | `search_player` |
+| Match involving captains | `search_captain` |
+| Innings in match | `innings_number` |
+| Runs scored in an inns | `runsmin1`, `runsmax1`, `runsquickpick` |
+| Batting position | `batting_positionmin1`, `batting_positionmax1`, `batting_positionquickpick` |
+| Dismissed | `outs` |
+| Type of dismissal | `dismissal` |
+| Group figures by | `groupby` |
+| Result qualifications | `qualval1`, `qualmin1`, `qualmax1`, `qualquickpick` |
+| Sort results by | `orderby`, `orderbyad` |
+| Results per page | `size` |
+
+These are the batting forms. The other stat types are below.
+
+### Other stat types
+The basic bowling form has the same fields as the basic batting form. In the advanced forms, each type keeps the shared fields and swaps the batting-only ones (Type of Batter, Runs scored in an inns, Batting position, Dismissed, Type of dismissal) for its own. Form defaults are in brackets.
+
+| Type | Type-specific fields (parameters) |
+|---|---|
+| Bowling | Type of Bowler (by hand) (`bowling_hand`: 1 right-arm, 2 left-arm, 3 unknown arm); Type of Bowler (by style) (`bowling_pacespin`: 1 pace, 2 spin, 3 mixture/unknown); Balls bowled in an inns (`ballsmin1`, `ballsmax1`, `ballsquickpick`; 0–588); Runs conceded (`concededmin1`, `concededmax1`, `concededquickpick`; 0–298); Wickets taken (`wicketsmin1`, `wicketsmax1`, `wicketsquickpick`; 0–10); Bowling position (`bowling_positionmin1`, `bowling_positionmax1`, `bowling_positionquickpick`; 0–11) |
+| Fielding | Catches in an innings (`caughtmin1`, `caughtmax1`, `caughtquickpick`; 0–7); Stumpings in an innings (`stumpedmin1`, `stumpedmax1`, `stumpedquickpick`; 0–5) |
+| All-round | All the batting, bowling and fielding fields above |
+| Partnerships (`fow`) | Partnership runs (`partnership_runsmin1`, `partnership_runsmax1`, `partnership_runsquickpick`; 0–624); For wicket (`partnership_wicketmin1`, `partnership_wicketmax1`, `partnership_wicketquickpick`; 1–10); `fow_type` (1 out, 2 not out, 3 end of innings). No Captaincy or Wicketkeeper. |
+| Team | Team runs (`runsmin1`, `runsmax1`, `runsquickpick`; 0–952); Team wickets (`wicketsmin1`, `wicketsmax1`, `wicketsquickpick`; 0–10); Team balls received/bowled (`ballsmin1`, `ballsmax1`, `ballsquickpick`; 0–2012); `event` (1 all out, 2 declared, 3 target reached, 4 forfeited); Team totals for (`team_view`: blank for the batting team, `bowl` for the bowling team). No Captaincy or Wicketkeeper. |
+| Aggregate | None. It also lacks Batting or fielding first, Captaincy, Wicketkeeper, Innings in match and Group figures by. |
+
+**Bowling quick picks:**
+- `ballsquickpick`: 1 six or less, 2 30 or less, 3 30 or more, 4 60 or less, 5 60 or more, 6 100 or more, 7 200 or more.
+- `concededquickpick`: 1 0 to 9, 2 less than 20, 3 less than 40, 4 50 and above, 5 80 and above, 6 100 and above, 7 200 and above.
+- `wicketsquickpick`: 1 none, 2 4 or more, 3 5 or more, 4 7 or more, 5 10.
+- `bowling_positionquickpick`: 1 opening (1–2), 2 first change (3), 3 second change (4), 4 others (5–11).
+
+**Views (`view`)** beyond the batting list: all-round adds `results` and `awards`; team adds `results`, `extras` and `extras_innings`; aggregate has overall, `match`, `results`, `series`, `ground`, `host`, `year`, `season` and `extras`.
+
+### Values
 **Teams (`team`, `opposition`):** 40 Afghanistan, 2 Australia, 25 Bangladesh, 1 England, 140 ICC World XI, 6 India, 29 Ireland, 5 New Zealand, 7 Pakistan, 3 South Africa, 8 Sri Lanka, 4 West Indies, 9 Zimbabwe. Player pages also list 32 Nepal, 15 Netherlands and 27 United Arab Emirates as oppositions.
 
 **Host countries (`host`):** 2 Australia, 25 Bangladesh, 1 England, 6 India, 29 Ireland, 5 New Zealand, 7 Pakistan, 3 South Africa, 8 Sri Lanka, 27 United Arab Emirates, 4 West Indies, 9 Zimbabwe.
@@ -124,7 +193,11 @@ Taken from the Tests form (`index.html?class=1;filter=advanced;type=batting`). O
 - `season`: 227 values, from `1876/77` to `2026`.
 - `series`: 878 values, from `1` (England in Australia Test Series, 1876/77) to `17461` (Pakistan in England Test Series, 2026).
 
-**Trophies (`trophy`, Tests):** 1105 Anderson-Tendulkar Trophy, 868 Anthony de Mello Trophy, 7 Asian Test Championship, 76 Basil D'Oliveira Trophy, 920 Benaud-Qadir Trophy, 6 Border-Gavaskar Trophy, 919 Botham-Richards Trophy, 10 Clive Lloyd Trophy, 1076 Crowe-Thorpe Trophy, 201 Freedom Trophy, 81 ICC Super Series Tests, 804 ICC World Test Championship, 143 MCC Spirit of Cricket Test Series, 94 Pataudi Trophy, 9 Sir Vivian Richards Trophy, 207 Sobers/Tissera Trophy, 8 Southern Cross Trophy, 1035 Tangiwai Shield, 1 The Ashes, 3 The Frank Worrell Trophy, 4 The Wisden Trophy, 5 Trans-Tasman Trophy, 2 Triangular Tournament, 99 Warne-Muralitharan Trophy.
+**Trophies (`trophy`):** each class has its own list: 24 for Tests, 90 for ODIs, 127 for T20Is, 171 for all T20 and 237 for combined internationals. Examples: 1 The Ashes (Tests), 12 World Cup and 44 ICC Champions Trophy (ODIs), 89 ICC Men's T20 World Cup (T20Is), 117 Indian Premier League and 205 Pakistan Super League (all T20). These IDs match the ones in Cricinfo's league page URLs (R9).
+
+**Other classes:**
+- ODIs list 29 teams, T20Is 110 (including associates such as 187 Qatar and 36 Japan), combined internationals 113, and all T20 562.
+- In all T20, national teams keep their IDs (7 Pakistan, 6 India), and domestic and franchise teams have their own, for example 5799 Lahore Qalandars, 5793 Karachi Kings, 4346 Mumbai Indians and 4849 Sydney Sixers.
 
 **Choice filters.** Checkboxes accept several values; leaving a radio blank means "either".
 
@@ -152,7 +225,7 @@ Taken from the Tests form (`index.html?class=1;filter=advanced;type=batting`). O
 
 | Filter | Parameters | Form defaults |
 |---|---|---|
-| Dates | `spanmin1`, `spanmax1`, `spanval1=span` | The class's first match to today |
+| Dates | `spanmin1`, `spanmax1`, `spanval1=span` | The class's first and latest match dates |
 | Age at match start | `agemin1`, `agemax1`, `ageval1=age` | 14 to 52 |
 | Runs in an innings | `runsmin1`, `runsmax1`, `runsval1=runs` | 0 to 400 |
 | Batting position | `batting_positionmin1`, `batting_positionmax1`, `batting_positionval1=batting_position` | 0 to 12 |
@@ -165,10 +238,15 @@ Taken from the Tests form (`index.html?class=1;filter=advanced;type=batting`). O
 - `batting_positionquickpick`: 1 openers (1–2), 2 upper order (1–3), 3 middle order (4–7), 4 top order (1–7), 5 tail (8–11), 6–14 numbers 3 to 11.
 - `qualquickpick`: 1 0 only, 2 1 and above, 3 5 and above, 4 0 to 9, 5 10 and above, 6 20 and above, 7 0 to 30, 8 0 to 49, 9 50 to 99, 10 75 and above, 11 90 to 99, 12 100 plus, 13 200 plus, 14 500 plus, 15 1000 plus, 16 2000 plus, 17 5000 plus, 18 10000 plus.
 
-**Text inputs:** `search_player` ("match involving players") and `search_captain` ("match involving captains") look up a name and add it to the query. The URL parameters they produce haven't been captured.
+**Match involving players or captains:** `search_player` and `search_captain` are name searches.
+- Submitting the form with `search_player=<name>` returns it with one checkbox `player_involve=<id>` per matching player, plus `player_involve_type=none` for "not including this player". Captains use `captain_involve` and `captain_involve_type`.
+- These IDs differ from player-page IDs: Babar Azam is 56880 here and 348144 on player pages.
+- Checked on T20I team results: `player_involve=56880` gave Pakistan 145 matches (all of his T20Is), and `captain_involve=56880` gave 85 (the ones he captained).
 
-## 5. Minimums and sort options by view (batting)
-The advanced form contains one `qualval1` list and one `orderby` list per view (ids `havingselect_batting_<view>` and `orderbyselect_batting_<view>`), and shows the pair for the chosen view. It also includes lists for views that exist only on player pages (cumulative, partnerships, dismissals).
+## 5. Minimums and sort options by view
+Each advanced form contains one `qualval1` list and one `orderby` list per view (ids `havingselect_<type>_<view>` and `orderbyselect_<type>_<view>`), and shows the pair for the chosen view. It also includes lists for views that exist only on player pages (cumulative, partnerships, dismissals).
+
+### Batting
 
 | View | `qualval1` (minimum) fields | Extra `orderby` (sort) fields |
 |---|---|---|
@@ -192,7 +270,33 @@ The sort list for each view contains all its minimum fields plus the extras show
 - **Partnerships (`fow_*`):** fow_wicket = fall-of-wicket number; fow_score = partnership runs; fow_in, fow_out = team score at the partnership's start and end; fow_innings = number of partnerships; fow_notouts = unbroken partnerships; fow_outs = broken partnerships; fow_runs = total partnership runs; fow_high_score = highest partnership; fow_average = average partnership per dismissal; fow_hundreds = century partnerships; fow_fifty_plus = partnerships of fifty or more; partner = partner name.
 - **Dismissals (`dis_*`):** dis_matches = matches against each other; dis_dismissals = total dismissals; dis_bowled, dis_caught_fielder, dis_caught_keeper, dis_stumped, dis_lbw, dis_hit_wicket, dis_run_out, dis_other, dis_not_out = counts by type; dis_average = average score upon dismissal; dis_ducks = ducks; dis_matches_per_dismissal = matches per dismissal; dis_runs = batter's runs in the innings; dis_innings_number = innings number in the match; dis_how_out = method of dismissal; dis_bowler, dis_fielder = bowler or fielder who took the dismissal; dis_span = playing span against each other.
 
-The equivalent lists for the bowling, fielding, all-round, partnership, team and aggregate forms haven't been captured.
+### Bowling
+
+| View | `qualval1` (minimum) fields | Extra `orderby` (sort) fields |
+|---|---|---|
+| Overall, ground, host, opposition, series | matches, innings_bowled, balls, overs, maidens, conceded, wickets, bowling_average, economy_rate, bowling_strike_rate, four_plus_wickets, five_wickets, ten_wickets | player, start, bbi, bbm |
+| year, season | The same, plus `year` or `season` | player, bbi, bbm (no `start`) |
+| innings | overs, maidens, conceded, wickets, bowling_average, economy_rate, bowling_strike_rate, bowling_position | player, start, age |
+| match | innings_bowled, overs, maidens, conceded, wickets, bowling_average, economy_rate, bowling_strike_rate, four_plus_wickets, five_wickets, ten_wickets | player, start, age, bbi |
+| cumulative, reverse_cumulative | bowling_average, economy_rate, bowling_strike_rate | start |
+| dismissal_summary | dis_dismissals, dis_bowled, dis_caught_fielder, dis_caught_keeper, dis_stumped, dis_lbw, dis_hit_wicket, dis_average, dis_ducks | default, dis_span |
+| dismissal_list | dis_runs, dis_innings_number | start, dis_batsman, dis_how_out, dis_fielder |
+| batsman_summary | dis_matches, dis_dismissals, dis_bowled, dis_caught_fielder, dis_caught_keeper, dis_stumped, dis_lbw, dis_hit_wicket, dis_matches_per_dismissal, dis_average, dis_ducks | dis_batsman, dis_span |
+| fielder_summary | dis_matches, dis_dismissals, dis_caught_fielder, dis_caught_keeper, dis_stumped, dis_matches_per_dismissal, dis_average, dis_ducks | dis_fielder, dis_span |
+
+**Field meanings:** matches = matches played; innings_bowled = innings bowled in; balls = balls bowled; overs = overs bowled; maidens = maidens earned; conceded = runs conceded; wickets = wickets taken; bowling_average; economy_rate; bowling_strike_rate; four_plus_wickets = four wickets in an innings; five_wickets = five wickets in an innings; ten_wickets = ten wickets in a match; bbi, bbm = best bowling in an innings and in a match; bowling_position = bowling order position; dis_batsman = batter dismissed. The `dis_*` fields mean the same as for batting.
+
+### Other stat types (overall view)
+
+| Type | `qualval1` (minimum) fields | Extra `orderby` (sort) fields |
+|---|---|---|
+| Fielding | matches, matches_keeper, matches_fielder, innings_fielded, dismissals, caught, stumped, caught_keeper, caught_fielder, dismissals_per_inns | player, start, age, max_dismissals |
+| All-round | The batting and bowling overall fields, the fielding fields, and allround_average (batting average minus bowling average) | player, start, high_score, bbi, bbm, max_dismissals |
+| Partnerships | fow_innings, fow_notouts, fow_outs, fow_runs, fow_average, fow_balls_faced, fow_run_rate, fow_hundreds, fow_fifty_plus | partners, start, fow_high_score |
+| Team | matches, won, lost, tied, drawn, no_result, win_loss_ratio, percentage_won, percentage_lost, percentage_drawn, percentage_tied, percentage_no_result, runs, wickets, balls, team_average, runs_per_over, team_innings, team_high_score, team_low_score | team, start |
+| Aggregate | The team fields except lost, win_loss_ratio, team_innings, team_high_score and team_low_score | start |
+
+Each type also has per-view lists, read the same way from its form.
 
 ## 6. Player pages
 - **URL:** `https://stats.cricinfo.com/ci/engine/player/<id>.html?class=<class>;template=results;type=<type>[;view=<view>]`
@@ -201,30 +305,48 @@ The equivalent lists for the bowling, fielding, all-round, partnership, team and
   - Batting: blank for career summary, `innings`, `match`, `cumulative`, `reverse_cumulative`, `series`, `ground`, `results` (match results), `awards_match`, `awards_series`, `fow_summary` (partnership summary), `fow_list`, `dismissal_summary`, `bowler_summary`, `fielder_summary`, `dismissal_list`.
   - Bowling: `dismissal_summary` (wickets summary), `batsman_summary` (batters dismissed), `fielder_summary`, `dismissal_list` (list of wickets).
   - Fielding: `dismissal_summary`, `batsman_summary`, `bowler_summary`, `dismissal_list`.
-- **Filters:** `opposition`, `host` and `ground` (lists specific to the player; Kohli's ODIs have 14 oppositions, 10 hosts and 73 grounds), `home_or_away`, dates (`spanmin1` and `spanmax1`, defaulting to the player's first match and today), `spanquickpick`, `season` and `result` (1 won, 2 lost, 3 tied, 5 no result).
-- **Format tabs** show each format's span. For Kohli: "Tests (2011 - 2024/25)", "ODIs (2008 - 2026/27)" and "T20Is (2010 - 2024)", plus an "other" menu with class 11 (All Test/ODI/T20I), 6 (Twenty20), 20 (Youth Tests) and 21 (Youth ODIs).
-- **Career summary columns (T20I batting):** Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0, 4s, 6s. The summary page also has tables split by a "Grouping" column (for example one row per opposition: "v Afghanistan", "v Australia").
-- **Innings list columns:** Runs, Mins, BF, 4s, 6s, SR, Pos, Dismissal, Inns, (blank), Opposition, Ground, Start Date.
+- **Filters:** `opposition`, `host` and `ground` (lists specific to the player; Babar Azam's ODIs have 14 oppositions, 12 hosts and 51 grounds), `home_or_away`, dates (`spanmin1` and `spanmax1`), `spanquickpick`, `season` and `result` (1 won, 2 lost, 3 tied, 5 no result).
+- **Career span:** the player's form page for a format (the same URL without `template=results`, which robots.txt allows) has hidden `spanmin0` and `spanmax0` set to the player's first and last match dates in that format. Babar Azam's T20Is: 07 Sep 2016 to 24 Feb 2026; his ODIs: 31 May 2015 to 04 Jun 2026.
+- **Format tabs** show each format's span. For Babar Azam: "Tests (2016/17 - 2026)", "ODIs (2015 - 2026)" and "T20Is (2016 - 2025/26)", plus an "other" menu with class 11 (All Test/ODI/T20I), 6 (Twenty20), 21 (Youth ODIs) and 22 (Youth T20Is).
+- **Career summary columns:**
+  - T20I batting: Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0, 4s, 6s.
+  - T20I bowling: Span, Mat, Inns, Overs, Mdns, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5.
+  - The summary page also has tables split by a "Grouping" column (for example one row per opposition: "v Afghanistan", "v Australia").
+- **Innings list (`view=innings`):** one row per match, after the same "Career averages" table, so one request gives both.
+  - Batting columns: Runs, Mins, BF, 4s, 6s, SR, Pos, Dismissal, Inns, (blank), Opposition, Ground, Start Date, then the match label (for example "T20I # 566").
+  - Bowling columns: Overs, Mdns, Runs, Wkts, Econ, Pos, Inns, (blank), Opposition, Ground, Start Date, then the match label.
+- **Filters in the URL:** player pages accept advanced-form filters that their own form doesn't show, including dates and `trophy`. Babar Azam's T20I summary page links innings lists such as `…/player/348144.html?batting_fielding_first=1;class=3;result=1;template=results;type=batting;view=innings`.
+- **Filtered pages:** with any filter, "Career averages" shows an "unfiltered" row and a "filtered" row (examples in R10).
+- **Profile link:** the summary row's "Profile" link is `/ci/content/player/<id>.html`. On stats.cricinfo.com it redirects (302) to `https://www.espncricinfo.com/ci/content/player/<id>.html`, part of the player's profile on www, which scripts can't fetch (R1).
+- **Same IDs:** Statsguru and the www profile pages use the same player ID. For example, 348144 is Babar Azam on Statsguru and in `https://www.cricinfo.com/cricketers/babar-azam-348144`.
 
 ## 7. Player search
-- `https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=kohli;template=analysis` returned 9 people.
-- Each row has a short name, full name and country code, then one entry per format with its span and match count. Each entry links to `/ci/engine/player/<id>.html?class=<class>;type=allround`.
-- Example row: "V Kohli (Virat Kohli) IND", with "Test matches player (2011 - 2024/25, 123 matches)", "One-Day Internationals player (2008 - 2026/27, 317 matches)", "Twenty20 Internationals player (2010 - 2024, 125 matches)", "Combined Test, ODI and T20I player (2008 - 2026/27)" and "Under-19s Youth Test matches player (2006 - 2007/08, …)".
-- Results mix men, women, youth players and officials with the same surname (for example A Kohli, Germany, women's T20Is; PS Kohli, India, Twenty20; entries ending "official"). Name lookups must filter by class, and ideally by country.
+- `https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=babar;template=analysis` returned 15 people.
+- Each row has the player's name (with the full name in brackets when the name uses initials) and country code, then one entry per format with its span and match count. Each entry links to `/ci/engine/player/<id>.html?class=<class>;type=allround`.
+- Example row: "Babar Azam PAK", with "Test matches player (2016/17 - 2026, 66 matches)", "One-Day Internationals player (2015 - 2026, 143 matches)", "Twenty20 Internationals player (2016 - 2025/26, 145 matches)", "Combined Test, ODI and T20I player (2015 - 2026)", "Under-19s Youth One-Day Internationals player (2009/10 - 2012, 36 matches)", "Under-19s Youth Twenty20 Internationals player (2009/10, 1 match)" and "Twenty20 matches player (2012/13 - 2026, 359 matches)".
+- Results mix international, domestic-only and youth players who share a name, for example Babar Hayat (Hong Kong), Muhammad Babar (Spain) and Zulfiqar Babar (Pakistan). Country codes can be combined ("BHM/PAK"), and other searches also return women and officials. Name lookups must filter by class, and ideally by country.
 
 ## 8. Results pages
 - **Batting columns (overall view):**
-  - ODIs and T20Is: Player, Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0
+  - ODIs: Player, Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0
+  - T20Is: the ODI columns plus 4s and 6s
   - Tests: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
-- **Player cell:** "Name (COUNTRY)", for example "V Kohli (IND)". T20I lists include players from associate nations (for example QAT and JPN).
-- **Sort caption:** for example "Ordered by runs scored (descending)".
+- **Bowling columns (overall view):**
+  - Tests: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, BBM, Ave, Econ, SR, 5, 10
+  - ODIs: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5
+  - T20Is: Player, Span, Mat, Inns, Overs, Mdns, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5 (overs such as "449.5", not balls)
+- **Bowling decimals:** averages and economy rates (2 decimals) and strike rates (1 decimal) are truncated like batting figures. In all 334 cases on three pages where truncating and rounding differ, the page showed the truncated value.
+- **Player cell:** "Name (COUNTRY)", for example "Babar Azam (PAK)". Players who represented several teams list them all, for example "Rashid Khan (AFG/ICC)". T20I lists include players from associate nations (for example QAT and JPN).
+- **Sort caption:** for example "Ordered by runs scored (descending)" or "Ordered by wickets taken (descending)".
+- **No results:** the table has one row reading "No records available to match this query".
 - **Freshness note:** each results page says "Statsguru includes the following current or recent <format> matches:", followed by match names, dates and links (`/ci/engine/match/<id>.html`, labelled like "Test # 2635").
 
 ## 9. Records section (first-class and List A)
-- Statsguru's query engine returned 503 for `class=4` and `class=5` (two requests 16 s apart), while `class=6` returned 200 at the same time.
-- `https://stats.cricinfo.com/ci/engine/records/index.html` returned 200 and links classes 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 16, 20, 21 and 23. Labels include "First-class matches", "List A matches", "Twenty20 matches" and "Combined First-class, List A and Twenty20".
+- Statsguru's query engine returned 503 for `class=4` and `class=5` (two requests 16 s apart), while `class=6` returned 200 at the same time. On 4 Oct a `class=4` results query returned 400 with an error page ("This page does not exist or has been moved"), so the query engine doesn't serve first-class or List A figures.
+- `https://stats.cricinfo.com/ci/engine/records/index.html` returned 200 and links classes 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 16, 20, 21 and 23 (labels in R3).
 - `records/index.html?class=4` (title "Records | First-class matches | Cricinfo.com") returned 200. It links fixed record lists at `/ci/content/records/<id>.html` and team records at `/ci/engine/records/index.html?category=2;class=4`.
-- Fetching `/ci/content/records/251072.html` returned 503, so these pages may not be reachable. The List A index wasn't fetched.
+- `/ci/content/records/251072.html` returned 503 on 3 Oct but 200 on 4 Oct, so record lists are reachable. It's a table headed Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, led by JB Hobbs (1905–1934) with 199 hundreds.
+- The List A index (`records/index.html?class=5`) links 40 record lists, for example 282830 Most runs in career and 117937 Highest innings totals.
 
 First-class record lists (the page had 44 such links; these were captured):
 
@@ -252,40 +374,61 @@ First-class record lists (the page had 44 such links; these were captured):
 | 283308 | Worst career bowling average |
 | 283847 | Worst career bowling average (without qualification) |
 
-The Statsguru header links league record pages on www.cricinfo.com (blocked to scripts) with numeric IDs in the path: IPL 117, BBL 158, PSL 205, CPL 748, SA20 987, ILT20 946, LPL 865, MLC 985, BPL 159, the Blast (`twenty20-cup-england`) 113, The Hundred (men's) 826, men's T20 World Cup 89, World Cup 12, Champions Trophy 44 and Under-19 World Cup 109. Women's: T20 World Cup 136, World Cup 68, WBBL 720, WPL 988 and The Hundred 834. **(unverified)** These may be the same IDs as Statsguru's `trophy` filter values.
+The Statsguru header links league record pages on www.cricinfo.com (blocked to scripts) with numeric IDs in the path, for example IPL 117, PSL 205 and World Cup 12. For the men's competitions checked against the class 2, 3 and 6 forms, these are the same as Statsguru's `trophy` values (R4).
 
 ## 10. Example data snapshot
 Useful for tests and as known answers.
 
-**ODI batters with at least 10 hundreds:** 64 players on one page.
+**ODI batters with at least 10 hundreds:** 64 players on one page. Babar Azam is 17th:
 `https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;orderby=hundreds;qualmin1=10;qualval1=hundreds;size=200;template=results;type=batting`
 
 | Player | Span | Mat | Inns | NO | Runs | HS | Ave | BF | SR | 100 | 50 | 0 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| V Kohli (IND) | 2008-2026 | 317 | 304 | 48 | 15109 | 183 | 59.01 | 16010 | 94.37 | 55 | 79 | 18 |
-| SR Tendulkar (IND) | 1989-2012 | 463 | 452 | 41 | 18426 | 200* | 44.83 | 21368 | 86.23 | 49 | 96 | 20 |
-| RG Sharma (IND) | 2007-2026 | 291 | 282 | 37 | 12028 | 264 | 49.09 | 12894 | 93.28 | 35 | 62 | 16 |
+| Babar Azam (PAK) | 2015-2026 | 143 | 140 | 16 | 6626 | 158 | 53.43 | 7652 | 86.59 | 20 | 38 | 5 |
 
-**Virat Kohli (ID 253802), T20I batting career:** 2010–2024, 125 matches, 117 innings, 31 not outs, 4188 runs, highest 122*, average 48.69, 3056 balls, strike rate 137.04, 1 hundred, 38 fifties, 7 ducks, 369 fours and 124 sixes. His innings list has 125 rows, from 12 Jun 2010 to 29 Jun 2024.
-- Career: `https://stats.cricinfo.com/ci/engine/player/253802.html?class=3;template=results;type=batting`
+For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
+
+**Batters with at least 1 hundred** (the loosest form of golden questions 1 and 2), fetched 3 Oct 2026:
+- ODIs: 520 players, 3 pages of 200. `https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;orderby=hundreds;qualmin1=1;qualval1=hundreds;size=200;template=results;type=batting`
+- Tests: 850 players, 5 pages of 200. The same query with `class=1`, plus `page=2` and so on for later pages. Rank 200 has 7 hundreds and rank 400 has 3, so a minimum of 4 hundreds fits in 2 pages.
+
+**Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
+- Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`
 - Innings: the same URL plus `;view=innings`
+- 2020–2021 only (`spanmin1=01+Jan+2020;spanmax1=31+Dec+2021;spanval1=span`): 37 matches, 32 innings, 2 not outs, 1215 runs, average 40.5, strike rate 131.06.
 
-**T20I batters with at least 1,000 runs between 12 Jun 2010 and 29 Jun 2024:** 149 players.
-`https://stats.cricinfo.com/ci/engine/stats/index.html?class=3;orderby=batting_average;qualmin1=1000;qualval1=runs;size=200;spanmax1=29+Jun+2024;spanmin1=12+Jun+2010;spanval1=span;template=results;type=batting`
+**T20I batters with at least 1,000 runs between 07 Sep 2016 and 24 Feb 2026 (Babar Azam's span):** 182 players on one page. Babar Azam is 11th by average.
+`https://stats.cricinfo.com/ci/engine/stats/index.html?class=3;orderby=batting_average;qualmin1=1000;qualval1=runs;size=200;spanmax1=24+Feb+2026;spanmin1=07+Sep+2016;spanval1=span;template=results;type=batting`
 
-| Player | Runs | Ave | SR |
-|---|---|---|---|
-| Mohammad Rizwan (PAK) | 3313 | 48.72 | 126.45 |
-| V Kohli (IND) | 4188 | 48.69 | 137.04 |
-| JP Duminy (SA) | 1478 | 47.67 | 127.52 |
-| Muhammad Tanveer (QAT) | 1499 | 45.42 | 138.02 |
-| MS Dhoni (IND) | 1176 | 45.23 | 132.28 |
-| K Kadowaki-Fleming (JPN) | 1089 | 43.56 | 156.91 |
-| SA Yadav (IND) | 2340 | 43.33 | 167.74 |
-| Babar Azam (PAK) | 4145 | 41.03 | 129.08 |
+**The same query, also requiring average ≥ 38.94 and strike rate ≥ 128.02** (golden question 3), returned 7 rows: Babar Azam and the 6 batters who beat him on both.
+`https://stats.cricinfo.com/ci/engine/stats/index.html?class=3;orderby=batting_average;qualmin1=1000;qualmin2=38.94;qualmin3=128.02;qualval1=runs;qualval2=batting_average;qualval3=batting_strike_rate;size=200;spanmax1=24+Feb+2026;spanmin1=07+Sep+2016;spanval1=span;template=results;type=batting`
 
-**The same query, also requiring average ≥ 48.69 and strike rate ≥ 137.04,** returned 1 row (Kohli himself), so nobody beat him on both:
-`https://stats.cricinfo.com/ci/engine/stats/index.html?class=3;orderby=batting_average;qualmin1=1000;qualmin2=48.69;qualmin3=137.04;qualval1=runs;qualval2=batting_average;qualval3=batting_strike_rate;size=200;spanmax1=29+Jun+2024;spanmin1=12+Jun+2010;spanval1=span;template=results;type=batting`
+| Player | Span | Runs | Ave | SR |
+|---|---|---|---|---|
+| Karanbir Singh (AUT) | 2024-2025 | 1721 | 47.8 | 169.22 |
+| NT Tilak Varma (IND) | 2023-2026 | 1290 | 44.48 | 141.6 |
+| V Kohli (IND) | 2017-2024 | 2531 | 44.4 | 138.07 |
+| DA Warner (AUS) | 2016-2024 | 1616 | 41.43 | 144.8 |
+| K Kadowaki-Fleming (JPN) | 2022-2025 | 1669 | 40.7 | 145.13 |
+| Muhammad Tanveer (QAT) | 2019-2025 | 1980 | 39.6 | 133.42 |
+| Babar Azam (PAK) | 2016-2026 | 4596 | 38.94 | 128.02 |
+
+**Babar Azam in ODI World Cups** (golden question 5): his ODI page with `trophy=12` shows 17 matches (2019–2023), 17 innings, 2 not outs, 794 runs, highest 101*, average 52.93, strike rate 85.74, 1 hundred and 7 fifties.
+`https://stats.cricinfo.com/ci/engine/player/348144.html?class=2;template=results;trophy=12;type=batting`
+
+**T20I bowlers with at least 50 wickets:** 236 players, 2 pages of 200.
+`https://stats.cricinfo.com/ci/engine/stats/index.html?class=3;orderby=wickets;qualmin1=50;qualval1=wickets;size=200;template=results;type=bowling`
+
+| Player | Span | Mat | Overs | Runs | Wkts | BBI | Ave | Econ | SR |
+|---|---|---|---|---|---|---|---|---|---|
+| Rashid Khan (AFG/ICC) | 2015-2026 | 118 | 449.5 | 2763 | 197 | 5/3 | 14.02 | 6.14 | 13.7 |
+| AU Rashid (ENG) | 2009-2026 | 153 | 529.4 | 4006 | 171 | 4/2 | 23.42 | 7.56 | 18.5 |
+| IS Sodhi (NZ) | 2014-2026 | 142 | 465.2 | 3798 | 165 | 4/12 | 23.01 | 8.16 | 16.9 |
+
+**Shaheen Shah Afridi (ID 1072470), T20I bowling career:** 2018–2026, 103 matches, 103 innings, 370.3 overs, 3 maidens, 2904 runs, 136 wickets, best 4/22, average 21.35, economy 7.83, strike rate 16.3, three four-wicket innings and no five-wicket innings. His innings list has 103 rows, starting 3 Apr 2018 (v West Indies, Karachi).
+`https://stats.cricinfo.com/ci/engine/player/1072470.html?class=3;template=results;type=bowling;view=innings`
+
+**Most wickets:** in Tests, M Muralidaran 800, SK Warne 708 and JM Anderson 704; in ODIs, M Muralidaran 534, Wasim Akram 502 and Waqar Younis 416.
 
 **Most Test runs (top 3):**
 
@@ -409,8 +552,22 @@ Plain git URLs can't be listed.
 - **Support (search summary):** Claude, GitHub Copilot, OpenAI Codex, Cursor, Gemini CLI and others.
 - **Copilot:** loads project skills from `.github/skills`, `.claude/skills` or `.agents/skills`, and personal skills from `~/.copilot/skills` or `~/.agents/skills`. `gh skill` installs skills from GitHub repositories.
 
-## 15. Library versions and development environment
-Latest versions on PyPI, 3 Oct 2026:
+## 15. Versions and development environment
+Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md refers to this section instead of repeating them.
+
+**Runtimes, tools and images:**
+
+| Component | Version |
+|---|---|
+| Python | 3.14.8 (3.15 is still a release candidate) |
+| uv | 0.12.23 |
+| MCP specification | 2026-07-28 |
+| Docker Engine | 29.8.2 |
+| Docker base image | `python:3.14.8-slim-trixie` |
+| GitHub Actions | `actions/checkout` v7, `astral-sh/setup-uv` v10, `docker/setup-qemu-action` v4, `docker/setup-buildx-action` v4, `docker/login-action` v4, `docker/metadata-action` v6, `docker/build-push-action` v7 |
+| CI runners | `ubuntu-latest`, `windows-latest` |
+
+**Python packages (PyPI):** crickey uses mcp (with the `cli` extra), httpx, lxml, pydantic, pandas, rapidfuzz and uvicorn, plus pytest, respx and ruff for development (D21). The others were alternatives considered.
 
 | Package | Version | Released | Notes |
 |---|---|---|---|
@@ -427,18 +584,22 @@ Latest versions on PyPI, 3 Oct 2026:
 | hishel | 1.4.0 | 2026-09-16 | |
 | respx | 0.23.1 | 2026-04-08 | |
 | pytest | 9.1.1 | 2026-06-19 | |
+| uvicorn | 0.54.0 | | |
+| ruff | 0.16.10 | | |
 
 Development machine: Windows with Python 3.14.6, uv 0.11.21, Node.js 24.21.0, Docker 29.5.2, git 2.55.0, gh 2.101.0 and curl 8.21.0.
 
 ## 16. Open questions
 To check while building:
-- Does httpx get 200 when it sends curl's User-Agent string?
-- Which parameter selects results pages after the first?
-- Which URL parameters do "match involving players" and "match involving captains" produce?
-- How many decimal places does `qualmin` accept? (Needed for strict comparisons.)
-- What are the minimum and sort options for the bowling, fielding, all-round, partnership, team and aggregate forms?
-- What are the team IDs for class 6 (domestic and franchise teams) and the other classes?
-- Are the league IDs on www.cricinfo.com the same as Statsguru's `trophy` values?
-- Do date ranges work in player-page URLs? (The form has them.)
-- Are the 503 responses for first-class and List A permanent, and can `/ci/content/records/<id>.html` pages be fetched?
-- Which class numbers are "Combined First-class, List A and Twenty20" and classes 13 and 16?
+- Does `https://www.espncricinfo.com/ci/content/player/<id>.html` open the player's profile in a browser? Scripts get 403, so check by hand.
+- How do `player_involve` IDs relate to player-page IDs (Babar Azam: 56880 and 348144)? Until that's known, each lookup needs the form's name search (R4).
+
+**Answered on 4 Oct 2026** (details in the sections shown):
+- httpx sending curl's User-Agent string gets 200 (R1).
+- "Match involving players" and "Match involving captains" produce `player_involve` and `captain_involve`, with their own player IDs (R4).
+- `qualmin` is compared with exact values, to at least 4 decimals (R2).
+- Type-specific fields for every stat type (R4), and their minimum and sort options (R5).
+- Team and trophy lists for classes 2, 3, 6 and 11, and the ODI World Cup's `trophy` value, 12 (R4). The league IDs in www URLs are the same as `trophy` values (R9).
+- Player pages accept date ranges and `trophy` (R6).
+- The query engine still refuses first-class queries (400 on 4 Oct), but record list pages load (R9).
+- Classes 12, 13 and 16 (R3).
