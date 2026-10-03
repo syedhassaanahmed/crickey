@@ -570,7 +570,7 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 
 | Package | Version | Released | Notes |
 |---|---|---|---|
-| mcp | 2.3.0 | 2026-10-02 | Python 3.10+. Versions 2.1.0 and later support spec 2026-07-28; the 1.x line continues (1.30.0). |
+| mcp | 2.2.0 | 2026-09-18 | Python 3.10+. Versions 2.1.0 and later support spec 2026-07-28; the 1.x line continues (1.30.0). |
 | fastmcp | 4.0.10 | 2026-09-25 | |
 | httpx | 0.28.1 | 2024-12-06 | |
 | lxml | 6.1.3 | 2026-09-02 | |
@@ -584,7 +584,7 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | respx | 0.23.1 | 2026-04-08 | |
 | pytest | 9.1.1 | 2026-06-19 | |
 | uvicorn | 0.54.0 | | |
-| ruff | 0.16.10 | | |
+| ruff | 0.16.9 | | |
 
 Development machine: Windows with Python 3.14.6, uv 0.11.21, Node.js 24.21.0, Docker 29.5.2, git 2.55.0, gh 2.101.0 and curl 8.21.0.
 

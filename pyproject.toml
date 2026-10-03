@@ -1,0 +1,46 @@
+[project]
+name = "crickey"
+version = "0.1.0"
+description = "An MCP server for answering Cricinfo Statsguru cricket statistics questions."
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+license = "MIT"
+authors = [
+  { name = "Hassaan Ahmed" },
+]
+dependencies = [
+  "mcp[cli]>=2.2.0,<3",
+  "httpx>=0.28.1,<1",
+  "lxml>=6.1.3,<7",
+  "pydantic>=2.13.5,<3",
+  "pandas>=3.0.6,<4",
+  "rapidfuzz>=3.14.6,<4",
+  "uvicorn>=0.54.0,<1",
+]
+
+[project.scripts]
+crickey = "crickey.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=9.1.1,<10",
+  "respx>=0.23.1,<1",
+  "ruff>=0.16.9,<1",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.0,<1"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+addopts = ["-m", "not live"]
+markers = [
+  "live: tests that reach Cricinfo and must be run explicitly",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "UP"]
