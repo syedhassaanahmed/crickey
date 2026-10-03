@@ -17,7 +17,7 @@ This plan says how to build crickey to meet the goal. It refers to decisions and
 
 ## Versions
 R15 lists the versions to use (D22).
-- `pyproject.toml` sets `requires-python` to R15's Python minor version and, for each dependency, a lower bound at its R15 version and an upper bound below its next major version.
+- `pyproject.toml` sets `requires-python` to R15's Python minor version and, for each dependency, a lower bound at its R15 version (with D22's exception) and an upper bound below its next major version.
 - Actions are pinned to the commit SHAs of R15's releases.
 
 ## Architecture
