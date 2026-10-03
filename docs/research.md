@@ -4,7 +4,7 @@ Everything learned while planning crickey, so it doesn't need to be redone. Unle
 - **(search summary)** marks facts from a web-search summary rather than the primary page.
 - **(unverified)** marks facts seen in other people's code that we haven't tested.
 
-Pages fetched during research aren't committed to this repo.
+[plan.md](plan.md) has the goal, the golden questions and how crickey is built, and [decisions.md](decisions.md) records what was decided from these facts (D1–D26).
 
 ## Contents
 1. Access and robots.txt
@@ -499,7 +499,7 @@ Searched: GitHub repositories and code, the official MCP Registry, Glama, mcp.so
 - **stdio:** `mcp.run()` defaults to stdio. stdout carries the protocol, so logs must go to stderr.
 - **Streamable HTTP:**
   - `mcp.run(transport="streamable-http")` listens on `127.0.0.1:8000` at path `/mcp` (`streamable_http_path`). Transport options go to `run()`, not the constructor.
-  - `json_response=True` returns plain JSON and drops progress notifications, so keep the default (SSE) to send progress.
+  - `json_response=True` returns plain JSON and drops progress notifications; the default streams SSE, which carries them.
   - `stateless_http` only affects clients older than 2026-07-28; newer requests have no session anyway.
   - `mcp.streamable_http_app()` returns a Starlette app for uvicorn. `@mcp.custom_route("/health", methods=["GET"])` adds plain routes, which are never authenticated.
 - **DNS-rebinding protection** is on by default:
@@ -524,7 +524,7 @@ Searched: GitHub repositories and code, the official MCP Registry, Glama, mcp.so
 - Servers can be installed from the `@mcp` gallery in the Extensions view or with "MCP: Add Server", set up in dev containers through `customizations.vscode.mcp`, and reused from Claude Desktop's configuration (`chat.mcp.discovery.enabled`).
 
 ## 14. Distribution options
-Researched before choosing Docker-only sharing.
+Researched before D24 was decided.
 
 | Option | How users install | Notes |
 |---|---|---|
@@ -534,7 +534,7 @@ Researched before choosing Docker-only sharing.
 | MCP Bundle (`.mcpb`) | Download and double-click | A zip with a `manifest.json`, built with `mcpb init` and `mcpb pack` (`npm install -g @anthropic-ai/mcpb`). Manifest 0.4 adds `server.type: "uv"`, where the host app manages Python and dependencies (plain Python bundles can't ship compiled packages such as pydantic). `user_config` fields appear as an install form. Mainly for Claude Desktop; the docs recommend Node.js for the fewest dependencies. |
 | Copilot plugins | `copilot plugin install`, `/plugin install` or `enabledPlugins` | Agent Plugins 1.0: `plugin.json` with `$schema` `https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`, `mcp.json` and `skills/` at the root, and Copilot-only parts under `com.github.copilot/`. |
 | One-click install links | Buttons in a README | VS Code and Cursor. |
-| Hosted remote server | Add a URL | Works with web chat apps, but means public hosting (ruled out). |
+| Hosted remote server | Add a URL | Works with web chat apps, but needs public hosting. |
 
 **MCP Registry** (in preview) lists `server.json` entries that point to packages, with ownership checks per package type:
 - npm (registry.npmjs.org only): `mcpName` in `package.json`.
@@ -565,9 +565,8 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | Docker Engine | 29.8.2 |
 | Docker base image | `python:3.14.8-slim-trixie` |
 | GitHub Actions | `actions/checkout` v7, `astral-sh/setup-uv` v10, `docker/setup-qemu-action` v4, `docker/setup-buildx-action` v4, `docker/login-action` v4, `docker/metadata-action` v6, `docker/build-push-action` v7 |
-| CI runners | `ubuntu-latest`, `windows-latest` |
 
-**Python packages (PyPI):** crickey uses mcp (with the `cli` extra), httpx, lxml, pydantic, pandas, rapidfuzz and uvicorn, plus pytest, respx and ruff for development (D21). The others were alternatives considered.
+**Python packages (PyPI):** D21 says which ones crickey uses; the rest were alternatives considered.
 
 | Package | Version | Released | Notes |
 |---|---|---|---|
