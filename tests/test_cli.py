@@ -29,7 +29,9 @@ def test_plain_command_behaves_like_serve(capsys: pytest.CaptureFixture[str]) ->
 
 def test_stdio_placeholder_mentions_issue(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["stdio"]) == 1
-    assert "#10" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "crickey stdio" in error
+    assert "#10" in error
 
 
 def test_package_version_is_exposed() -> None:
