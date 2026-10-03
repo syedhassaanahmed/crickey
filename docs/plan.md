@@ -103,9 +103,12 @@ The proof-link builder implements D16, and the answer renderer D17.
 ## Fetcher
 Implements D7–D12 and D17.
 - **Client:** httpx, with the User-Agent from D12.
-- **State per process, in memory:** the rate limiter, retry state and block pause.
-- **Cache:** compressed, in memory, keyed by standard URL, with the settled, recent and lookup rules and the size cap.
-- **Requests:** the page cap (D10), and progress notifications while waiting.
+- **State per process, in memory:** the rate limiter, retry state, block pause and unavailable URLs.
+- **Cache:** compressed, in memory, keyed by standard URL, with D17's freshness rules and size cap. Player search and form pages are lookups: they're kept for the life of the process and refetched once when a lookup misses.
+- **Retries (D11):** a tool call stops retrying when the next attempt wouldn't fit in its time budget, which stays below the client timeout (300 s in the README's setup). `Retry-After` sets a "not before" time; if that's past the budget, the call fails at once with "try again after HH:MM".
+- **Unavailable URLs:** a URL that returns 400 or 404 isn't requested again by the same process.
+- **Block pause (D11):** while paused, calls that need Cricinfo fail at once with "paused until HH:MM", and cached pages still work. The test request after a pause comes from the next tool call that needs Cricinfo, never from the background.
+- **Requests:** the page cap (D10), checked against the total on the first page (R2), and progress notifications while waiting.
 - **Tests:** a test-only hook serves synthetic pages instead of the network.
 - **Settings** (environment variables, or matching flags): `CRICKEY_MIN_INTERVAL`, `CRICKEY_MAX_RETRIES`, `CRICKEY_BLOCK_PAUSES`, `CRICKEY_MAX_PAGES`, `CRICKEY_CACHE_MAX_MB`, `CRICKEY_RECENT_TTL`, `CRICKEY_PORT` and `CRICKEY_IN_CONTAINER`.
 
@@ -154,38 +157,8 @@ The README covers:
 - why requests are slow (D9), that the cache resets when the container stops (D19), and that one container should serve all your clients (D20);
 - one line on `stdio` for debugging.
 
-## Todos (tracked in SQL)
-1. **`project-setup`**: the git repo already exists with these docs and is public on GitHub.
-   - Update local uv and install Python with it, at R15's versions.
-   - Create a uv project with package `crickey`, dependencies at R15's versions, and the subcommands `serve` (the default) and `stdio` (for debugging).
-   - Add an MIT LICENSE, a `.gitignore` (including `uv.lock`) and a README draft with the disclaimer. Don't commit an index URL (D23).
-2. **`config-policy`**: settings as D19 describes, with validation.
-3. **`polite-fetcher`**: the fetcher described above, tested with respx and a fake clock. It includes an opt-in live smoke test that httpx sending curl's User-Agent string still gets 200 (R1).
-4. **`results-parsers`**: parsers for results tables (generic across stat types), the "current or recent matches" note, player pages (summary and innings list), player search and form pages (R6–R8). Includes column converters, exact batting columns and detection of HTML structure changes. Fixtures are synthetic (D25).
-5. **`id-tables`**: the generator script, the committed tables, and on-demand lookups for grounds, series and the `player_involve`/`captain_involve` IDs, which come from the form's name search (R4).
-6. **`query-spec-urls`**: the Pydantic query spec covering Statsguru's basic and advanced fields (R4) for every stat type (D5) and format (D3), plus periods; and the standard-URL compiler with plain-English labels. Golden URL tests use the Babar Azam URLs in R10.
-7. **`metric-registry`**: batting metric definitions, the name resolver, the period resolver (career span; first or last N years of a career), the proof-link builder and the answer renderer with the freshness line and profile links.
-8. **`mcp-server-core`**: `MCPServer` with `find_player` and `query_stats`, server instructions, read-only annotations and progress notifications.
-9. **`answer-tools`**: `leaderboard`, `better_than_player` and `player_record`, for batting.
-10. **`http-transport`**: `crickey serve` and `crickey stdio` as described above. Tests for 421 (wrong Host) and 403 (bad Origin) (R12), loopback-only binding natively, binding in container mode, and progress over SSE.
-11. **`stat-type-coverage`**: `query_stats` builds valid URLs and parses tables for every stat type (D5) and format (D3), with synthetic fixtures and one opt-in live query per type.
-12. **`integration-tests`**: `mcp.Client` over HTTP and stdio using the synthetic-page hook, covering every tool and error path, plus a check that nothing is written to disk. Live tests are opt-in.
-13. **`docker-image`**: the Dockerfile, `.dockerignore`, the build-secret index override, and a smoke-test script that runs with `--read-only`. Build it and run it locally in HTTP mode, and check stdio for debugging.
-14. **`ci-pipeline`**: `ci.yml` and `release.yml` as described above.
-15. **`readme`**: the README as described above.
-16. **`sharing-release`**: tag `v0.1.0`, confirm both architectures are published, switch the GHCR package to public, and pull and run the image on a machine without the source.
-17. **`copilot-cli-setup`**: `crickey serve`, then `copilot mcp add --transport http --timeout 300000 crickey http://127.0.0.1:8765/mcp`, checked with `/mcp`.
-18. **`golden-questions`**: the five golden questions in the goal, with a strong and a small model.
-    - Check the answers using the proof links, record them as regression tests, and run them once through the Docker image.
-    - Any question the tools can't answer well is a candidate for the next tool.
-
-**Dependencies:**
-- setup → config → fetcher → {parsers, ID tables}
-- {parsers, ID tables} → spec and URLs → metric registry → server core
-- server core → {answer tools, HTTP transport, stat-type coverage}
-- {answer tools, HTTP transport, stat-type coverage} → integration tests → Docker image → {CI pipeline, README} → sharing release
-- HTTP transport → Copilot CLI setup
-- {Copilot CLI setup, integration tests, Docker image} → golden questions
+## Work items
+The work is split into [GitHub issues #1–#18](https://github.com/syedhassaanahmed/crickey/issues), one per session. Each is a user story with acceptance criteria and "blocked by" links. Issues labelled `needs-owner` include steps only the owner can do. [AGENTS.md](../AGENTS.md) explains how a session picks and finishes one.
 
 ## Testing
 - **Unit tests:**
@@ -193,7 +166,7 @@ The README covers:
   - Built-in ID tables: their format, lookups, and the fallback to form pages.
   - Exact columns and metric formulas, including ties and truncated display values.
   - Name resolution and clarification, and the period resolver (career span; first or last N years).
-  - The fetcher: rate limiter, page cap, retries (`Retry-After`, jitter limits, time budget), pauses after a block, memory of failing URLs, the cache size cap and the freshness rules.
+  - The fetcher: rate limiter, page cap, retries (`Retry-After`, jitter limits, time budget), pauses after a block, unavailable URLs, the cache size cap and the freshness rules.
 - **Answer tools:** each one against synthetic pages, with expected answers and proof links.
 - **HTTP tests:** Host and Origin checks (localhost on any port), loopback-only binding natively, binding in container mode, and SSE progress.
 - **End to end:** tests over HTTP and stdio using the synthetic-page hook, a check that no files are written, and the `--read-only` container smoke test. CI runs on Ubuntu and Windows. Live smoke tests run only when explicitly enabled.
