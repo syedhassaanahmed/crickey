@@ -15,7 +15,7 @@ def _serve(_args: argparse.Namespace) -> int:
 
 def _stdio(_args: argparse.Namespace) -> int:
     print(
-        "crickey stdio is a placeholder; the MCP stdio server will be implemented in issue #8.",
+        "crickey stdio is a placeholder; the stdio transport will be implemented in issue #10.",
         file=sys.stderr,
     )
     return 1

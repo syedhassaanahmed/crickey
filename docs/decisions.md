@@ -50,6 +50,7 @@ Key decisions for crickey, as of 3 October 2026. Each one says what was decided 
     - No authentication: binding to localhost plus the SDK's Host and Origin checks (R12) keeps web pages out.
 21. **Stack.** Python with uv and the MCP Python SDK (`mcp[cli]`); httpx, lxml, pydantic, pandas, rapidfuzz and uvicorn, with pytest, respx and ruff for development.
 22. **Latest stable versions.** Use the latest stable releases of Python, uv, the SDK and libraries, the Docker base image and GitHub Actions; R15 lists them. Pre-releases aren't used.
+    - Exception: the `mcp` and `ruff` lower bounds are one release below R15 (2.2.0 and 0.16.9), so crickey also installs from package indexes that don't have the newest release yet. mcp 2.2.0 already supports the 2026-07-28 spec (R15), and without a committed `uv.lock`, uv still picks the newest release available.
 23. **Package index.** Public PyPI by default. No index URL is committed, so each machine can point uv or pip at another index, including for local image builds. `uv.lock` isn't committed.
 
 ## Sharing
