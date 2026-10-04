@@ -130,7 +130,7 @@ Implements D7–D12 and D17.
 ## Docker image
 - **Image:** `ghcr.io/<you>/crickey` for the architectures in D24, tagged `<version>`, `<major>.<minor>` and `latest`.
 - **Dockerfile:** multi-stage.
-  - The build stage uses uv to install crickey and its dependencies into a virtual environment and precompiles bytecode. The package index follows D23; local builds can override it through a BuildKit secret named `uv_index_url`, mounted only as `UV_DEFAULT_INDEX` for the install step.
+  - The build stage uses uv to install crickey and its dependencies into a virtual environment and precompiles bytecode. The package index follows D23; local builds can override it through a BuildKit secret named `uv_index_url`.
   - The final stage is R15's slim Python base image with only that environment, running as a non-root user.
   - `ENTRYPOINT ["crickey"]`, default command `serve`, `CRICKEY_IN_CONTAINER=1` and `PYTHONDONTWRITEBYTECODE=1`. No `VOLUME`.
   - OCI labels for the source repo, a description with the disclaimer (D6) and the licence (D25).

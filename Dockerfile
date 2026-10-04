@@ -13,7 +13,9 @@ ENV UV_COMPILE_BYTECODE=1 \
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 RUN --mount=type=secret,id=uv_index_url,env=UV_DEFAULT_INDEX,required=false \
-    uv sync --no-dev --no-editable
+    --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --no-editable \
+    && rm -f uv.lock
 
 FROM python:3.14.8-slim-trixie AS final
 
@@ -29,7 +31,7 @@ RUN groupadd --gid 10001 crickey \
     && useradd --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin --no-create-home crickey
 
 WORKDIR /app
-COPY --from=build --chown=10001:10001 /app/.venv /app/.venv
+COPY --from=build /app/.venv /app/.venv
 
 USER 10001:10001
 EXPOSE 8765
