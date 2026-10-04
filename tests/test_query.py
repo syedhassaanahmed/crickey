@@ -54,6 +54,149 @@ FIRST_MATCH_DATES = {
     11: "15 Mar 1877",
 }
 
+R5_OVERALL_QUAL_FIELDS = {
+    "batting": {
+        "matches",
+        "innings",
+        "notouts",
+        "outs",
+        "runs",
+        "minutes",
+        "balls_faced",
+        "batting_average",
+        "batting_strike_rate",
+        "hundreds",
+        "fifty_plus",
+        "ducks",
+        "fours",
+        "sixes",
+    },
+    "bowling": {
+        "matches",
+        "innings_bowled",
+        "balls",
+        "overs",
+        "maidens",
+        "conceded",
+        "wickets",
+        "bowling_average",
+        "economy_rate",
+        "bowling_strike_rate",
+        "four_plus_wickets",
+        "five_wickets",
+        "ten_wickets",
+    },
+    "fielding": {
+        "matches",
+        "matches_keeper",
+        "matches_fielder",
+        "innings_fielded",
+        "dismissals",
+        "caught",
+        "stumped",
+        "caught_keeper",
+        "caught_fielder",
+        "dismissals_per_inns",
+    },
+    "allround": {
+        "matches",
+        "innings",
+        "notouts",
+        "outs",
+        "runs",
+        "minutes",
+        "balls_faced",
+        "batting_average",
+        "batting_strike_rate",
+        "hundreds",
+        "fifty_plus",
+        "ducks",
+        "fours",
+        "sixes",
+        "innings_bowled",
+        "balls",
+        "maidens",
+        "conceded",
+        "wickets",
+        "bowling_average",
+        "economy_rate",
+        "bowling_strike_rate",
+        "four_plus_wickets",
+        "five_wickets",
+        "ten_wickets",
+        "matches_keeper",
+        "matches_fielder",
+        "innings_fielded",
+        "dismissals",
+        "caught",
+        "stumped",
+        "caught_keeper",
+        "caught_fielder",
+        "dismissals_per_inns",
+        "allround_average",
+    },
+    "fow": {
+        "fow_innings",
+        "fow_notouts",
+        "fow_outs",
+        "fow_runs",
+        "fow_average",
+        "fow_balls_faced",
+        "fow_run_rate",
+        "fow_hundreds",
+        "fow_fifty_plus",
+    },
+    "team": {
+        "matches",
+        "won",
+        "lost",
+        "tied",
+        "drawn",
+        "no_result",
+        "win_loss_ratio",
+        "percentage_won",
+        "percentage_lost",
+        "percentage_drawn",
+        "percentage_tied",
+        "percentage_no_result",
+        "runs",
+        "wickets",
+        "balls",
+        "team_average",
+        "runs_per_over",
+        "team_innings",
+        "team_high_score",
+        "team_low_score",
+    },
+    "aggregate": {
+        "matches",
+        "won",
+        "tied",
+        "drawn",
+        "no_result",
+        "percentage_won",
+        "percentage_lost",
+        "percentage_drawn",
+        "percentage_tied",
+        "percentage_no_result",
+        "runs",
+        "wickets",
+        "balls",
+        "team_average",
+        "runs_per_over",
+    },
+}
+R5_OVERALL_SORT_FIELDS = {
+    "batting": R5_OVERALL_QUAL_FIELDS["batting"] | {"player", "start", "high_score"},
+    "bowling": R5_OVERALL_QUAL_FIELDS["bowling"] | {"player", "start", "bbi", "bbm"},
+    "fielding": R5_OVERALL_QUAL_FIELDS["fielding"] | {"player", "start", "age", "max_dismissals"},
+    "allround": R5_OVERALL_QUAL_FIELDS["allround"]
+    | {"player", "start", "high_score", "bbi", "bbm", "max_dismissals"},
+    "fow": R5_OVERALL_QUAL_FIELDS["fow"] | {"partners", "start", "fow_high_score"},
+    "team": R5_OVERALL_QUAL_FIELDS["team"] | {"team", "start"},
+    "aggregate": R5_OVERALL_QUAL_FIELDS["aggregate"] | {"start"},
+}
+
 
 class FrozenClock:
     def now(self):
@@ -437,22 +580,43 @@ def test_stat_types_reject_other_types_minimums_sorts_and_fields(
 
 @pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
 @pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
-def test_every_overall_minimum_field_is_accepted(class_id: int, stat_type: str) -> None:
-    for field in query_catalog.QUAL_FIELDS[class_id][stat_type][""]:
-        StatsguruQuery(
-            **{
-                "class": class_id,
-                "type": stat_type,
-                "qualifications": (Qualification(field=field, minimum=1),),
-            }
+def test_catalog_has_r5_overall_minimum_fields(class_id: int, stat_type: str) -> None:
+    assert (
+        set(query_catalog.QUAL_FIELDS[class_id][stat_type][""]) == R5_OVERALL_QUAL_FIELDS[stat_type]
+    )
+
+
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_catalog_has_r5_overall_sort_fields(class_id: int, stat_type: str) -> None:
+    assert (
+        set(query_catalog.SORT_FIELDS[class_id][stat_type][""]) == R5_OVERALL_SORT_FIELDS[stat_type]
+    )
+
+
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_query_stats_accepts_every_r5_overall_minimum_field(class_id: int, stat_type: str) -> None:
+    for field in R5_OVERALL_QUAL_FIELDS[stat_type]:
+        asyncio.run(
+            _query_stats_fetch_false(
+                {
+                    "class": class_id,
+                    "type": stat_type,
+                    "qualval1": field,
+                    "qualmin1": 1,
+                }
+            )
         )
 
 
 @pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
 @pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
-def test_every_overall_sort_field_is_accepted(class_id: int, stat_type: str) -> None:
-    for field in query_catalog.SORT_FIELDS[class_id][stat_type][""]:
-        StatsguruQuery(**{"class": class_id, "type": stat_type, "orderby": field})
+def test_query_stats_accepts_every_r5_overall_sort_field(class_id: int, stat_type: str) -> None:
+    for field in R5_OVERALL_SORT_FIELDS[stat_type]:
+        asyncio.run(
+            _query_stats_fetch_false({"class": class_id, "type": stat_type, "orderby": field})
+        )
 
 
 def test_season_period_compiles_without_dates() -> None:
