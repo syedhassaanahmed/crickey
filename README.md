@@ -1,8 +1,8 @@
 # crickey
 
-crickey is for personal use at the user's own risk, Cricinfo's terms ban data-extraction tools, and crickey isn't affiliated with Cricinfo, ESPNcricinfo or ESPN.
-
 crickey is an MCP server that answers cricket statistics questions from Cricinfo Statsguru with proof links.
+
+crickey is for personal use at the user's own risk, Cricinfo's terms ban data-extraction tools, and crickey isn't affiliated with Cricinfo, ESPNcricinfo or ESPN.
 
 ## Start it
 
