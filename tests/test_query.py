@@ -218,6 +218,30 @@ def test_odi_hundreds_query_adds_default_pinned_dates() -> None:
     )
 
 
+def test_raw_qualification_fields_round_trip_after_merge() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "qualval1": "hundreds",
+            "qualmin1": 10,
+            "qualval2": "runs",
+            "qualmax2": 10000,
+        }
+    )
+
+    assert query.qualifications == (
+        Qualification(field="hundreds", minimum=10),
+        Qualification(field="runs", maximum=10000),
+    )
+    assert query.qualval1 is None
+    assert query.qualmin1 is None
+
+    reparsed = StatsguruQuery.model_validate(query.model_dump(by_alias=True))
+
+    assert reparsed == query
+
+
 def test_alphabetical_repeated_keys_are_sorted_and_date_edge_formatting() -> None:
     query = StatsguruQuery(
         **{

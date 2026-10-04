@@ -554,6 +554,10 @@ def _merge_raw_qualifications(query: StatsguruQuery) -> None:
         if query.qualifications:
             raise ValueError("use either qualifications or qualval1/qualmin1 fields, not both")
         query.qualifications = tuple(raw)
+        for index in range(1, 4):
+            setattr(query, f"qualval{index}", None)
+            setattr(query, f"qualmin{index}", None)
+            setattr(query, f"qualmax{index}", None)
 
 
 def _validate_quickpicks(model: BaseModel) -> None:

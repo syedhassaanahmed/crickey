@@ -109,6 +109,18 @@ def row(player_id: int, name: str, team: str, runs: int, ave: str = "50.00") -> 
     """
 
 
+def detailed_batting_page() -> str:
+    return """
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr><th>Player</th><th>Span</th><th>Mat</th><th>Inns</th><th>NO</th><th>Runs</th><th>HS</th><th>Ave</th><th>BF</th><th>SR</th><th>100</th><th>50</th><th>0</th></tr>
+    <tr class="data1"><td><a href="/ci/content/player/348144.html">Babar Azam</a> (PAK)</td><td>2015-2026</td><td>143</td><td>140</td><td>16</td><td>6626</td><td>158</td><td>53.43</td><td>7652</td><td>86.59</td><td>20</td><td>38</td><td>5</td></tr>
+    </table>
+    <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
+    </body></html>
+    """
+
+
 def source_for(pages: dict[str, str]) -> MemoryPageSource:
     return MemoryPageSource(pages)
 
@@ -245,6 +257,41 @@ async def test_find_player_t20_means_t20i_and_country_filters() -> None:
     assert result.structured_content["match"]["id"] == 539305
 
 
+async def test_find_player_fetcher_errors_are_tool_errors() -> None:
+    url = player_search_url("Blocked")
+    _, _, client = await call_with_source(
+        {url: FetchResponse(url=url, status_code=404, headers={}, text="<html>Statsguru</html>")}
+    )
+
+    async with client:
+        result = await client.call_tool("find_player", {"name": "Blocked"})
+
+    assert result.is_error is True
+    assert "unavailable" in result.content[0].text
+
+
+async def test_find_player_refetches_cached_lookup_miss_once() -> None:
+    url = player_search_url("Late+Player")
+    fresh = """
+    <table>
+    <tr><td>Late Player</td><td>AAA</td><td><a href="/ci/engine/player/99.html?class=3;type=allround">Twenty20 Internationals player</a> (2020 - 2021, 2 matches)</td></tr>
+    </table>
+    """
+    source = source_for({url: "<html></html>"})
+    clock = FakeClock()
+    fetcher = Fetcher(settings(), clock=clock, page_source=source)
+    client = Client(create_server(settings(), fetcher=fetcher))
+
+    async with client:
+        missing = await client.call_tool("find_player", {"name": "Late Player", "format": "T20I"})
+        source.pages[url] = fresh
+        found = await client.call_tool("find_player", {"name": "Late Player", "format": "T20I"})
+
+    assert missing.structured_content["status"] == "not_found"
+    assert found.structured_content["match"]["id"] == 99
+    assert source.requests == [url, url]
+
+
 async def test_query_stats_fetch_returns_exact_rows_columns_total_link_and_label() -> None:
     query = StatsguruQuery(
         **{
@@ -296,6 +343,7 @@ async def test_query_stats_fetch_returns_exact_rows_columns_total_link_and_label
     ]
     assert result.structured_content["total"] == 64
     assert result.structured_content["link"] == url
+    assert "text_required_columns" not in result.structured_content
     assert "ODI batting" in result.structured_content["label"]
     assert "at least 10 hundreds" in result.structured_content["label"]
     assert result.structured_content["freshness"].startswith(
@@ -304,6 +352,38 @@ async def test_query_stats_fetch_returns_exact_rows_columns_total_link_and_label
     assert "| Player" in result.content[0].text
     assert "Babar Azam (PAK)" in result.content[0].text
     assert f"Pinned link: [{result.structured_content['label']}]({url})" in result.content[0].text
+
+
+async def test_query_stats_text_table_includes_sort_and_qualification_columns() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "orderby": "hundreds",
+            "qualval1": "hundreds",
+            "qualmin1": 10,
+        }
+    )
+    source, _, client = await call_with_source({results_url(query): detailed_batting_page()})
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats",
+            {
+                "query": {
+                    "class": 2,
+                    "type": "batting",
+                    "orderby": "hundreds",
+                    "qualval1": "hundreds",
+                    "qualmin1": 10,
+                }
+            },
+        )
+
+    text = result.content[0].text
+    header = next(line for line in text.splitlines() if line.startswith("| Player"))
+    assert "100" in header
+    assert "(0 more row(s), 4 more column(s) omitted.)" in text
 
 
 async def test_query_stats_limit_default_maximum_and_over_limit_error() -> None:
@@ -351,6 +431,74 @@ async def test_query_stats_starts_at_requested_page_and_does_not_duplicate_it() 
     assert len(result.structured_content["rows"]) == 200
     assert result.structured_content["rows"][0]["Player"] == "Player 201 (AAA)"
     assert source.requests == [page2_url]
+
+
+async def test_query_stats_fetches_complete_multipage_result_under_cap() -> None:
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
+    pages = {
+        results_url(query, page=page): result_page(
+            [
+                row(index, f"Player {index}", "AAA", index)
+                for index in range((page - 1) * 10 + 1, min(page * 10, 35) + 1)
+            ],
+            page=page,
+            pages=4,
+            total=35,
+        )
+        for page in range(1, 5)
+    }
+    source, _, client = await call_with_source(pages)
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting", "size": 10}}
+        )
+
+    assert result.is_error is False
+    assert len(result.structured_content["rows"]) == 35
+    assert source.requests == [results_url(query, page=page) for page in range(1, 5)]
+
+
+async def test_query_stats_refuses_over_cap_query_after_first_page() -> None:
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
+    url = results_url(query)
+    source, _, client = await call_with_source(
+        {
+            url: result_page(
+                [row(index, f"Player {index}", "AAA", index) for index in range(1, 11)],
+                page=1,
+                pages=6,
+                total=60,
+            )
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting", "size": 10}}
+        )
+
+    assert result.is_error is True
+    assert "needs 5 fetched pages" in result.content[0].text
+    assert source.requests == [url]
+
+
+async def test_query_stats_max_pages_one_allows_one_row_complete_result() -> None:
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
+    url = results_url(query)
+    source, _, client = await call_with_source(
+        {url: result_page([row(1, "Only Player", "AAA", 1)], page=1, pages=1, total=1)},
+        settings(max_pages=1),
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting", "size": 10}}
+        )
+
+    assert result.is_error is False
+    assert result.structured_content["total"] == 1
+    assert source.requests == [url]
 
 
 async def test_query_stats_fetch_false_makes_no_request() -> None:
@@ -425,7 +573,8 @@ async def test_query_stats_too_broad_and_validation_errors_are_clear_tool_errors
     assert source.requests == [results_url(query)]
     assert broad.is_error is True
     assert "too broad" in broad.content[0].text
-    assert "more than 1 fetched pages" in broad.content[0].text
+    assert "needs 2 fetched pages" in broad.content[0].text
+    assert "limit is 1" in broad.content[0].text
     assert invalid.is_error is True
     assert "validation error" in invalid.content[0].text
     assert "query.view" in invalid.content[0].text
@@ -442,6 +591,13 @@ async def test_query_stats_limit_zero_is_a_tool_error() -> None:
 
     assert result.is_error is True
     assert "limit must be from 1 to 200" in result.content[0].text
+
+
+async def test_tool_call_budgets_are_below_client_timeout() -> None:
+    import crickey.server as server_module
+
+    assert server_module.FETCH_BUDGET_SECONDS == 240.0
+    assert server_module.FIND_PLAYER_BUDGET_SECONDS == 60.0
 
 
 async def test_query_stats_d17_freshness_uses_query_end_date() -> None:
@@ -462,6 +618,80 @@ async def test_query_stats_d17_freshness_uses_query_end_date() -> None:
 
     assert _freshness_for_query(settled, FakeClock().now().date()) == Freshness.SETTLED
     assert _freshness_for_query(recent, FakeClock().now().date()) == Freshness.RECENT
+
+
+async def test_query_stats_passes_d17_freshness_to_fetcher_cache() -> None:
+    settled_query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "period": {"start": "2020-01-01", "end": "2020-12-31"},
+        }
+    )
+    recent_query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "batting",
+            "period": {"start": "2026-10-01", "end": "2026-10-04"},
+        }
+    )
+    source, clock, client = await call_with_source(
+        {
+            results_url(settled_query): result_page([row(1, "Settled", "AAA", 1)]),
+            results_url(recent_query): result_page([row(2, "Recent", "BBB", 2)]),
+        },
+        settings(recent_ttl=timedelta(seconds=10)),
+    )
+
+    async with client:
+        await client.call_tool(
+            "query_stats",
+            {
+                "query": {
+                    "class": 2,
+                    "type": "batting",
+                    "period": {"start": "2020-01-01", "end": "2020-12-31"},
+                }
+            },
+        )
+        clock.monotonic_time += 20
+        await client.call_tool(
+            "query_stats",
+            {
+                "query": {
+                    "class": 2,
+                    "type": "batting",
+                    "period": {"start": "2020-01-01", "end": "2020-12-31"},
+                }
+            },
+        )
+        await client.call_tool(
+            "query_stats",
+            {
+                "query": {
+                    "class": 3,
+                    "type": "batting",
+                    "period": {"start": "2026-10-01", "end": "2026-10-04"},
+                }
+            },
+        )
+        clock.monotonic_time += 20
+        await client.call_tool(
+            "query_stats",
+            {
+                "query": {
+                    "class": 3,
+                    "type": "batting",
+                    "period": {"start": "2026-10-01", "end": "2026-10-04"},
+                }
+            },
+        )
+
+    assert source.requests == [
+        results_url(settled_query),
+        results_url(recent_query),
+        results_url(recent_query),
+    ]
 
 
 async def test_query_stats_uses_time_budget_for_waits(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -522,13 +752,18 @@ async def test_blocked_and_unavailable_pages_are_clear_tool_errors() -> None:
 
 
 async def test_progress_notifications_are_sent_during_spacing_wait() -> None:
-    query = StatsguruQuery(**{"class": 2, "type": "batting"})
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
     url1 = results_url(query)
     url2 = results_url(query, page=2)
     source, clock, client = await call_with_source(
         {
-            url1: result_page([row(1, "A", "AAA", 1)], page=1, pages=2, total=2),
-            url2: result_page([row(2, "B", "BBB", 2)], page=2, pages=2, total=2),
+            url1: result_page(
+                [row(index, f"A{index}", "AAA", index) for index in range(1, 11)],
+                page=1,
+                pages=2,
+                total=11,
+            ),
+            url2: result_page([row(11, "B", "BBB", 11)], page=2, pages=2, total=11),
         },
         settings(min_interval=timedelta(seconds=3)),
     )
@@ -540,11 +775,11 @@ async def test_progress_notifications_are_sent_during_spacing_wait() -> None:
     async with client:
         result = await client.call_tool(
             "query_stats",
-            {"query": {"class": 2, "type": "batting"}, "limit": 2},
+            {"query": {"class": 2, "type": "batting", "size": 10}, "limit": 11},
             progress_callback=progress,
         )
 
-    assert len(result.structured_content["rows"]) == 2
+    assert len(result.structured_content["rows"]) == 11
     assert source.requests == [url1, url2]
     assert clock.sleeps == [3.0]
     assert events == [(3.0, None, "spacing requests politely for 3 seconds")]

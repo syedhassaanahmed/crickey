@@ -4,6 +4,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import asdict, is_dataclass
 from datetime import date
 from decimal import Decimal
+from math import ceil
 from typing import Any
 
 from mcp.server import MCPServer
@@ -201,6 +202,7 @@ def create_server(
         return _tool_result(
             f"Fetched {len(rows)} row(s) of {payload['total']} for {label}. {freshness}",
             payload,
+            text_required_columns=_text_required_columns(fetch_query),
         )
 
     return mcp
@@ -305,29 +307,27 @@ async def _fetch_limited_pages(
     freshness: Freshness,
     max_pages: int,
 ) -> tuple[ResultsPage, ...]:
-    pages: list[ResultsPage] = []
-    current_page = query.page or 1
-    while True:
-        page_query = (
-            query
-            if current_page == (query.page or 1)
-            else query.model_copy(update={"page": current_page})
+    start_page = query.page or 1
+    html = await call.fetch(query.results_url(as_of=as_of), freshness=freshness)
+    first_page = parse_results_page(html)
+    if first_page.no_records:
+        return (first_page,)
+
+    last_page = first_page.totals.pages or start_page
+    last_needed = min(last_page, start_page + ceil(limit / query.size) - 1)
+    pages_needed = last_needed - start_page + 1
+    if pages_needed > max_pages:
+        raise TooBroadError(
+            f"That query is too broad: it needs {pages_needed} fetched pages "
+            f"to return {limit} rows, but the limit is {max_pages}."
         )
+
+    pages = [first_page]
+    for current_page in range(start_page + 1, last_needed + 1):
+        page_query = query.model_copy(update={"page": current_page})
         html = await call.fetch(page_query.results_url(as_of=as_of), freshness=freshness)
-        page = parse_results_page(html)
-        pages.append(page)
-        rows = sum(len(parsed.table) for parsed in pages)
-        if page.no_records or rows >= limit:
-            return tuple(pages)
-        if len(pages) >= max_pages:
-            raise TooBroadError(
-                f"That query is too broad: it needs more than {max_pages} fetched pages "
-                f"to return {limit} rows."
-            )
-        total_pages = page.totals.pages or current_page
-        if current_page >= total_pages:
-            return tuple(pages)
-        current_page += 1
+        pages.append(parse_results_page(html))
+    return tuple(pages)
 
 
 def _today(fetcher: Fetcher) -> date:
@@ -356,6 +356,33 @@ def _display_value(row: Mapping[str, Any], column: str) -> Any:
     return rendered
 
 
+_FIELD_COLUMNS = {
+    "matches": "Mat",
+    "innings": "Inns",
+    "notouts": "NO",
+    "runs": "Runs",
+    "high_score": "HS",
+    "batting_average": "Ave",
+    "balls_faced": "BF",
+    "batting_strike_rate": "SR",
+    "hundreds": "100",
+    "fifty_plus": "50",
+    "ducks": "0",
+    "fours": "4s",
+    "sixes": "6s",
+    "overs": "Overs",
+    "wickets": "Wkts",
+    "bowling_average": "Ave",
+    "economy_rate": "Econ",
+}
+
+
+def _text_required_columns(query: StatsguruQuery) -> list[str]:
+    fields = [query.orderby, *(qualification.field for qualification in query.qualifications)]
+    columns = [_FIELD_COLUMNS.get(field or "", field or "") for field in fields]
+    return [column for column in columns if column]
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Decimal):
         return format(value, "f")
@@ -376,14 +403,26 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _tool_result(summary: str, structured_content: Mapping[str, Any]) -> CallToolResult:
+def _tool_result(
+    summary: str,
+    structured_content: Mapping[str, Any],
+    *,
+    text_required_columns: Iterable[str] = (),
+) -> CallToolResult:
     return CallToolResult(
-        content=[TextContent(type="text", text=_text_content(summary, structured_content))],
+        content=[
+            TextContent(
+                type="text",
+                text=_text_content(summary, structured_content, text_required_columns),
+            )
+        ],
         structured_content=_jsonable(dict(structured_content)),
     )
 
 
-def _text_content(summary: str, structured_content: Mapping[str, Any]) -> str:
+def _text_content(
+    summary: str, structured_content: Mapping[str, Any], text_required_columns: Iterable[str]
+) -> str:
     lines = [summary]
     link = structured_content.get("link")
     label = structured_content.get("label")
@@ -395,14 +434,29 @@ def _text_content(summary: str, structured_content: Mapping[str, Any]) -> str:
     rows = structured_content.get("rows")
     columns = structured_content.get("columns")
     if isinstance(rows, list) and rows and isinstance(columns, list):
-        display_columns = tuple(str(column) for column in columns[:8])
+        display_columns = _text_display_columns(
+            [str(column) for column in columns],
+            [str(column) for column in text_required_columns],
+        )
         display_rows = [
             tuple(row.get(column) for column in display_columns)
             for row in rows[:10]
             if isinstance(row, Mapping)
         ]
         lines.extend(["", _markdown_table(display_columns, display_rows)])
+        omitted_rows = max(0, len(rows) - len(display_rows))
+        omitted_columns = max(0, len(columns) - len(display_columns))
+        if omitted_rows or omitted_columns:
+            lines.append(f"({omitted_rows} more row(s), {omitted_columns} more column(s) omitted.)")
     return "\n".join(lines)
+
+
+def _text_display_columns(columns: list[str], required: list[str]) -> tuple[str, ...]:
+    display = columns[:8]
+    for column in required:
+        if column in columns and column not in display:
+            display.append(column)
+    return tuple(display)
 
 
 def _candidate_rows(candidates: list[Any]) -> list[tuple[Any, ...]]:
