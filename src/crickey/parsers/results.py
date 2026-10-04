@@ -13,13 +13,7 @@ from crickey.parsers.common import (
     element_text,
     first_int_from_path,
 )
-from crickey.parsers.convert import (
-    clean_text,
-    convert_cell,
-    exact_batting_average,
-    exact_strike_rate,
-    parse_date,
-)
+from crickey.parsers.convert import clean_text, convert_cell, parse_date
 
 _PAGE_RE = re.compile(r"Page\s+(\d+)\s+of\s+(\d+)", re.I)
 _SHOWING_RE = re.compile(r"Showing\s+(\d+)\s+-\s+(\d+)\s+of\s+(\d+)", re.I)
@@ -82,7 +76,6 @@ def parse_results_page(page: str) -> ResultsPage:
             raise StatsguruParseError("results table header row is missing")
         headers, keep_indexes = _usable_headers(raw_headers, rows)
         data = _rows_to_frame(headers, keep_indexes, rows)
-        _add_exact_batting_columns(data)
     return ResultsPage(
         table=data,
         headers=tuple(data.columns),
@@ -320,14 +313,3 @@ def _dates_single(match: re.Match[str]) -> tuple[date, date]:
 def _is_not_out_score(value: str) -> bool:
     text = element_text(value) if isinstance(value, HtmlElement) else clean_text(value)
     return text.endswith("*") and text[:-1].replace(",", "").isdigit()
-
-
-def _add_exact_batting_columns(data: pd.DataFrame) -> None:
-    if {"Runs", "Inns", "NO"}.issubset(data.columns):
-        data["exact_batting_average"] = [
-            exact_batting_average(row["Runs"], row["Inns"], row["NO"]) for _, row in data.iterrows()
-        ]
-    if {"Runs", "BF"}.issubset(data.columns):
-        data["exact_batting_strike_rate"] = [
-            exact_strike_rate(row["Runs"], row["BF"]) for _, row in data.iterrows()
-        ]

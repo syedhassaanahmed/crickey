@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from fractions import Fraction
 from typing import Any
 
 _MISSING = {"", "-", "DNB", "TDNB"}
@@ -90,27 +88,6 @@ def parse_overs(value: str) -> Overs | None:
     return Overs(int(text), 0)
 
 
-def as_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, Score):
-        return value.runs
-    if isinstance(value, Overs):
-        return value.total_balls
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
-        return int(value)
-    if isinstance(value, Decimal):
-        return int(value)
-    text = clean_text(str(value)).removesuffix("*").replace(",", "")
-    if text in _MISSING:
-        return None
-    if text.isdigit():
-        return int(text)
-    return None
-
-
 def convert_cell(header: str, value: str) -> Any:
     text = clean_text(value)
     if text in _MISSING:
@@ -131,23 +108,3 @@ def convert_cell(header: str, value: str) -> Any:
         except InvalidOperation:
             return text
     return text
-
-
-def exact_batting_average(runs: Any, innings: Any, not_outs: Any) -> Fraction | None:
-    run_count = as_int(runs)
-    innings_count = as_int(innings)
-    not_out_count = as_int(not_outs)
-    if run_count is None or innings_count is None or not_out_count is None:
-        return None
-    outs = innings_count - not_out_count
-    if outs <= 0:
-        return None
-    return Fraction(run_count, outs)
-
-
-def exact_strike_rate(runs: Any, balls: Any) -> Fraction | None:
-    run_count = as_int(runs)
-    ball_count = as_int(balls)
-    if run_count is None or ball_count in {None, 0}:
-        return None
-    return Fraction(run_count * 100, ball_count)
