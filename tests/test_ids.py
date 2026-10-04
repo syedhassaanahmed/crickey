@@ -356,12 +356,15 @@ def test_containment_resolves_only_when_unique_and_fuzzy_singletons_do_not() -> 
     containment = resolve_name(1, "ground", "Eden Gardens", {1: "IND: Eden Gardens, Kolkata"})
     fuzzy = lookup_team(2, "India A")
     wrong_order = resolve_name(1, "series", "Bar Foo", {1: "Foo Bar Baz"})
+    gap = resolve_name(1, "series", "Foo Baz", {1: "Foo Bar Baz"})
 
     assert containment.status == LookupStatus.MATCH
     assert containment.match.value == 1
     assert fuzzy.match is None
     assert wrong_order.needs_clarification is True
     assert wrong_order.match is None
+    assert gap.needs_clarification is True
+    assert gap.match is None
 
 
 def test_containment_candidates_are_ranked_by_wratio() -> None:
@@ -542,6 +545,38 @@ def test_ground_digits_must_match_exactly_for_fuzzy_typos() -> None:
     assert short_word.match is None
 
 
+def test_series_generic_tier_requires_digit_words_to_match() -> None:
+    result = resolve_name(
+        3,
+        "series",
+        "Namibia T20I Tri-Series, 2026",
+        {1: "Namibia T20 Tri-Series, 2026"},
+    )
+
+    assert result.needs_clarification is True
+    assert result.match is None
+
+
+def test_series_containment_rejects_different_season_and_leading_words() -> None:
+    different_season = resolve_name(
+        3,
+        "series",
+        "Malaysia Tri-Nation T20I Series, 2024",
+        {1: "Malaysia Tri-Nation T20I Series, 2024/25"},
+    )
+    leading_word = resolve_name(
+        3,
+        "series",
+        "Continental Cup, 2024",
+        {1: "Africa Continental Cup, 2024"},
+    )
+
+    assert different_season.needs_clarification is True
+    assert different_season.match is None
+    assert leading_word.needs_clarification is True
+    assert leading_word.match is None
+
+
 def test_on_demand_series_without_season_returns_edition_candidates() -> None:
     class_id = 3
     form_url = FORM_URL.format(class_id=class_id)
@@ -604,6 +639,31 @@ def test_on_demand_cached_ambiguous_containment_does_not_refetch() -> None:
     assert warm.match.value == 701
     assert ambiguous.needs_clarification is True
     assert [candidate.value for candidate in ambiguous.candidates] == [703, 702]
+    assert source.requests == [form_url]
+
+
+def test_on_demand_cached_ordered_containment_with_gap_does_not_refetch() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    source = MemoryPageSource(
+        {
+            form_url: form_html(
+                ground_label="UAE: Dubai International Cricket Stadium",
+            )
+        }
+    )
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    first = run(resolver.lookup_ground(class_id, "Dubai International Stadium"))
+    second = run(resolver.lookup_ground(class_id, "Dubai International Stadium"))
+
+    assert first.needs_clarification is True
+    assert first.match is None
+    assert [candidate.value for candidate in first.candidates] == [701]
+    assert second.needs_clarification is True
+    assert second.match is None
+    assert [candidate.value for candidate in second.candidates] == [701]
     assert source.requests == [form_url]
 
 

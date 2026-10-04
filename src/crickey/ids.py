@@ -527,10 +527,14 @@ def _has_digit(word: str) -> bool:
 
 
 def _candidate_contains_query_in_order(normalized_query: str, candidate: IdCandidate) -> bool:
-    return _words_appear_contiguously(
-        normalized_query.split(),
-        _normalize(candidate.name).split(),
-    )
+    query_words = normalized_query.split()
+    candidate_words = _normalize(candidate.name).split()
+    position = _contiguous_word_position(query_words, candidate_words)
+    if position is None:
+        return False
+    if candidate.kind == "series":
+        return position == 0 and _digit_words(normalized_query) == _digit_words(candidate.name)
+    return True
 
 
 def _ambiguous_result_has_plausible_cached_candidates(
@@ -559,15 +563,30 @@ def _ambiguous_result_has_plausible_cached_candidates(
 def _candidates_contain_query_words(result: LookupResult) -> bool:
     query_words = _normalize(result.query).split()
     return bool(result.candidates) and all(
-        _words_appear_contiguously(query_words, _normalize(candidate.name).split())
+        _words_appear_in_order(query_words, _normalize(candidate.name).split())
         for candidate in result.candidates
     )
 
 
 def _words_appear_contiguously(query_words: list[str], name_words: list[str]) -> bool:
+    return _contiguous_word_position(query_words, name_words) is not None
+
+
+def _contiguous_word_position(query_words: list[str], name_words: list[str]) -> int | None:
     if not query_words:
-        return True
+        return 0
     last_start = len(name_words) - len(query_words) + 1
-    return any(
-        name_words[start : start + len(query_words)] == query_words for start in range(last_start)
-    )
+    for start in range(last_start):
+        if name_words[start : start + len(query_words)] == query_words:
+            return start
+    return None
+
+
+def _words_appear_in_order(query_words: list[str], name_words: list[str]) -> bool:
+    position = 0
+    for query_word in query_words:
+        try:
+            position = name_words.index(query_word, position) + 1
+        except ValueError:
+            return False
+    return True
