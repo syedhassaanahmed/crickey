@@ -172,6 +172,20 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert by_name["leaderboard"].description.startswith("Example:")
         assert by_name["better_than_player"].description.startswith("Example:")
         assert by_name["player_record"].description.startswith("Example:")
+        assert (
+            "Average number of innings taken per ODI century" in by_name["leaderboard"].description
+        )
+        assert (
+            "Which players have scored Test hundreds more frequently"
+            in by_name["better_than_player"].description
+        )
+        assert "better average and strike rate" in by_name["better_than_player"].description
+        assert "Test batting average in the last Y years" in by_name["player_record"].description
+        assert "ODI World Cups" in by_name["player_record"].description
+        assert "Which Babar played ODIs?" in by_name["find_player"].description
+        assert (
+            "Which ODI batting rows are sorted by hundreds?" in by_name["query_stats"].description
+        )
         assert client.instructions == "\n".join(
             [
                 "Prefer crickey's answer tools and show answer_markdown as-is when they return it.",

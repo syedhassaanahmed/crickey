@@ -222,6 +222,7 @@ async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache
         row(1006, "Muhammad Tanveer", "QAT", "2019-2025", 55, 1980, "39.6", 1484, "133.42", 1, 15),
         row(348144, "Babar Azam", "PAK", "2016-2026", 136, 4596, "38.94", 3590, "128.02", 3, 39),
         row(2001, "Tie Player", "AAA", "2016-2026", 60, 1200, "38.94", 937, "128.02", 1, 8),
+        row(2003, "Level Player", "CCC", "2016-2026", 60, 1200, "38.94", 850, "141.17", 1, 8),
         row(2002, "Average Only", "BBB", "2016-2026", 60, 1200, "38.94", 1000, "120.00", 1, 8),
     ]
     form_url, form = career_form(348144, 3, "07 Sep 2016", "24 Feb 2026")
@@ -232,7 +233,7 @@ async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache
             ),
             form_url: form,
             url(base_query): result_page(rows, total=182),
-            url(proof_query): result_page(rows[:8], total=8),
+            url(proof_query): result_page(rows[:9], total=9),
         }
     )
 
@@ -267,9 +268,16 @@ async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache
     ]
     assert any(row["relation"] == "target" for row in cold.structured_content["rows"])
     assert "Tie Player" not in [row["player"] for row in cold.structured_content["beaters"]]
+    assert "Level Player" not in [row["player"] for row in cold.structured_content["beaters"]]
     assert "Average Only" not in [row["player"] for row in cold.structured_content["beaters"]]
-    assert [row["player"] for row in cold.structured_content["ties"]] == ["Tie Player"]
-    assert "tied with Babar Azam" in cold.structured_content["answer_markdown"]
+    assert {row["player"] for row in cold.structured_content["level"]} == {
+        "Tie Player",
+        "Level Player",
+    }
+    level_details = {row["player"]: row["detail"] for row in cold.structured_content["level"]}
+    assert level_details["Tie Player"] == "level on batting average and strike rate"
+    assert level_details["Level Player"] == "level on batting average, better on strike rate"
+    assert "level with Babar Azam" in cold.structured_content["answer_markdown"]
     assert cold.structured_content["proof"]["confirmed"] is True
     assert "qualval2=batting_average" in cold.structured_content["proof"]["url"]
 
@@ -514,7 +522,7 @@ async def test_sortable_leaderboard_follows_boundary_tie_to_next_page() -> None:
             "type": "batting",
             "qualifications": (Qualification(field="innings", minimum=20),),
             "orderby": "batting_average",
-            "size": 10,
+            "size": 25,
         }
     )
     page2 = query.model_copy(update={"page": 2})
@@ -535,16 +543,16 @@ async def test_sortable_leaderboard_follows_boundary_tie_to_next_page() -> None:
                         1,
                         1,
                     )
-                    for index in range(1, 11)
+                    for index in range(1, 26)
                 ],
                 pages=2,
-                total=11,
+                total=26,
             ),
             url(page2): result_page(
-                [row(11, "P11", "AAA", "2000-2010", 20, 1000, "50.00", 1000, "100.00", 1, 1)],
+                [row(26, "P26", "AAA", "2000-2010", 20, 1000, "50.00", 1000, "100.00", 1, 1)],
                 page=2,
                 pages=2,
-                total=11,
+                total=26,
             ),
         }
     )
@@ -555,7 +563,7 @@ async def test_sortable_leaderboard_follows_boundary_tie_to_next_page() -> None:
         )
 
     assert len(source.requests) == 2
-    assert len(result.structured_content["rows"]) == 11
+    assert len(result.structured_content["rows"]) == 26
 
 
 async def test_sortable_leaderboard_boundary_tie_overflow_errors() -> None:
@@ -565,7 +573,7 @@ async def test_sortable_leaderboard_boundary_tie_overflow_errors() -> None:
             "type": "batting",
             "qualifications": (Qualification(field="innings", minimum=20),),
             "orderby": "batting_average",
-            "size": 10,
+            "size": 25,
         }
     )
     source, client = await client_for(
@@ -585,10 +593,10 @@ async def test_sortable_leaderboard_boundary_tie_overflow_errors() -> None:
                         1,
                         1,
                     )
-                    for index in range(1, 11)
+                    for index in range(1, 26)
                 ],
                 pages=2,
-                total=11,
+                total=26,
             )
         },
         settings(max_pages=1),
@@ -808,6 +816,7 @@ async def test_sortable_metric_leaderboard_fetches_one_page_when_query_is_broad(
             "size": 10,
         }
     )
+    default_query = query.model_copy(update={"size": 25})
     source, client = await client_for(
         {
             url(query): result_page(
@@ -829,7 +838,27 @@ async def test_sortable_metric_leaderboard_fetches_one_page_when_query_is_broad(
                 ],
                 pages=120,
                 total=1200,
-            )
+            ),
+            url(default_query): result_page(
+                [
+                    row(
+                        index,
+                        f"D{index}",
+                        "AAA",
+                        "2000-2010",
+                        20,
+                        1000,
+                        f"{60 - index:.2f}",
+                        1000,
+                        "100.00",
+                        1,
+                        1,
+                    )
+                    for index in range(1, 26)
+                ],
+                pages=48,
+                total=1200,
+            ),
         },
         settings(max_pages=1),
     )
@@ -838,11 +867,18 @@ async def test_sortable_metric_leaderboard_fetches_one_page_when_query_is_broad(
         result = await client.call_tool(
             "leaderboard", {"format": "ODI", "metric": "average", "top_n": 3}
         )
+        assert result.is_error is False
+        assert len(source.requests) == 1
+        assert len(result.structured_content["rows"]) == 3
+        assert (
+            "Fetched 1 sorted Statsguru result page" in result.structured_content["answer_markdown"]
+        )
+        source.requests.clear()
+        default = await client.call_tool("leaderboard", {"format": "ODI", "metric": "average"})
 
-    assert result.is_error is False
+    assert default.is_error is False
     assert len(source.requests) == 1
-    assert len(result.structured_content["rows"]) == 3
-    assert "Fetched 1 sorted Statsguru result page" in result.structured_content["answer_markdown"]
+    assert len(default.structured_content["rows"]) == 10
 
 
 async def test_answer_tools_clarification_unsupported_ties_and_too_broad() -> None:
@@ -924,6 +960,8 @@ async def test_filter_clarification_text_shows_lookup_candidates() -> None:
         )
 
     assert result.structured_content["status"] == "needs_clarification"
+    assert "| Value | Name" in result.content[0].text
+    assert "Kind" in result.content[0].text
     assert "Dubai Sports City Cricket Stadium" in result.content[0].text
     assert "ICC Academy, Dubai" in result.content[0].text
     assert source.requests == [form_url]

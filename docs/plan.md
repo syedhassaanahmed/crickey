@@ -52,7 +52,7 @@ flowchart LR
 Five tools (D14), all read-only.
 - **Answer tools** return `answer_markdown` plus structured data. The markdown has a short answer, a table, the method and assumptions, labelled pinned links and profile links (D16), the "as of" date and the freshness line (D17).
 - **Ambiguous names** (players, teams, grounds, trophies) return `needs_clarification` with the candidates.
-- **Descriptions** start with example questions taken from the golden questions.
+- **Descriptions** for answer tools start with example questions taken from the golden questions; `find_player` and `query_stats` start with their own example question.
 
 1. **`leaderboard`** (golden question 1): "Who has the best or fastest …?"
    - Parameters: format, metric, period, filters by name (team, opposition, host country, ground, trophy, home or away, match result), minimum and top N.

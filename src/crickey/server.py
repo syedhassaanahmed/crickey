@@ -151,7 +151,7 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: Find Babar Azam in T20Is. Find Statsguru player candidates "
+            "Example: Which Babar played ODIs? Find Statsguru player candidates "
             "by name, with player ID, country, formats and career spans."
         ),
     )
@@ -213,7 +213,7 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: Fetch ODI batting rows sorted by hundreds. Compile and optionally "
+            "Example: Which ODI batting rows are sorted by hundreds? Compile and optionally "
             "fetch any Statsguru query, returning rows, totals and the pinned link."
         ),
     )
@@ -631,25 +631,25 @@ async def _better_than_player_tool(
                 metric.display_value(metric.value_from_row(target, class_id=class_id))
                 for metric in metrics
             )
-            comparison_rows: list[tuple[dict[str, Any], str]] = []
+            comparison_rows: list[tuple[dict[str, Any], str, str]] = []
             for row in all_rows:
                 comparisons = [
                     metric.compare(metric.value_from_row(row, class_id=class_id), target_value)
                     for metric, target_value in zip(metrics, target_values, strict=True)
                 ]
                 if _row_id(row) == resolution.match.player_id:
-                    comparison_rows.append((row, "target"))
+                    comparison_rows.append((row, "target", "target"))
                     continue
-                tied = match_mode == "all" and all(value == 0 for value in comparisons)
                 beats = (
                     all(value > 0 for value in comparisons)
                     if match_mode == "all"
                     else any(value > 0 for value in comparisons)
                 )
+                level = match_mode == "all" and all(value >= 0 for value in comparisons)
                 if beats:
-                    comparison_rows.append((row, "beats"))
-                elif tied:
-                    comparison_rows.append((row, "ties"))
+                    comparison_rows.append((row, "beats", _comparison_detail(metrics, comparisons)))
+                elif level:
+                    comparison_rows.append((row, "level", _comparison_detail(metrics, comparisons)))
             comparison_rows = sorted(
                 comparison_rows,
                 key=lambda item: tuple(
@@ -670,7 +670,9 @@ async def _better_than_player_tool(
                 query,
                 thresholds=proof_thresholds,
                 expected_player_ids=tuple(
-                    _row_id(row) for row, _relation in comparison_rows if _row_id(row) is not None
+                    _row_id(row)
+                    for row, _relation, _detail in comparison_rows
+                    if _row_id(row) is not None
                 ),
                 call=call,
                 as_of=_today(fetcher),
@@ -694,26 +696,27 @@ async def _better_than_player_tool(
 
     payload_rows = [
         _comparison_row_payload(row, metrics, class_id, resolution.match.player_id, relation)
-        for row, relation in comparison_rows
+        | {"detail": detail}
+        for row, relation, detail in comparison_rows
     ]
     as_of = _today(fetcher)
     metric_labels = tuple(metric.label for metric in metrics)
     beater_count = len([row for row in payload_rows if row["relation"] == "beats"])
-    tie_count = len([row for row in payload_rows if row["relation"] == "ties"])
+    level_count = len([row for row in payload_rows if row["relation"] == "level"])
     metrics_text = " and ".join(metric_labels)
-    tie_text = (
-        f" {tie_count} player(s) were tied with {resolution.match.name}." if tie_count else ""
+    level_text = (
+        f" {level_count} player(s) were level with {resolution.match.name}." if level_count else ""
     )
     answer = render_answer(
         AnswerRenderInput(
             short_answer=(
                 f"{beater_count} player(s) beat {resolution.match.name}'s displayed "
-                f"{metrics_text}.{tie_text}"
+                f"{metrics_text}.{level_text}"
             ),
             table=RenderedTable(
                 headers=("Player", *metric_labels, "Relation"),
                 rows=tuple(
-                    (row["player"], *(row["values"][m.key] for m in metrics), row["relation"])
+                    (row["player"], *(row["values"][m.key] for m in metrics), row["detail"])
                     for row in payload_rows
                 ),
             ),
@@ -747,7 +750,8 @@ async def _better_than_player_tool(
             "metrics": [metric.key for metric in metrics],
             "rows": payload_rows,
             "beaters": [row for row in payload_rows if row["relation"] == "beats"],
-            "ties": [row for row in payload_rows if row["relation"] == "ties"],
+            "level": [row for row in payload_rows if row["relation"] == "level"],
+            "ties": [row for row in payload_rows if row["relation"] == "level"],
             "proof": _jsonable(proof),
             "request_pages": len(pages),
         },
@@ -1201,7 +1205,7 @@ def _select_ranked_with_ties(
 
 def _page_size_for_top_n(top_n: int) -> int:
     for size in (10, 25, 50, 100, 150, 200):
-        if top_n <= size:
+        if top_n < size:
             return size
     return 200
 
@@ -1272,15 +1276,42 @@ def _comparison_row_payload(
     target_id: int,
     relation: str,
 ) -> dict[str, Any]:
+    values = {
+        metric.key: metric.display_value(metric.value_from_row(row, class_id=class_id))
+        for metric in metrics
+    }
     return {
         "player": row.get("player_name") or row.get("Player"),
         "player_id": _row_id(row),
         "relation": "target" if _row_id(row) == target_id else relation,
-        "values": {
-            metric.key: metric.display_value(metric.value_from_row(row, class_id=class_id))
-            for metric in metrics
-        },
+        "values": values,
     }
+
+
+def _comparison_detail(
+    metrics: tuple[Metric, ...],
+    comparisons: list[int],
+) -> str:
+    better: list[str] = []
+    level: list[str] = []
+    for metric, comparison in zip(metrics, comparisons, strict=True):
+        if comparison > 0:
+            better.append(metric.label)
+        elif comparison == 0:
+            level.append(metric.label)
+    pieces = []
+    if level:
+        pieces.append("level on " + _metric_list(level))
+    if better:
+        pieces.append("better on " + _metric_list(better))
+    return ", ".join(pieces) if pieces else "level"
+
+
+def _metric_list(labels: Iterable[str]) -> str:
+    items = tuple(labels)
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + f" and {items[-1]}"
 
 
 def _player_record_row(page) -> Mapping[str, Any] | None:
