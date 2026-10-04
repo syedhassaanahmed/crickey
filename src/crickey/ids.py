@@ -136,8 +136,7 @@ def resolve_name(
     generic = tuple(
         candidate
         for candidate in rows
-        if _without_generic_words(candidate.name, class_id)
-        == _without_generic_words(query, class_id)
+        if _generic_words_match(candidate.name, query, class_id, kind)
     )
     if len(generic) == 1:
         return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=generic[0])
@@ -172,9 +171,9 @@ def resolve_name(
     if not candidates:
         return LookupResult(LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind)
     contained = _query_containment_matches(normalized_query, rows)
-    if len(contained) == 1:
+    if len(contained) == 1 and _candidate_contains_query_in_order(normalized_query, contained[0]):
         return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=contained[0])
-    if len(contained) > 1:
+    if contained:
         return LookupResult(
             LookupStatus.NEEDS_CLARIFICATION,
             query,
@@ -416,6 +415,18 @@ def _without_generic_words(value: str, class_id: int) -> str:
     return " ".join(words)
 
 
+def _generic_words_match(candidate_name: str, query: str, class_id: int, kind: str) -> bool:
+    if kind == "series" and _digit_words(candidate_name) != _digit_words(query):
+        return False
+    return _without_generic_words(candidate_name, class_id) == _without_generic_words(
+        query, class_id
+    )
+
+
+def _digit_words(value: str) -> frozenset[str]:
+    return frozenset(word for word in _normalize(value).split() if _has_digit(word))
+
+
 def _query_containment_matches(
     normalized_query: str, rows: tuple[IdCandidate, ...]
 ) -> tuple[IdCandidate, ...]:
@@ -474,7 +485,13 @@ def _singularize(word: str) -> str:
 def _query_words_fit_candidate_typos(normalized_query: str, candidate: IdCandidate) -> bool:
     query_words = normalized_query.split()
     candidate_words = _normalize(candidate.name).split()
+    if _space_insensitive_words_match(query_words, candidate_words):
+        return True
     return _consume_matching_words(query_words, candidate_words)
+
+
+def _space_insensitive_words_match(query_words: list[str], name_words: list[str]) -> bool:
+    return bool(query_words) and "".join(query_words) == "".join(name_words)
 
 
 def _consume_matching_words(query_words: list[str], name_words: list[str]) -> bool:
@@ -487,6 +504,10 @@ def _consume_matching_words(query_words: list[str], name_words: list[str]) -> bo
             query_words[1:], remaining_name_words
         ):
             return True
+        if _has_digit(query_word) or _has_digit(name_word):
+            continue
+        if len(query_word) < 3 or len(name_word) < 3:
+            continue
         max_distance = 2 if len(name_word) >= 8 else 1
         if OSA.distance(query_word, name_word) <= max_distance and _consume_matching_words(
             query_words[1:], remaining_name_words
@@ -499,6 +520,17 @@ def _consume_matching_words(query_words: list[str], name_words: list[str]) -> bo
             ) <= max_distance and _consume_matching_words(query_words[2:], remaining_name_words):
                 return True
     return False
+
+
+def _has_digit(word: str) -> bool:
+    return any(char.isdigit() for char in word)
+
+
+def _candidate_contains_query_in_order(normalized_query: str, candidate: IdCandidate) -> bool:
+    return _words_appear_contiguously(
+        normalized_query.split(),
+        _normalize(candidate.name).split(),
+    )
 
 
 def _ambiguous_result_has_plausible_cached_candidates(
@@ -517,8 +549,7 @@ def _ambiguous_result_has_plausible_cached_candidates(
             _initials(candidate.name, result.kind) == normalized_query for candidate in candidates
         )
         or all(
-            _without_generic_words(candidate.name, result.class_id)
-            == _without_generic_words(result.query, result.class_id)
+            _generic_words_match(candidate.name, result.query, result.class_id, result.kind)
             for candidate in candidates
         )
         or _candidates_contain_query_words(result)
@@ -528,6 +559,15 @@ def _ambiguous_result_has_plausible_cached_candidates(
 def _candidates_contain_query_words(result: LookupResult) -> bool:
     query_words = _normalize(result.query).split()
     return bool(result.candidates) and all(
-        all(word in _normalize(candidate.name).split() for word in query_words)
+        _words_appear_contiguously(query_words, _normalize(candidate.name).split())
         for candidate in result.candidates
+    )
+
+
+def _words_appear_contiguously(query_words: list[str], name_words: list[str]) -> bool:
+    if not query_words:
+        return True
+    last_start = len(name_words) - len(query_words) + 1
+    return any(
+        name_words[start : start + len(query_words)] == query_words for start in range(last_start)
     )

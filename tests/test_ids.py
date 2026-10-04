@@ -271,6 +271,8 @@ def test_name_lookup_exact_case_insensitive_and_fuzzy_matches() -> None:
     inside_word_typo = lookup_team(1, "South Afriica")
     franchise_typo = lookup_team(6, "lahore qalanders")
     split_word_typo = lookup_team(1, "Bangla desh")
+    merged_sri_lanka = lookup_team(1, "Srilanka")
+    merged_south_africa = lookup_team(1, "SouthAfrica")
 
     assert exact.status == LookupStatus.MATCH
     assert exact.match.value == 7
@@ -282,6 +284,10 @@ def test_name_lookup_exact_case_insensitive_and_fuzzy_matches() -> None:
     assert franchise_typo.match.value == 5799
     assert split_word_typo.status == LookupStatus.MATCH
     assert split_word_typo.match.value == 25
+    assert merged_sri_lanka.status == LookupStatus.MATCH
+    assert merged_sri_lanka.match.value == 8
+    assert merged_south_africa.status == LookupStatus.MATCH
+    assert merged_south_africa.match.value == 3
 
 
 def test_fuzzy_match_rejects_queries_that_add_whole_words_to_team_names() -> None:
@@ -321,6 +327,16 @@ def test_fuzzy_match_rejects_swapped_womens_names() -> None:
         assert value in {candidate.value for candidate in result.candidates}
 
 
+def test_fuzzy_match_allows_two_edits_only_for_long_words() -> None:
+    two_edits = resolve_name(1, "series", "Alpha Cmpionship", {1: "Alpha Championship"})
+    three_edits = resolve_name(1, "series", "Alpha Cmionship", {1: "Alpha Championship"})
+
+    assert two_edits.status == LookupStatus.MATCH
+    assert two_edits.match.value == 1
+    assert three_edits.needs_clarification is True
+    assert three_edits.match is None
+
+
 def test_exact_tier_wins_before_containment_or_fuzzy_candidates() -> None:
     result = resolve_name(1, "trophy", "Cricket", {1: "Cricket", 2: "ICC Cricket"})
 
@@ -339,17 +355,20 @@ def test_fuzzy_match_requires_clear_ratio_margin() -> None:
 def test_containment_resolves_only_when_unique_and_fuzzy_singletons_do_not() -> None:
     containment = resolve_name(1, "ground", "Eden Gardens", {1: "IND: Eden Gardens, Kolkata"})
     fuzzy = lookup_team(2, "India A")
+    wrong_order = resolve_name(1, "series", "Bar Foo", {1: "Foo Bar Baz"})
 
     assert containment.status == LookupStatus.MATCH
     assert containment.match.value == 1
     assert fuzzy.match is None
+    assert wrong_order.needs_clarification is True
+    assert wrong_order.match is None
 
 
 def test_containment_candidates_are_ranked_by_wratio() -> None:
-    result = resolve_name(1, "series", "Foo Bar", {1: "Foo Bar Baz", 2: "Bar Foo"})
+    result = resolve_name(1, "series", "Foo Bar", {1: "Foo Bar Baz", 2: "Foo Bar Qux"})
 
     assert result.needs_clarification is True
-    assert [candidate.value for candidate in result.candidates] == [2, 1]
+    assert [candidate.value for candidate in result.candidates] == [1, 2]
 
 
 def test_fuzzy_candidates_keep_score_filter() -> None:
@@ -452,6 +471,75 @@ def test_on_demand_lookup_miss_refetches_once() -> None:
     assert warm.match.value == 701
     assert result.match.value == 702
     assert source.requests == [form_url, form_url]
+
+
+def test_on_demand_series_miss_refetches_when_cached_year_differs() -> None:
+    examples = (
+        (
+            2,
+            "England in West Indies ODI Series, 2024/25",
+            '<option value="901">England in West Indies ODI Series, 2023/24</option>',
+            '<option value="902">England in West Indies ODI Series, 2024/25</option>',
+            902,
+        ),
+        (
+            3,
+            "Belgium in Austria T20I Series, 2024",
+            '<option value="903">Belgium in Austria T20I Series, 2025</option>',
+            '<option value="904">Belgium in Austria T20I Series, 2024</option>',
+            904,
+        ),
+    )
+
+    for class_id, query, cached_series, new_series, new_value in examples:
+        form_url = FORM_URL.format(class_id=class_id)
+        source = MemoryPageSource({form_url: form_html(extra_series_options=cached_series)})
+        fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+        resolver = StatsguruIdResolver(fetcher, budget=20)
+
+        warm = run(resolver.lookup_series(class_id, "Alpha Cup 2026"))
+        source.pages[form_url] = form_html(extra_series_options=cached_series + new_series)
+        result = run(resolver.lookup_series(class_id, query))
+
+        assert warm.match.value == 801
+        assert result.status == LookupStatus.MATCH
+        assert result.match.value == new_value
+        assert source.requests == [form_url, form_url]
+
+
+def test_on_demand_series_miss_refetches_when_cached_word_order_differs() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    query = "New Zealand in Pakistan T20I Series, 2024"
+    cached_series = '<option value="901">Pakistan in New Zealand T20I Series, 2024/25</option>'
+    new_series = '<option value="902">New Zealand in Pakistan T20I Series, 2024</option>'
+    source = MemoryPageSource({form_url: form_html(extra_series_options=cached_series)})
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    warm = run(resolver.lookup_series(class_id, "Alpha Cup 2026"))
+    source.pages[form_url] = form_html(extra_series_options=cached_series + new_series)
+    result = run(resolver.lookup_series(class_id, query))
+
+    assert warm.match.value == 801
+    assert result.status == LookupStatus.MATCH
+    assert result.match.value == 902
+    assert source.requests == [form_url, form_url]
+
+
+def test_ground_digits_must_match_exactly_for_fuzzy_typos() -> None:
+    digit = resolve_name(1, "ground", "Oval 1", {1: "AAA: Oval 2"})
+    short_word = resolve_name(
+        3,
+        "series",
+        "ICC Men's T20 World Cup Sub Regional Europe Qualifier B, 2026",
+        {1: "ICC Men's T20 World Cup Sub Regional Europe Qualifier A, 2026"},
+    )
+
+    assert digit.needs_clarification is True
+    assert digit.match is None
+    assert short_word.needs_clarification is True
+    assert short_word.match is None
 
 
 def test_on_demand_series_without_season_returns_edition_candidates() -> None:
