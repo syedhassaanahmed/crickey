@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
@@ -44,17 +45,20 @@ def module_text_from_html_by_class(
         continents[class_id] = _table(form, "continent")
         trophies[class_id] = _table(form, "trophy")
 
-    return "".join(
-        (
-            GENERATED_HEADER.format(generated_on=generated_on.isoformat()),
-            _emit_tuple("CLASS_IDS", CLASS_IDS),
-            _emit_dict("FIRST_MATCH_DATES", first_match_dates),
-            _emit_nested_dict("TEAMS", teams),
-            _emit_nested_dict("HOSTS", hosts),
-            _emit_nested_dict("CONTINENTS", continents),
-            _emit_nested_dict("TROPHIES", trophies),
-            _emit_tuple("OPPOSITION_DIFFERS_FROM_TEAM_CLASSES", tuple(opposition_differs)),
-        )
+    return (
+        "".join(
+            (
+                GENERATED_HEADER.format(generated_on=generated_on.isoformat()),
+                _emit_tuple("CLASS_IDS", CLASS_IDS),
+                _emit_dict("FIRST_MATCH_DATES", first_match_dates),
+                _emit_nested_dict("TEAMS", teams),
+                _emit_nested_dict("HOSTS", hosts),
+                _emit_nested_dict("CONTINENTS", continents),
+                _emit_nested_dict("TROPHIES", trophies),
+                _emit_tuple("OPPOSITION_DIFFERS_FROM_TEAM_CLASSES", tuple(opposition_differs)),
+            )
+        ).rstrip()
+        + "\n"
     )
 
 
@@ -95,7 +99,7 @@ def _emit_tuple(name: str, values: tuple[int, ...]) -> str:
 def _emit_dict(name: str, values: Mapping[int, str]) -> str:
     lines = [f"{name}: dict[int, str] = {{\n"]
     for key in sorted(values):
-        lines.append(f"    {key!r}: {values[key]!r},\n")
+        lines.append(f"    {key}: {_string_literal(values[key])},\n")
     lines.append("}\n\n")
     return "".join(lines)
 
@@ -103,12 +107,16 @@ def _emit_dict(name: str, values: Mapping[int, str]) -> str:
 def _emit_nested_dict(name: str, values: Mapping[int, Mapping[int, str]]) -> str:
     lines = [f"{name}: dict[int, dict[int, str]] = {{\n"]
     for class_id in CLASS_IDS:
-        lines.append(f"    {class_id!r}: {{\n")
+        lines.append(f"    {class_id}: {{\n")
         for item_id in sorted(values[class_id]):
-            lines.append(f"        {item_id!r}: {values[class_id][item_id]!r},\n")
+            lines.append(f"        {item_id}: {_string_literal(values[class_id][item_id])},\n")
         lines.append("    },\n")
     lines.append("}\n\n")
     return "".join(lines)
+
+
+def _string_literal(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False)
 
 
 async def _fetch_html_by_class(output_dir: Path | None) -> dict[int, str]:
@@ -130,6 +138,15 @@ async def _fetch_html_by_class(output_dir: Path | None) -> dict[int, str]:
     return html_by_class
 
 
+def _read_html_by_class(input_dir: Path) -> dict[int, str]:
+    return {
+        class_id: (input_dir / f"gen_ids_class_{class_id}_advanced_batting.html").read_text(
+            encoding="utf-8"
+        )
+        for class_id in CLASS_IDS
+    }
+
+
 def _append_index(index_path: Path, page_name: str, url: str) -> None:
     line = f"- {date.today().isoformat()} `{page_name}`: {url}\n"
     if index_path.exists() and line in index_path.read_text(encoding="utf-8"):
@@ -139,8 +156,13 @@ def _append_index(index_path: Path, page_name: str, url: str) -> None:
 
 
 async def _main_async(args: argparse.Namespace) -> None:
-    html_by_class = await _fetch_html_by_class(args.save_pages)
-    text = module_text_from_html_by_class(html_by_class, generated_on=date.today())
+    html_by_class = (
+        _read_html_by_class(args.input_pages)
+        if args.input_pages is not None
+        else await _fetch_html_by_class(args.save_pages)
+    )
+    generated_on = args.generated_on or date.today()
+    text = module_text_from_html_by_class(html_by_class, generated_on=generated_on)
     args.output.write_text(text, encoding="utf-8", newline="\n")
 
 
@@ -148,6 +170,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate crickey's built-in Statsguru ID tables.")
     parser.add_argument("--output", type=Path, default=Path("src/crickey/id_tables.py"))
     parser.add_argument("--save-pages", type=Path, default=Path(".local/pages"))
+    parser.add_argument(
+        "--input-pages",
+        type=Path,
+        help=(
+            "Read previously saved gen_ids_class_*_advanced_batting.html pages instead of fetching."
+        ),
+    )
+    parser.add_argument(
+        "--generated-on",
+        type=date.fromisoformat,
+        help="Data-capture date to write into the generated module, as YYYY-MM-DD.",
+    )
     args = parser.parse_args()
     asyncio.run(_main_async(args))
 

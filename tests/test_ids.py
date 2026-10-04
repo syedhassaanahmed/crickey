@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import subprocess
 import sys
 from collections.abc import Awaitable
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ from crickey.ids import (
     INVOLVE_URL,
     LookupStatus,
     StatsguruIdResolver,
+    lookup_continent,
     lookup_team,
     lookup_trophy,
     resolve_name,
@@ -71,7 +73,7 @@ def form_html(
     if involve_field is not None:
         involve = (
             f'<input type="checkbox" name="{involve_field}" value="56880" checked>'
-            ' found using "babar azam": Babar Azam'
+            ' found using "babar azam": Babar Azam (PAK)'
         )
     return f"""
     <html><body><form name="gurumenu">
@@ -135,6 +137,33 @@ def test_generator_builds_exact_tables_from_synthetic_forms() -> None:
     assert namespace["OPPOSITION_DIFFERS_FROM_TEAM_CLASSES"] == ()
 
 
+def test_generator_emits_ruff_formatted_output_from_synthetic_forms() -> None:
+    html_by_class = {
+        class_id: form_html(spanmin0=f"0{index} Jan 2000", team_label=f"Class {class_id} XI")
+        for index, class_id in enumerate(CLASS_IDS, start=1)
+    }
+    text = module_text_from_html_by_class(html_by_class, generated_on=datetime(2026, 10, 4).date())
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "format",
+            "--check",
+            "--stdin-filename",
+            "src/crickey/id_tables.py",
+            "-",
+        ],
+        input=text,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_builtin_spot_checks_from_statsguru_forms() -> None:
     assert id_tables.TEAMS[2][7] == "Pakistan"
     assert id_tables.TROPHIES[2][12] == "World Cup"
@@ -146,6 +175,38 @@ def test_builtin_spot_checks_from_statsguru_forms() -> None:
     assert lookup_team(6, "Lahore Qalandars").match.value == 5799
 
 
+def test_builtin_lookup_tiers_resolve_acronyms_and_generic_names() -> None:
+    expected_matches = (
+        (lookup_trophy, 6, "IPL", 117),
+        (lookup_trophy, 6, "PSL", 205),
+        (lookup_team, 3, "USA", 11),
+        (lookup_team, 1, "SA", 3),
+        (lookup_trophy, 2, "Cricket World Cup", 12),
+        (lookup_trophy, 2, "ICC Cricket World Cup", 12),
+        (lookup_trophy, 3, "T20 World Cup", 89),
+        (lookup_trophy, 11, "T20 World Cup", 89),
+    )
+
+    for lookup, class_id, query, value in expected_matches:
+        result = lookup(class_id, query)
+        assert result.status == LookupStatus.MATCH
+        assert result.match.value == value
+
+
+def test_builtin_lookup_returns_candidates_for_collisions_and_unsafe_fuzzy_matches() -> None:
+    big_bash = lookup_trophy(6, "Big Bash")
+    team_sa = lookup_team(6, "SA")
+    premier_league = lookup_trophy(6, "Premier League")
+    australasia = lookup_continent(1, "Australasia")
+
+    assert [candidate.value for candidate in big_bash.candidates] == [124, 158]
+    assert {candidate.value for candidate in team_sa.candidates} == {3, 154, 571}
+    assert premier_league.needs_clarification is True
+    assert premier_league.match is None
+    assert australasia.needs_clarification is True
+    assert australasia.match is None
+
+
 def test_name_lookup_exact_case_insensitive_and_fuzzy_matches() -> None:
     exact = lookup_team(2, "  pAKisTan ")
     fuzzy = lookup_team(2, "Pakstan")
@@ -154,6 +215,40 @@ def test_name_lookup_exact_case_insensitive_and_fuzzy_matches() -> None:
     assert exact.match.value == 7
     assert fuzzy.status == LookupStatus.MATCH
     assert fuzzy.match.value == 7
+
+
+def test_exact_tier_wins_before_containment_or_fuzzy_candidates() -> None:
+    result = resolve_name(1, "trophy", "Cricket", {1: "Cricket", 2: "ICC Cricket"})
+
+    assert result.status == LookupStatus.MATCH
+    assert result.match.value == 1
+
+
+def test_fuzzy_match_requires_clear_ratio_margin() -> None:
+    result = resolve_name(1, "team", "Alpha Teem", {1: "Alpha Team", 2: "Alpha Teim"})
+
+    assert result.needs_clarification is True
+    assert result.match is None
+    assert [candidate.value for candidate in result.candidates] == [1, 2]
+
+
+def test_synthetic_lookup_tiers_handle_acronym_collision_and_generic_words() -> None:
+    acronym_collision = resolve_name(
+        6,
+        "trophy",
+        "BBL",
+        {124: "Big Bash League", 158: "Bogus Bash League"},
+    )
+    generic = resolve_name(
+        3,
+        "trophy",
+        "Men's T20 World Cup",
+        {89: "ICC Men's T20 World Cup", 1006: "ICC Men's T20 World Cup Qualifier"},
+    )
+
+    assert [candidate.value for candidate in acronym_collision.candidates] == [124, 158]
+    assert generic.status == LookupStatus.MATCH
+    assert generic.match.value == 89
 
 
 def test_name_lookup_returns_candidates_for_ambiguous_and_unknown_names() -> None:
@@ -199,6 +294,7 @@ def test_on_demand_ground_series_and_involve_lookups_use_memory_source_and_cache
     assert player.match.kind == "player_involve"
     assert captain.match.value == 56880
     assert captain.match.kind == "captain_involve"
+    assert player.match.name == "Babar Azam (PAK)"
     assert cached_ground.match.value == 701
     assert cached_player.match.value == 56880
     assert source.requests == [form_url, player_url, captain_url]
@@ -211,8 +307,87 @@ def test_on_demand_lookup_miss_refetches_once() -> None:
     fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
     resolver = StatsguruIdResolver(fetcher, budget=20)
 
+    warm = run(resolver.lookup_ground(class_id, "Alpha Ground"))
+    source.pages[form_url] = form_html(include_new_ground=True)
+    result = run(resolver.lookup_ground(class_id, "New Ground"))
+
+    assert warm.match.value == 701
+    assert result.match.value == 702
+    assert source.requests == [form_url, form_url]
+
+
+def test_on_demand_lookup_first_miss_does_not_refetch() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    source = MemoryPageSource({form_url: form_html()})
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
     result = run(resolver.lookup_ground(class_id, "New Ground"))
 
     assert result.needs_clarification is True
     assert result.match is None
-    assert source.requests == [form_url, form_url]
+    assert source.requests == [form_url]
+
+
+def test_on_demand_lookup_uses_lookup_freshness_not_recent_ttl() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    clock = FakeClock()
+    source = MemoryPageSource({form_url: form_html()})
+    fetcher = Fetcher(settings(), clock=clock, page_source=source)
+
+    warm = run(StatsguruIdResolver(fetcher, budget=20).lookup_ground(class_id, "Alpha Ground"))
+    clock.monotonic_time += settings().recent_ttl.total_seconds() + 1
+    cached = run(StatsguruIdResolver(fetcher, budget=20).lookup_ground(class_id, "Alpha Ground"))
+
+    assert warm.match.value == 701
+    assert cached.match.value == 701
+    assert source.requests == [form_url]
+
+
+def test_involve_lookup_with_no_hits_returns_empty_clarification() -> None:
+    class_id = 3
+    player_url = INVOLVE_URL.format(class_id=class_id, search_field="search_player", query="nobody")
+    source = MemoryPageSource({player_url: form_html()})
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    result = run(resolver.lookup_player_involve(class_id, "nobody"))
+
+    assert result.needs_clarification is True
+    assert result.match is None
+    assert result.candidates == ()
+    assert source.requests == [player_url]
+
+
+def test_resolver_accepts_shared_fetch_call_and_progress_stream() -> None:
+    async def scenario() -> tuple[object, object, list[tuple[float, str]], list[str]]:
+        class_id = 3
+        form_url = FORM_URL.format(class_id=class_id)
+        player_url = INVOLVE_URL.format(
+            class_id=class_id, search_field="search_player", query="babar+azam"
+        )
+        source = MemoryPageSource(
+            {form_url: form_html(), player_url: form_html(involve_field="player_involve")}
+        )
+        progress_events: list[tuple[float, str]] = []
+        fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+        resolver = StatsguruIdResolver(fetcher, budget=20)
+
+        async with fetcher.call(
+            budget=20, progress=lambda seconds, reason: progress_events.append((seconds, reason))
+        ) as call:
+            ground = await resolver.lookup_ground(class_id, "Alpha Ground", call=call)
+            player = await resolver.lookup_player_involve(class_id, "babar azam", call=call)
+        return ground, player, progress_events, source.requests
+
+    ground, player, progress_events, requests = run(scenario())
+
+    assert ground.match.value == 701
+    assert player.match.value == 56880
+    assert progress_events == [(2.0, "spacing requests politely")]
+    assert requests == [
+        FORM_URL.format(class_id=3),
+        INVOLVE_URL.format(class_id=3, search_field="search_player", query="babar+azam"),
+    ]

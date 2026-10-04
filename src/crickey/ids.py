@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 import string
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 from urllib.parse import quote_plus
 
 from rapidfuzz import fuzz
@@ -19,10 +20,9 @@ INVOLVE_URL = (
     "class={class_id};filter=advanced;{search_field}={query};type=batting"
 )
 
-# Fuzzy matching policy: after case, whitespace and punctuation normalization, exact matches win.
-# Otherwise WRatio >= 90 is accepted only when it is at least three points ahead of the
-# next candidate. Scores >= 75 are useful clarification candidates; if nothing reaches
-# that bar, the nearest names are still returned so callers can ask the user to clarify.
+# Fuzzy matching policy: deterministic tiers win first. Otherwise fuzzy matches are accepted
+# only for unique whole-word containment or when fuzz.ratio is at least three points ahead of
+# the next candidate. WRatio still ranks clarification candidates.
 FUZZY_ACCEPT_SCORE = 90.0
 FUZZY_ACCEPT_MARGIN = 3.0
 FUZZY_CANDIDATE_SCORE = 75.0
@@ -31,6 +31,18 @@ MAX_CANDIDATES = 5
 _PUNCTUATION_TABLE = str.maketrans({char: " " for char in string.punctuation})
 _SPACE_RE = re.compile(r"\s+")
 _INVOLVE_LABEL_RE = re.compile(r'^found using "[^"]+":\s*(?P<name>.+)$')
+_ACRONYM_SKIP_WORDS = frozenset({"and", "of", "the"})
+_GENERIC_WORDS = frozenset({"cricket", "icc", "mens", "the"})
+
+
+class FetchCall(Protocol):
+    async def fetch(
+        self,
+        url: str,
+        *,
+        freshness: Freshness,
+        force_refetch: bool = False,
+    ) -> str: ...
 
 
 class LookupStatus(StrEnum):
@@ -88,7 +100,7 @@ def resolve_name(
     table: Mapping[int, str],
 ) -> LookupResult:
     if not table:
-        raise ValueError(f"{kind} table for class {class_id} is empty")
+        return LookupResult(LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind)
     normalized_query = _normalize(query)
     rows = tuple(IdCandidate(class_id, kind, value, label) for value, label in table.items())
     exact = tuple(candidate for candidate in rows if _normalize(candidate.name) == normalized_query)
@@ -97,6 +109,28 @@ def resolve_name(
     if len(exact) > 1:
         return LookupResult(
             LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind, candidates=exact
+        )
+
+    acronym = tuple(
+        candidate for candidate in rows if _initials(candidate.name) == normalized_query
+    )
+    if len(acronym) == 1:
+        return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=acronym[0])
+    if len(acronym) > 1:
+        return LookupResult(
+            LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind, candidates=acronym
+        )
+
+    generic = tuple(
+        candidate
+        for candidate in rows
+        if _without_generic_words(candidate.name) == _without_generic_words(query)
+    )
+    if len(generic) == 1:
+        return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=generic[0])
+    if len(generic) > 1:
+        return LookupResult(
+            LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind, candidates=generic
         )
 
     candidates = tuple(
@@ -112,14 +146,31 @@ def resolve_name(
     )
     if not candidates:
         return LookupResult(LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind)
-    best = candidates[0]
-    runner_up_score = candidates[1].score if len(candidates) > 1 else None
+    contained = _query_containment_matches(normalized_query, rows)
+    if len(contained) == 1:
+        return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=contained[0])
+    scored_by_ratio = tuple(
+        sorted(
+            (
+                _with_score(
+                    candidate, float(fuzz.ratio(normalized_query, _normalize(candidate.name)))
+                )
+                for candidate in rows
+            ),
+            key=lambda candidate: (-(candidate.score or 0.0), candidate.name, candidate.value),
+        )
+    )
+    ratio_best = scored_by_ratio[0]
+    ratio_runner_up_score = scored_by_ratio[1].score if len(scored_by_ratio) > 1 else None
     if (
-        best.score is not None
-        and best.score >= FUZZY_ACCEPT_SCORE
-        and (runner_up_score is None or best.score - runner_up_score >= FUZZY_ACCEPT_MARGIN)
+        ratio_best.score is not None
+        and ratio_best.score >= FUZZY_ACCEPT_SCORE
+        and (
+            ratio_runner_up_score is None
+            or ratio_best.score - ratio_runner_up_score >= FUZZY_ACCEPT_MARGIN
+        )
     ):
-        return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=best)
+        return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=ratio_best)
     useful = tuple(
         candidate
         for candidate in candidates
@@ -141,49 +192,85 @@ class StatsguruIdResolver:
         self._form_tables: dict[tuple[int, str], dict[int, str]] = {}
         self._involve_tables: dict[tuple[int, str, str], dict[int, str]] = {}
 
-    async def lookup_ground(self, class_id: int, name: str) -> LookupResult:
-        return await self._lookup_form_field(class_id, "ground", name)
+    async def lookup_ground(
+        self, class_id: int, name: str, *, call: FetchCall | None = None
+    ) -> LookupResult:
+        return await self._with_call(
+            call, lambda fetch_call: self._lookup_form_field(class_id, "ground", name, fetch_call)
+        )
 
-    async def lookup_series(self, class_id: int, name: str) -> LookupResult:
-        return await self._lookup_form_field(class_id, "series", name)
+    async def lookup_series(
+        self, class_id: int, name: str, *, call: FetchCall | None = None
+    ) -> LookupResult:
+        return await self._with_call(
+            call, lambda fetch_call: self._lookup_form_field(class_id, "series", name, fetch_call)
+        )
 
-    async def lookup_player_involve(self, class_id: int, name: str) -> LookupResult:
-        return await self._lookup_involve(class_id, "player_involve", "search_player", name)
+    async def lookup_player_involve(
+        self, class_id: int, name: str, *, call: FetchCall | None = None
+    ) -> LookupResult:
+        return await self._with_call(
+            call,
+            lambda fetch_call: self._lookup_involve(
+                class_id, "player_involve", "search_player", name, fetch_call
+            ),
+        )
 
-    async def lookup_captain_involve(self, class_id: int, name: str) -> LookupResult:
-        return await self._lookup_involve(class_id, "captain_involve", "search_captain", name)
+    async def lookup_captain_involve(
+        self, class_id: int, name: str, *, call: FetchCall | None = None
+    ) -> LookupResult:
+        return await self._with_call(
+            call,
+            lambda fetch_call: self._lookup_involve(
+                class_id, "captain_involve", "search_captain", name, fetch_call
+            ),
+        )
 
-    async def _lookup_form_field(self, class_id: int, field: str, name: str) -> LookupResult:
-        table = await self._form_table(class_id, field, force_refetch=False)
+    async def _with_call(
+        self,
+        call: FetchCall | None,
+        lookup: Callable[[FetchCall], Awaitable[LookupResult]],
+    ) -> LookupResult:
+        if call is not None:
+            return await lookup(call)
+        async with self._fetcher.call(budget=self._budget) as fetch_call:
+            return await lookup(fetch_call)
+
+    async def _lookup_form_field(
+        self, class_id: int, field: str, name: str, call: FetchCall
+    ) -> LookupResult:
+        table, can_refetch = await self._form_table(class_id, field, call, force_refetch=False)
         result = resolve_name(class_id, field, name, table)
-        if result.status == LookupStatus.MATCH:
+        if result.status == LookupStatus.MATCH or not can_refetch:
             return result
-        table = await self._form_table(class_id, field, force_refetch=True)
+        table, _ = await self._form_table(class_id, field, call, force_refetch=True)
         return resolve_name(class_id, field, name, table)
 
     async def _lookup_involve(
-        self, class_id: int, field: str, search_field: str, name: str
+        self, class_id: int, field: str, search_field: str, name: str, call: FetchCall
     ) -> LookupResult:
-        table = await self._involve_table(class_id, field, search_field, name, force_refetch=False)
+        table, can_refetch = await self._involve_table(
+            class_id, field, search_field, name, call, force_refetch=False
+        )
         result = resolve_name(class_id, field, name, table)
-        if result.status == LookupStatus.MATCH:
+        if result.status == LookupStatus.MATCH or not can_refetch:
             return result
-        table = await self._involve_table(class_id, field, search_field, name, force_refetch=True)
+        table, _ = await self._involve_table(
+            class_id, field, search_field, name, call, force_refetch=True
+        )
         return resolve_name(class_id, field, name, table)
 
     async def _form_table(
-        self, class_id: int, field: str, *, force_refetch: bool
-    ) -> dict[int, str]:
+        self, class_id: int, field: str, call: FetchCall, *, force_refetch: bool
+    ) -> tuple[dict[int, str], bool]:
         key = (class_id, field)
         if not force_refetch and key in self._form_tables:
-            return self._form_tables[key]
+            return self._form_tables[key], True
         url = FORM_URL.format(class_id=class_id)
-        html = await self._fetcher.fetch(
-            url, freshness=Freshness.LOOKUP, budget=self._budget, force_refetch=force_refetch
-        )
+        html = await call.fetch(url, freshness=Freshness.LOOKUP, force_refetch=force_refetch)
         table = _options_to_table(parse_filter_form(html).select_lists.get(field, ()), field)
         self._form_tables[key] = table
-        return table
+        return table, False
 
     async def _involve_table(
         self,
@@ -191,22 +278,21 @@ class StatsguruIdResolver:
         field: str,
         search_field: str,
         name: str,
+        call: FetchCall,
         *,
         force_refetch: bool,
-    ) -> dict[int, str]:
+    ) -> tuple[dict[int, str], bool]:
         normalized_name = _normalize(name)
         key = (class_id, field, normalized_name)
         if not force_refetch and key in self._involve_tables:
-            return self._involve_tables[key]
+            return self._involve_tables[key], True
         url = INVOLVE_URL.format(
             class_id=class_id, search_field=search_field, query=quote_plus(name)
         )
-        html = await self._fetcher.fetch(
-            url, freshness=Freshness.LOOKUP, budget=self._budget, force_refetch=force_refetch
-        )
+        html = await call.fetch(url, freshness=Freshness.LOOKUP, force_refetch=force_refetch)
         table = _options_to_table(parse_filter_form(html).checkbox_lists.get(field, ()), field)
         self._involve_tables[key] = table
-        return table
+        return table, False
 
 
 def _class_table(
@@ -245,3 +331,26 @@ def _with_score(candidate: IdCandidate, score: float) -> IdCandidate:
 def _normalize(value: str) -> str:
     value = value.casefold().translate(_PUNCTUATION_TABLE)
     return _SPACE_RE.sub(" ", value).strip()
+
+
+def _initials(value: str) -> str:
+    return "".join(word[0] for word in _normalize(value).split() if word not in _ACRONYM_SKIP_WORDS)
+
+
+def _without_generic_words(value: str) -> str:
+    without_apostrophes = value.replace("'", "").replace("’", "")
+    words = [word for word in _normalize(without_apostrophes).split() if word not in _GENERIC_WORDS]
+    return " ".join(words)
+
+
+def _query_containment_matches(
+    normalized_query: str, rows: tuple[IdCandidate, ...]
+) -> tuple[IdCandidate, ...]:
+    query_words = normalized_query.split()
+    if not query_words:
+        return ()
+    return tuple(
+        candidate
+        for candidate in rows
+        if all(word in _normalize(candidate.name).split() for word in query_words)
+    )
