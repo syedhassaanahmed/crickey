@@ -248,6 +248,15 @@ class StatsguruQuery(BaseModel):
     groupby: str | None = None
     period: Period = None
     qualifications: tuple[Qualification, ...] = ()
+    qualval1: str | None = None
+    qualmin1: Decimal | int | None = None
+    qualmax1: Decimal | int | None = None
+    qualval2: str | None = None
+    qualmin2: Decimal | int | None = None
+    qualmax2: Decimal | int | None = None
+    qualval3: str | None = None
+    qualmin3: Decimal | int | None = None
+    qualmax3: Decimal | int | None = None
     orderby: str | None = None
     orderbyad: Literal["", "reverse"] = ""
     size: Literal[10, 25, 50, 100, 150, 200] = 50
@@ -325,6 +334,7 @@ class StatsguruQuery(BaseModel):
 
     @model_validator(mode="after")
     def validate_query(self) -> Self:
+        _merge_raw_qualifications(self)
         if self.class_ not in id_tables.CLASS_IDS:
             raise ValueError(f"unknown class {self.class_}; expected one of {id_tables.CLASS_IDS}")
         if self.view not in TYPE_VIEWS[self.class_][self.type]:
@@ -527,6 +537,25 @@ def _validate_filters_for_type(query: StatsguruQuery) -> None:
         raise ValueError(f"field {invalid[0]!r} is not valid for type {query.type!r}")
 
 
+def _merge_raw_qualifications(query: StatsguruQuery) -> None:
+    raw: list[Qualification] = []
+    for index in range(1, 4):
+        field = getattr(query, f"qualval{index}")
+        minimum = getattr(query, f"qualmin{index}")
+        maximum = getattr(query, f"qualmax{index}")
+        if field is None and minimum is None and maximum is None:
+            continue
+        if field is None:
+            raise ValueError(
+                f"qualval{index} is required when qualmin{index} or qualmax{index} is set"
+            )
+        raw.append(Qualification(field=field, minimum=minimum, maximum=maximum))
+    if raw:
+        if query.qualifications:
+            raise ValueError("use either qualifications or qualval1/qualmin1 fields, not both")
+        query.qualifications = tuple(raw)
+
+
 def _validate_quickpicks(model: BaseModel) -> None:
     if isinstance(model, StatsguruQuery):
         fields = QUICKPICK_FIELDS[model.class_][model.type]
@@ -559,6 +588,15 @@ def _provided_filter_values(model: BaseModel) -> Iterable[str]:
             "groupby",
             "period",
             "qualifications",
+            "qualval1",
+            "qualmin1",
+            "qualmax1",
+            "qualval2",
+            "qualmin2",
+            "qualmax2",
+            "qualval3",
+            "qualmin3",
+            "qualmax3",
             "orderby",
             "orderbyad",
             "size",

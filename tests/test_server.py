@@ -7,9 +7,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from mcp import Client
 
-from crickey.fetcher import Fetcher, MemoryPageSource
+from crickey.fetcher import Fetcher, FetchResponse, Freshness, MemoryPageSource
 from crickey.query import Qualification, StatsguruQuery
-from crickey.server import SERVER_INSTRUCTIONS, create_server
+from crickey.server import _freshness_for_query, create_server
 from crickey.settings import Settings
 
 pytestmark = pytest.mark.anyio
@@ -81,6 +81,28 @@ def result_page(rows: list[str], *, page: int = 1, pages: int = 1, total: int | 
     """
 
 
+def no_records_page() -> str:
+    return """
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr class="data1"><td>No records available to match this query</td></tr>
+    </table>
+    </body></html>
+    """
+
+
+def bowling_page() -> str:
+    return """
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr><th>Player</th><th>Span</th><th>Mat</th><th>Overs</th><th>Wkts</th></tr>
+    <tr class="data1"><td><a href="/ci/content/player/793463.html">Rashid Khan</a> (AFG)</td><td>2015-2026</td><td>118</td><td>449.5</td><td>197</td></tr>
+    </table>
+    <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
+    </body></html>
+    """
+
+
 def row(player_id: int, name: str, team: str, runs: int, ave: str = "50.00") -> str:
     return f"""
     <tr class="data1"><td><a href="/ci/content/player/{player_id}.html">{name}</a> ({team})</td><td>2015-2026</td><td>10</td><td>{runs}</td><td>101*</td><td>{ave}</td><td>1</td></tr>
@@ -113,9 +135,19 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert by_name["query_stats"].annotations.read_only_hint is True
         assert by_name["find_player"].description.startswith("Example:")
         assert by_name["query_stats"].description.startswith("Example:")
-        assert "answer_markdown as-is" in (client.instructions or "")
-        assert "multi-row arithmetic" in (client.instructions or "")
-        assert SERVER_INSTRUCTIONS == client.instructions
+        assert client.instructions == "\n".join(
+            [
+                "Prefer crickey's answer tools and show answer_markdown as-is when they return it.",
+                "Do not do multi-row arithmetic yourself; use crickey tools for comparisons and derived rates.",
+                "Cite only links that came from crickey tools.",
+                'Read "T20" as T20I unless a domestic or franchise league is named.',
+            ]
+        )
+        query_schema = str(by_name["query_stats"].input_schema)
+        assert "'class'" in query_schema
+        assert "'type'" in query_schema
+        assert "'orderby'" in query_schema
+        assert "'qualval1'" in query_schema
 
 
 async def test_find_player_unique_ambiguous_and_unknown() -> None:
@@ -161,7 +193,56 @@ async def test_find_player_unique_ambiguous_and_unknown() -> None:
         "query": "No Such",
         "candidates": [],
     }
+    assert "348144" in unique.content[0].text
+    assert "539305" in ambiguous.content[0].text
     assert len(source.requests) == 3
+
+
+async def test_find_player_without_format_fetches_once_and_merges_formats() -> None:
+    html = """
+    <table>
+    <tr><td>Dual Player</td><td>AAA</td><td>
+      <a href="/ci/engine/player/10.html?class=3;type=allround">Twenty20 Internationals player</a> (2020 - 2021, 2 matches)
+      <a href="/ci/engine/player/10.html?class=6;type=allround">Twenty20 matches player</a> (2019 - 2022, 40 matches)
+    </td></tr>
+    </table>
+    """
+    source, _, client = await call_with_source(
+        {
+            player_search_url("Dual+Player"): html,
+            player_search_url("Missing+Player"): "<html></html>",
+        }
+    )
+
+    async with client:
+        found = await client.call_tool("find_player", {"name": "Dual Player"})
+        missing = await client.call_tool("find_player", {"name": "Missing Player"})
+
+    assert source.requests == [
+        player_search_url("Dual+Player"),
+        player_search_url("Missing+Player"),
+    ]
+    assert found.structured_content["status"] == "match"
+    assert [item["class"] for item in found.structured_content["match"]["formats"]] == [3, 6]
+    assert missing.structured_content["status"] == "not_found"
+
+
+async def test_find_player_t20_means_t20i_and_country_filters() -> None:
+    html = """
+    <table>
+    <tr><td>Babar Azam</td><td>PAK</td><td><a href="/ci/engine/player/348144.html?class=3;type=allround">Twenty20 Internationals player</a> (2016 - 2026, 145 matches)</td></tr>
+    <tr><td>Babar Hayat</td><td>HKG</td><td><a href="/ci/engine/player/539305.html?class=3;type=allround">Twenty20 Internationals player</a> (2014 - 2026, 79 matches)</td></tr>
+    </table>
+    """
+    _, _, client = await call_with_source({player_search_url("Babar"): html})
+
+    async with client:
+        result = await client.call_tool(
+            "find_player", {"name": "Babar", "format": "t20", "country": "Hong Kong"}
+        )
+
+    assert result.structured_content["status"] == "match"
+    assert result.structured_content["match"]["id"] == 539305
 
 
 async def test_query_stats_fetch_returns_exact_rows_columns_total_link_and_label() -> None:
@@ -185,7 +266,8 @@ async def test_query_stats_fetch_returns_exact_rows_columns_total_link_and_label
                 "query": {
                     "class": 2,
                     "type": "batting",
-                    "qualifications": [{"field": "hundreds", "minimum": 10}],
+                    "qualval1": "hundreds",
+                    "qualmin1": 10,
                     "orderby": "hundreds",
                 }
             },
@@ -219,18 +301,20 @@ async def test_query_stats_fetch_returns_exact_rows_columns_total_link_and_label
     assert result.structured_content["freshness"].startswith(
         "Freshness: newest match Statsguru included is Example XI v Sample XI"
     )
+    assert "| Player" in result.content[0].text
+    assert "Babar Azam (PAK)" in result.content[0].text
+    assert f"Pinned link: [{result.structured_content['label']}]({url})" in result.content[0].text
 
 
 async def test_query_stats_limit_default_maximum_and_over_limit_error() -> None:
     query = StatsguruQuery(**{"class": 2, "type": "batting"})
     url1 = results_url(query)
-    url2 = results_url(query, page=2)
-    rows1 = [row(index, f"Player {index}", "AAA", index) for index in range(1, 151)]
-    rows2 = [row(index, f"Player {index}", "AAA", index) for index in range(151, 202)]
+    url200 = results_url(StatsguruQuery(**{"class": 2, "type": "batting", "size": 200}))
+    rows1 = [row(index, f"Player {index}", "AAA", index) for index in range(1, 201)]
     source, _, client = await call_with_source(
         {
-            url1: result_page(rows1, page=1, pages=2, total=201),
-            url2: result_page(rows2, page=2, pages=2, total=201),
+            url1: result_page(rows1, page=1, pages=3, total=520),
+            url200: result_page(rows1, page=1, pages=3, total=520),
         }
     )
 
@@ -247,7 +331,26 @@ async def test_query_stats_limit_default_maximum_and_over_limit_error() -> None:
     assert len(maximum.structured_content["rows"]) == 200
     assert over.is_error is True
     assert "limit must be from 1 to 200" in over.content[0].text
-    assert source.requests == [url1, url2]
+    assert source.requests == [url1, url200]
+
+
+async def test_query_stats_starts_at_requested_page_and_does_not_duplicate_it() -> None:
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "page": 2, "size": 200})
+    page2_url = results_url(query)
+    page2_rows = [row(index, f"Player {index}", "AAA", index) for index in range(201, 401)]
+    source, _, client = await call_with_source(
+        {page2_url: result_page(page2_rows, page=2, pages=3, total=520)}
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats",
+            {"query": {"class": 2, "type": "batting", "page": 2, "size": 200}, "limit": 200},
+        )
+
+    assert len(result.structured_content["rows"]) == 200
+    assert result.structured_content["rows"][0]["Player"] == "Player 201 (AAA)"
+    assert source.requests == [page2_url]
 
 
 async def test_query_stats_fetch_false_makes_no_request() -> None:
@@ -268,15 +371,53 @@ async def test_query_stats_fetch_false_makes_no_request() -> None:
     )
 
 
+async def test_query_stats_no_records_returns_zero_without_none_text() -> None:
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "team": 1, "opposition": 1})
+    source, _, client = await call_with_source({results_url(query): no_records_page()})
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats",
+            {"query": {"class": 2, "type": "batting", "team": 1, "opposition": 1}},
+        )
+
+    assert source.requests == [results_url(query)]
+    assert result.structured_content["total"] == 0
+    assert result.structured_content["rows"] == []
+    assert "None" not in result.content[0].text
+
+
+async def test_query_stats_displays_overs_as_statsguru_text() -> None:
+    query = StatsguruQuery(**{"class": 3, "type": "bowling", "orderby": "wickets"})
+    source, _, client = await call_with_source({results_url(query): bowling_page()})
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats", {"query": {"class": 3, "type": "bowling", "orderby": "wickets"}}
+        )
+
+    assert source.requests == [results_url(query)]
+    assert result.structured_content["rows"][0]["Overs"] == "449.5"
+    assert "449.5" in result.content[0].text
+
+
 async def test_query_stats_too_broad_and_validation_errors_are_clear_tool_errors() -> None:
-    query = StatsguruQuery(**{"class": 2, "type": "batting"})
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
     source, _, client = await call_with_source(
-        {results_url(query): result_page([row(1, "A", "AAA", 1)], pages=2, total=201)},
+        {
+            results_url(query): result_page(
+                [row(index, f"A{index}", "AAA", index) for index in range(1, 11)],
+                pages=2,
+                total=20,
+            )
+        },
         settings(max_pages=1),
     )
 
     async with client:
-        broad = await client.call_tool("query_stats", {"query": {"class": 2, "type": "batting"}})
+        broad = await client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting", "size": 10}, "limit": 20}
+        )
         invalid = await client.call_tool(
             "query_stats", {"query": {"class": 2, "type": "batting", "view": "not-a-view"}}
         )
@@ -284,11 +425,100 @@ async def test_query_stats_too_broad_and_validation_errors_are_clear_tool_errors
     assert source.requests == [results_url(query)]
     assert broad.is_error is True
     assert "too broad" in broad.content[0].text
-    assert "limit is 1" in broad.content[0].text
+    assert "more than 1 fetched pages" in broad.content[0].text
     assert invalid.is_error is True
-    assert "Invalid Statsguru query" in invalid.content[0].text
-    assert "view:" in invalid.content[0].text
+    assert "validation error" in invalid.content[0].text
+    assert "query.view" in invalid.content[0].text
     assert "not-a-view" in invalid.content[0].text
+
+
+async def test_query_stats_limit_zero_is_a_tool_error() -> None:
+    _, _, client = await call_with_source({})
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting"}, "limit": 0}
+        )
+
+    assert result.is_error is True
+    assert "limit must be from 1 to 200" in result.content[0].text
+
+
+async def test_query_stats_d17_freshness_uses_query_end_date() -> None:
+    settled = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "period": {"start": "2020-01-01", "end": "2020-12-31"},
+        }
+    )
+    recent = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "period": {"start": "2026-10-01", "end": "2026-10-04"},
+        }
+    )
+
+    assert _freshness_for_query(settled, FakeClock().now().date()) == Freshness.SETTLED
+    assert _freshness_for_query(recent, FakeClock().now().date()) == Freshness.RECENT
+
+
+async def test_query_stats_uses_time_budget_for_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    import crickey.server as server_module
+
+    monkeypatch.setattr(server_module, "FETCH_BUDGET_SECONDS", 2.0)
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
+    page1 = results_url(query)
+    source, clock, client = await call_with_source(
+        {
+            page1: result_page(
+                [row(index, f"A{index}", "AAA", index) for index in range(1, 11)],
+                page=1,
+                pages=2,
+                total=11,
+            )
+        },
+        settings(min_interval=timedelta(seconds=3)),
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats",
+            {"query": {"class": 2, "type": "batting", "size": 10}, "limit": 11},
+        )
+
+    assert source.requests == [page1]
+    assert clock.sleeps == []
+    assert result.is_error is True
+    assert "Not enough time left" in result.content[0].text
+
+
+async def test_blocked_and_unavailable_pages_are_clear_tool_errors() -> None:
+    query = StatsguruQuery(**{"class": 2, "type": "batting"})
+    url = results_url(query)
+    blocked_source, _, blocked_client = await call_with_source(
+        {url: FetchResponse(url=url, status_code=403, headers={}, text="<html>Statsguru</html>")}
+    )
+    unavailable_source, _, unavailable_client = await call_with_source(
+        {url: FetchResponse(url=url, status_code=404, headers={}, text="<html>Statsguru</html>")}
+    )
+
+    async with blocked_client:
+        blocked = await blocked_client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting"}}
+        )
+    async with unavailable_client:
+        unavailable = await unavailable_client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting"}}
+        )
+
+    assert blocked_source.requests == [url]
+    assert blocked.is_error is True
+    assert "blocked" in blocked.content[0].text
+    assert unavailable_source.requests == [url]
+    assert unavailable.is_error is True
+    assert "unavailable" in unavailable.content[0].text
 
 
 async def test_progress_notifications_are_sent_during_spacing_wait() -> None:
@@ -317,4 +547,4 @@ async def test_progress_notifications_are_sent_during_spacing_wait() -> None:
     assert len(result.structured_content["rows"]) == 2
     assert source.requests == [url1, url2]
     assert clock.sleeps == [3.0]
-    assert events == [(0.0, None, "spacing requests politely for 3 seconds")]
+    assert events == [(3.0, None, "spacing requests politely for 3 seconds")]

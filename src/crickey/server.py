@@ -12,11 +12,19 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import ValidationError
 
-from crickey.fetcher import Fetcher, FetcherError, Freshness, freshness_from_end_date
-from crickey.parsers import PlayerFormat, ResultsPage, Span, StatsguruParseError, parse_results_page
-from crickey.query import QuerySpecError, ResolvedPeriod, StatsguruQuery
+from crickey.fetcher import Fetcher, FetcherError, Freshness, TooBroadError, freshness_from_end_date
+from crickey.parsers import (
+    Overs,
+    PlayerFormat,
+    ResultsPage,
+    Span,
+    StatsguruParseError,
+    parse_results_page,
+)
+from crickey.query import QuerySpecError, ResolvedPeriod, StatsguruQuery, player_search_url
 from crickey.render import freshness_line
-from crickey.resolve import NameResolver, PlayerCandidate
+from crickey.resolve import PlayerCandidate
+from crickey.resolve import _player_resolution_from_html as player_resolution_from_html
 from crickey.settings import Settings
 
 SERVER_INSTRUCTIONS = """\
@@ -80,22 +88,17 @@ def create_server(
         if not name.strip():
             raise ToolError("name is required.")
         class_ids = (_format_class(format),) if format is not None else _DEFAULT_FIND_CLASSES
-        resolver = NameResolver(fetcher, budget=FIND_PLAYER_BUDGET_SECONDS)
         candidates: dict[int, PlayerCandidate] = {}
         progress = _progress_callback(ctx)
         try:
             async with fetcher.call(budget=FIND_PLAYER_BUDGET_SECONDS, progress=progress) as call:
-                for class_id in class_ids:
-                    resolution = await resolver.resolve_player(
-                        name, class_id=class_id, country=country, call=call
-                    )
-                    found = resolution.candidates
-                    if resolution.match is not None:
-                        found = (*found, resolution.match)
-                    for candidate in found:
-                        candidates[candidate.player_id] = _merge_candidate(
-                            candidates.get(candidate.player_id), candidate
-                        )
+                url = player_search_url(name)
+                was_cached = fetcher.cache.get(url, fetcher.clock.monotonic()) is not None
+                html = await call.fetch(url, freshness=Freshness.LOOKUP)
+                candidates = _player_candidates_from_search(name, html, class_ids, country)
+                if not candidates and was_cached:
+                    html = await call.fetch(url, freshness=Freshness.LOOKUP, force_refetch=True)
+                    candidates = _player_candidates_from_search(name, html, class_ids, country)
         except (FetcherError, StatsguruParseError) as error:
             raise ToolError(str(error)) from error
 
@@ -106,7 +109,9 @@ def create_server(
             if name.casefold().strip()
             in {candidate.name.casefold(), (candidate.full_name or "").casefold()}
         ]
-        status = "match" if len(exact) == 1 and len(ordered) == 1 else "needs_clarification"
+        status = (
+            "match" if len(ordered) == 1 and (exact or country or format) else "needs_clarification"
+        )
         if not ordered:
             status = "not_found"
         payload = {
@@ -127,7 +132,7 @@ def create_server(
         ),
     )
     async def query_stats(
-        query: dict[str, Any],
+        query: StatsguruQuery,
         limit: int = DEFAULT_QUERY_STATS_LIMIT,
         fetch: bool = True,
         ctx: Context | None = None,
@@ -135,10 +140,11 @@ def create_server(
         if limit < 1 or limit > MAX_QUERY_STATS_LIMIT:
             raise ToolError(f"limit must be from 1 to {MAX_QUERY_STATS_LIMIT}.")
         try:
-            stats_query = StatsguruQuery.model_validate(query)
+            stats_query = query
             as_of = _today(fetcher)
-            url = stats_query.results_url(as_of=as_of)
-            label = stats_query.label(as_of=as_of)
+            fetch_query = _query_for_limit(stats_query, limit)
+            url = fetch_query.results_url(as_of=as_of)
+            label = fetch_query.label(as_of=as_of)
         except (ValidationError, QuerySpecError, ValueError) as error:
             raise ToolError(_validation_message(error)) from error
 
@@ -150,23 +156,33 @@ def create_server(
         progress = _progress_callback(ctx)
         try:
             async with fetcher.call(budget=FETCH_BUDGET_SECONDS, progress=progress) as call:
-                pages = await call.fetch_pages(
-                    url,
-                    lambda page: stats_query.model_copy(update={"page": page}).results_url(
-                        as_of=as_of
-                    ),
-                    freshness=_freshness_for_query(stats_query, as_of),
+                parsed_pages = await _fetch_limited_pages(
+                    call,
+                    fetch_query,
+                    limit=limit,
+                    as_of=as_of,
+                    freshness=_freshness_for_query(fetch_query, as_of),
+                    max_pages=settings.max_pages,
                 )
         except FetcherError as error:
             raise ToolError(str(error)) from error
-
-        try:
-            parsed_pages = tuple(parse_results_page(page) for page in pages)
         except StatsguruParseError as error:
             raise ToolError(str(error)) from error
 
         first_page = parsed_pages[0]
         columns = _display_columns(first_page)
+        if first_page.no_records:
+            freshness = freshness_line(first_page.current_or_recent_matches, today=as_of)
+            payload.update(
+                {
+                    "columns": list(columns),
+                    "rows": [],
+                    "total": 0,
+                    "page_count": first_page.totals.pages,
+                    "freshness": freshness,
+                }
+            )
+            return _tool_result(f"No records found for {label}. {freshness}", payload)
         rows = [
             _display_row(row, columns)
             for page in parsed_pages
@@ -177,13 +193,13 @@ def create_server(
             {
                 "columns": list(columns),
                 "rows": rows,
-                "total": first_page.totals.total,
+                "total": first_page.totals.total or len(rows),
                 "page_count": first_page.totals.pages,
                 "freshness": freshness,
             }
         )
         return _tool_result(
-            f"Fetched {len(rows)} row(s) of {first_page.totals.total} for {label}. {freshness}",
+            f"Fetched {len(rows)} row(s) of {payload['total']} for {label}. {freshness}",
             payload,
         )
 
@@ -217,6 +233,22 @@ def _merge_candidate(
         existing.country_codes,
         tuple(sorted(formats.values(), key=lambda fmt: fmt.class_id)),
     )
+
+
+def _player_candidates_from_search(
+    name: str, html: str, class_ids: tuple[int, ...], country: str | None
+) -> dict[int, PlayerCandidate]:
+    candidates: dict[int, PlayerCandidate] = {}
+    for class_id in class_ids:
+        resolution = player_resolution_from_html(name, html, class_id=class_id, country=country)
+        found = resolution.candidates
+        if resolution.match is not None:
+            found = (*found, resolution.match)
+        for candidate in found:
+            candidates[candidate.player_id] = _merge_candidate(
+                candidates.get(candidate.player_id), candidate
+            )
+    return candidates
 
 
 def _candidate_payload(candidate: PlayerCandidate) -> dict[str, Any]:
@@ -255,6 +287,49 @@ def _freshness_for_query(query: StatsguruQuery, as_of: date) -> Freshness:
     return freshness_from_end_date(as_of, today=as_of)
 
 
+def _query_for_limit(query: StatsguruQuery, limit: int) -> StatsguruQuery:
+    if query.size != DEFAULT_QUERY_STATS_LIMIT or limit <= query.size:
+        return query
+    for size in (100, 150, 200):
+        if limit <= size:
+            return query.model_copy(update={"size": size})
+    return query.model_copy(update={"size": MAX_QUERY_STATS_LIMIT})
+
+
+async def _fetch_limited_pages(
+    call,
+    query: StatsguruQuery,
+    *,
+    limit: int,
+    as_of: date,
+    freshness: Freshness,
+    max_pages: int,
+) -> tuple[ResultsPage, ...]:
+    pages: list[ResultsPage] = []
+    current_page = query.page or 1
+    while True:
+        page_query = (
+            query
+            if current_page == (query.page or 1)
+            else query.model_copy(update={"page": current_page})
+        )
+        html = await call.fetch(page_query.results_url(as_of=as_of), freshness=freshness)
+        page = parse_results_page(html)
+        pages.append(page)
+        rows = sum(len(parsed.table) for parsed in pages)
+        if page.no_records or rows >= limit:
+            return tuple(pages)
+        if len(pages) >= max_pages:
+            raise TooBroadError(
+                f"That query is too broad: it needs more than {max_pages} fetched pages "
+                f"to return {limit} rows."
+            )
+        total_pages = page.totals.pages or current_page
+        if current_page >= total_pages:
+            return tuple(pages)
+        current_page += 1
+
+
 def _today(fetcher: Fetcher) -> date:
     return fetcher.clock.now().date()
 
@@ -284,6 +359,8 @@ def _display_value(row: Mapping[str, Any], column: str) -> Any:
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Decimal):
         return format(value, "f")
+    if isinstance(value, Overs):
+        return f"{value.overs}.{value.balls}" if value.balls else str(value.overs)
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, Span):
@@ -301,9 +378,62 @@ def _jsonable(value: Any) -> Any:
 
 def _tool_result(summary: str, structured_content: Mapping[str, Any]) -> CallToolResult:
     return CallToolResult(
-        content=[TextContent(type="text", text=summary)],
+        content=[TextContent(type="text", text=_text_content(summary, structured_content))],
         structured_content=_jsonable(dict(structured_content)),
     )
+
+
+def _text_content(summary: str, structured_content: Mapping[str, Any]) -> str:
+    lines = [summary]
+    link = structured_content.get("link")
+    label = structured_content.get("label")
+    if link is not None:
+        lines.extend(["", f"Pinned link: [{label}]({link})"])
+    candidates = structured_content.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        lines.extend(["", _markdown_table(("ID", "Name", "Country"), _candidate_rows(candidates))])
+    rows = structured_content.get("rows")
+    columns = structured_content.get("columns")
+    if isinstance(rows, list) and rows and isinstance(columns, list):
+        display_columns = tuple(str(column) for column in columns[:8])
+        display_rows = [
+            tuple(row.get(column) for column in display_columns)
+            for row in rows[:10]
+            if isinstance(row, Mapping)
+        ]
+        lines.extend(["", _markdown_table(display_columns, display_rows)])
+    return "\n".join(lines)
+
+
+def _candidate_rows(candidates: list[Any]) -> list[tuple[Any, ...]]:
+    return [
+        (candidate.get("id"), candidate.get("name"), "/".join(candidate.get("country", [])))
+        for candidate in candidates[:10]
+        if isinstance(candidate, Mapping)
+    ]
+
+
+def _markdown_table(headers: tuple[str, ...], rows: Iterable[tuple[Any, ...]]) -> str:
+    rendered_rows = [tuple("" if value is None else str(value) for value in row) for row in rows]
+    widths = [len(header) for header in headers]
+    for row in rendered_rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+    header_line = (
+        "| "
+        + " | ".join(_pad(header, widths[index]) for index, header in enumerate(headers))
+        + " |"
+    )
+    separator = "| " + " | ".join("-" * width for width in widths) + " |"
+    body = [
+        "| " + " | ".join(_pad(value, widths[index]) for index, value in enumerate(row)) + " |"
+        for row in rendered_rows
+    ]
+    return "\n".join([header_line, separator, *body])
+
+
+def _pad(value: str, width: int) -> str:
+    return value + " " * (width - len(value))
 
 
 def _validation_message(error: Exception) -> str:
@@ -320,12 +450,15 @@ def _validation_message(error: Exception) -> str:
 def _progress_callback(ctx: Context | None):
     if ctx is None:
         return None
+    progress = 0.0
 
     async def report(seconds: float, reason: str) -> None:
+        nonlocal progress
+        progress += seconds if seconds > 0 else 1
         if seconds > 0:
             message = f"{reason} for {seconds:g} seconds"
         else:
             message = reason
-        await ctx.report_progress(0, message=message)
+        await ctx.report_progress(progress, message=message)
 
     return report
