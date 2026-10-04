@@ -10,6 +10,8 @@ import pytest
 from crickey.cli import build_parser, main
 from crickey.settings import Settings, SettingsError, load_settings
 
+pytestmark = pytest.mark.usefixtures("stub_cli_transports")
+
 ENV_NAMES = (
     "CRICKEY_MIN_INTERVAL",
     "CRICKEY_MAX_RETRIES",
@@ -122,6 +124,7 @@ def test_every_serve_flag_overrides_default() -> None:
 def test_plain_crickey_accepts_serve_flags(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
+    stub_cli_transports: list[tuple[str, Settings]],
 ) -> None:
     _clear_crickey_env(monkeypatch)
 
@@ -131,13 +134,16 @@ def test_plain_crickey_accepts_serve_flags(
     serve_status = main(["serve", "--port", "9000"])
     serve_output = capsys.readouterr()
 
-    assert plain_status == serve_status == 1
+    assert plain_status == serve_status == 0
     assert plain_output == serve_output
     assert plain_output.out == ""
-    assert (
-        plain_output.err
-        == "crickey serve is a placeholder; HTTP transport will be implemented in issue #10.\n"
-    )
+    assert plain_output.err == ""
+    assert [(name, settings.port) for name, settings in stub_cli_transports] == [
+        ("create_server", 9000),
+        ("serve_http", 9000),
+        ("create_server", 9000),
+        ("serve_http", 9000),
+    ]
 
 
 @pytest.mark.parametrize("command", ["serve", "stdio"])
