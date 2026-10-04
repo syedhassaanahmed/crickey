@@ -98,6 +98,8 @@ case "$cmd" in
   logs)
     if [[ "$scenario" == fast_crash ]]; then
       echo 'fast crash log'
+    elif [[ "$scenario" == health_crash ]]; then
+      echo 'health crash log'
     else
       echo 'stdout log'
       echo 'stderr log' >&2
@@ -141,7 +143,7 @@ case "$cmd" in
       exit 0
     fi
     printf '%s\n' "$*" > "$state_dir/stdio_args"
-    if [[ "$scenario" == non_json_stdio ]]; then
+    if [[ "$scenario" == non_json_stdio || "$scenario" == stdio_running_cleanup ]]; then
       echo 'banner on stdout'
       exit 0
     fi
@@ -157,6 +159,9 @@ case "$cmd" in
         printf '{{"jsonrpc":"2.0","id":%s,"result":{{"tools":%s}}}}\n' "$id" "$tools"
       fi
     done
+    if [[ "$scenario" == stdio_exit_5 ]]; then
+      exit 5
+    fi
     exit 0
     ;;
 esac
@@ -186,6 +191,11 @@ while (($#)); do
   esac
 done
 if [[ "$url" == */health ]]; then
+  if [[ "$scenario" == health_crash ]]; then
+    echo false > "$SMOKE_STATE_DIR/http_running"
+    echo 2 > "$SMOKE_STATE_DIR/http_exit"
+    exit 7
+  fi
   printf '{"status":"ok"}'
   exit 0
 fi
@@ -203,12 +213,16 @@ case "$method" in
     is_error=false
     fetch=false
     rows='[]'
+    total_fragment='"total":null,'
     if [[ "$scenario" == weak_link ]]; then link='https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;spanmax1=04+Oct+2026;template=results;type=batting'; fi
     if [[ "$scenario" == missing_spanmax ]]; then link='https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;spanmin1=05+Jan+1971;template=results;type=batting'; fi
+    if [[ "$scenario" == link_prefix ]]; then link='https://example.test/ci/engine/stats/index.html?spanmin1=x;spanmax1=y'; fi
     if [[ "$scenario" == is_error ]]; then is_error=true; fi
     if [[ "$scenario" == fetch_true ]]; then fetch=true; fi
     if [[ "$scenario" == rows_nonempty ]]; then rows='[{"Player":"A"}]'; fi
-    printf '{"jsonrpc":"2.0","id":%s,"result":{"isError":%s,"structuredContent":{"link":"%s","fetch":%s,"total":null,"rows":%s}}}' "$id" "$is_error" "$link" "$fetch" "$rows" > "$output"
+    if [[ "$scenario" == missing_total ]]; then total_fragment=''; fi
+    if [[ "$scenario" == total_nonnull ]]; then total_fragment='"total":1,'; fi
+    printf '{"jsonrpc":"2.0","id":%s,"result":{"isError":%s,"structuredContent":{"link":"%s","fetch":%s,%s"rows":%s}}}' "$id" "$is_error" "$link" "$fetch" "$total_fragment" "$rows" > "$output"
     if [[ "$scenario" == not_running_before_stop ]]; then echo false > "$SMOKE_STATE_DIR/http_running"; fi
     ;;
   *)
@@ -252,11 +266,12 @@ def test_smoke_script_success_checks_docker_arguments(fake_bin: Path, tmp_path: 
     assert "docker run --rm --entrypoint id crickey:fake -u" in calls
     assert "docker image inspect" not in calls
     assert "--read-only -p 127.0.0.1::8765 crickey:fake" in (state / "create_args").read_text()
-    assert "--name crickey-smoke-stdio-" in (state / "stdio_args").read_text()
-    assert "--read-only crickey:fake stdio" in (state / "stdio_args").read_text()
+    stdio_args = (state / "stdio_args").read_text()
+    assert "--name crickey-smoke-stdio-" in stdio_args
+    assert "--rm" in stdio_args
+    assert "--read-only crickey:fake stdio" in stdio_args
     removed = (state / "removed").read_text().splitlines()
     assert "httpcid" in removed
-    assert any(name.startswith("crickey-smoke-stdio-") for name in removed)
 
 
 @SKIP_BASH
@@ -274,11 +289,15 @@ def test_non_root_check_pulls_missing_local_image(fake_bin: Path, tmp_path: Path
     [
         ("startup_crash", "HTTP container exited before Docker published a port"),
         ("fast_crash", "HTTP container exited before Docker published a port"),
+        ("health_crash", "HTTP container exited before /health"),
         ("weak_link", "invalid structuredContent"),
         ("missing_spanmax", "invalid structuredContent"),
+        ("link_prefix", "invalid structuredContent"),
         ("is_error", "invalid structuredContent"),
         ("fetch_true", "invalid structuredContent"),
         ("rows_nonempty", "invalid structuredContent"),
+        ("missing_total", "invalid structuredContent"),
+        ("total_nonnull", "invalid structuredContent"),
         ("wrong_tools", "tool names were"),
         ("four_tools", "tool names were"),
         ("root_uid", "container runs as root"),
@@ -287,6 +306,8 @@ def test_non_root_check_pulls_missing_local_image(fake_bin: Path, tmp_path: Path
         ("stop_failure", "docker stop failed"),
         ("stop_nonzero", "exited with code 143"),
         ("non_json_stdio", "stdio emitted non-JSON-RPC line"),
+        ("stdio_exit_5", "stdio docker run exited with status 5"),
+        ("stdio_running_cleanup", "stdio emitted non-JSON-RPC line"),
     ],
 )
 def test_smoke_script_failure_scenarios_remove_containers(
@@ -298,85 +319,10 @@ def test_smoke_script_failure_scenarios_remove_containers(
     if scenario != "root_uid":
         removed = (tmp_path / "state" / "removed").read_text().splitlines()
         assert "httpcid" in removed
-        if scenario == "non_json_stdio":
+        if scenario in {"non_json_stdio", "stdio_running_cleanup"}:
             assert any(name.startswith("crickey-smoke-stdio-") for name in removed)
-
-
-@SKIP_BASH
-@pytest.mark.parametrize(
-    ("scenario", "needle", "replacement"),
-    [
-        (
-            "four_tools",
-            'readonly EXPECTED_TOOLS=\'["better_than_player","find_player","leaderboard","player_record","query_stats"]\'',
-            'readonly EXPECTED_TOOLS=\'["better_than_player","find_player","leaderboard","query_stats"]\'',
-        ),
-        ("root_uid", "  assert_non_root\n", "  : # mutated non-root check removed\n"),
-        (
-            "slow_stop",
-            "  (( stop_ms < STOP_THRESHOLD_MS )) || fail",
-            "  true || fail",
-        ),
-        (
-            "not_running_before_stop",
-            '  container_running || fail "HTTP container was not running before docker stop; exit code $(container_exit_code)"',
-            '  true || fail "HTTP container was not running before docker stop; exit code $(container_exit_code)"',
-        ),
-        ("is_error", ".result.isError == false and", "true and"),
-        ("fetch_true", ".result.structuredContent.fetch == false and", "true and"),
-        ("rows_nonempty", ".result.structuredContent.rows == []", "true"),
-        (
-            "missing_spanmax",
-            '(.result.structuredContent.link | contains("spanmax1=")) and',
-            "true and",
-        ),
-    ],
-)
-def test_review_mutations_make_bad_scenarios_pass(
-    fake_bin: Path, tmp_path: Path, scenario: str, needle: str, replacement: str
-) -> None:
-    mutated = tmp_path / "mutated_smoke.sh"
-    text = SCRIPT.read_text()
-    assert needle in text
-    mutated.write_text(text.replace(needle, replacement))
-    mutated.chmod(mutated.stat().st_mode | stat.S_IXUSR)
-
-    result = _run_script(fake_bin, tmp_path, scenario, script=mutated)
-
-    assert result.returncode == 0, result.stderr
-
-
-@SKIP_BASH
-def test_review_mutation_dropping_stdio_rm_is_caught(fake_bin: Path, tmp_path: Path) -> None:
-    mutated = tmp_path / "mutated_smoke.sh"
-    needle = '  run_docker rm -f "$stdio_container_name" >/dev/null 2>&1 || true\n'
-    text = SCRIPT.read_text()
-    assert needle in text
-    mutated.write_text(text.replace(needle, ""))
-    mutated.chmod(mutated.stat().st_mode | stat.S_IXUSR)
-
-    result = _run_script(fake_bin, tmp_path, "success", script=mutated)
-
-    assert result.returncode == 0, result.stderr
-    removed = (tmp_path / "state" / "removed").read_text().splitlines()
-    assert not any(name.startswith("crickey-smoke-stdio-") for name in removed)
-
-
-@SKIP_BASH
-def test_review_mutation_weakening_create_args_is_caught(fake_bin: Path, tmp_path: Path) -> None:
-    mutated = tmp_path / "mutated_smoke.sh"
-    needle = 'run_docker create --read-only -p 127.0.0.1::8765 "$image"'
-    text = SCRIPT.read_text()
-    assert needle in text
-    mutated.write_text(text.replace(needle, 'run_docker create -p 0.0.0.0::8765 "$image"'))
-    mutated.chmod(mutated.stat().st_mode | stat.S_IXUSR)
-
-    result = _run_script(fake_bin, tmp_path, "success", script=mutated)
-
-    assert result.returncode == 0, result.stderr
-    create_args = (tmp_path / "state" / "create_args").read_text()
-    assert "--read-only" not in create_args
-    assert "0.0.0.0::8765" in create_args
+    if scenario == "health_crash":
+        assert "health crash log" in result.stderr
 
 
 def _run_script(

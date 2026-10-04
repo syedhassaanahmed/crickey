@@ -329,17 +329,14 @@ check_stdio() {
   assert_tools_json "$response"
   local stdio_stdin=${STDIO[1]}
   exec {stdio_stdin}>&-
-  set +e
-  wait "$STDIO_PID"
-  status=$?
-  set -e
+  status=0
+  wait "$STDIO_PID" || status=$?
   if (( status != 0 )); then
     fail "stdio docker run exited with status ${status}"
   fi
   local remaining
   remaining=$(run_docker ps -a --filter "name=${stdio_container_name}" --format '{{.Names}}' || true)
   [[ -z "$remaining" ]] || fail "stdio container ${stdio_container_name} was left behind"
-  run_docker rm -f "$stdio_container_name" >/dev/null 2>&1 || true
   stdio_container_name=""
 }
 
