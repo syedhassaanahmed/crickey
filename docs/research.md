@@ -198,6 +198,7 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 **Other classes:**
 - ODIs list 29 teams, T20Is 110 (including associates such as 187 Qatar and 36 Japan), combined internationals 113, and all T20 562.
 - In all T20, national teams keep their IDs (7 Pakistan, 6 India), and domestic and franchise teams have their own, for example 5799 Lahore Qalandars, 5793 Karachi Kings, 4346 Mumbai Indians and 4849 Sydney Sixers.
+- In the advanced batting forms for D3's built-in classes, the `team` and `opposition` lists are identical, so the built-in team table can be used for both filters.
 
 **Choice filters.** Checkboxes accept several values; leaving a radio blank means "either".
 

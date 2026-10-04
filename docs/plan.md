@@ -97,8 +97,9 @@ The proof-link builder implements D16, and the answer renderer D17.
 
 ## Built-in IDs
 - **Generator:** `scripts/gen_ids.py`, run only by developers, reads the advanced form pages (R4) for each format in D3 and writes the tables D18 lists into a committed Python module. Re-run it by hand when a team or league is added.
-- **On demand (D18):** grounds, series and `player_involve`/`captain_involve` IDs are read from the form pages (R4) when a query needs them, and kept in memory.
-- **Parameter meanings** live in code and are tested against synthetic form pages.
+- **Runtime resolver:** `crickey.ids` resolves built-in team, host country, continent and trophy names by class, ignoring case, extra whitespace and punctuation. Exact normalized matches win before fuzzy matching; ambiguous or unknown names return candidates for clarification.
+- **On demand (D18):** grounds, series and `player_involve`/`captain_involve` IDs are read from the form pages (R4) when a query needs them, and kept in memory. A miss refetches the lookup page once before returning candidates.
+- **Parameter meanings** live in code and are tested against synthetic form pages. The involve IDs use their own `player_involve` and `captain_involve` kinds, separate from player-page IDs.
 
 ## Fetcher
 Implements D7–D12 and D17.
