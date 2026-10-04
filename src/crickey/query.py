@@ -153,18 +153,6 @@ ASCENDING_SORT_FIELDS = {"start"}
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 SEASON_RE = re.compile(r"^\d{4}(?:/\d{2})?$")
-ASCENDING_SORT_FIELDS = {
-    "player",
-    "team",
-    "partners",
-    "start",
-    "year",
-    "season",
-    "ground",
-    "host",
-    "opposition",
-    "series",
-}
 
 Value = str | int | Decimal | date
 ValueList = Annotated[Value | Sequence[Value], Field(union_mode="left_to_right")]
@@ -347,6 +335,7 @@ class StatsguruQuery(BaseModel):
         _validate_quickpicks(self)
         _validate_multi_values(self)
         _validate_choice_values(self, CHOICE_VALUES[self.class_][self.type])
+        _validate_name_searches(self)
         _validate_ranges(self)
         _validate_season_values(self)
         _validate_built_in_ids(self)
@@ -496,12 +485,20 @@ class PlayerPageSpec(BaseModel):
         filters = _label_filters(self)
         if filters:
             pieces.append(", ".join(filters))
+        if isinstance(self.period, SymbolicPeriod):
+            raise QuerySpecError(
+                f"period {self.period.kind.value!r} must be resolved before labelling"
+            )
         pieces.append(_label_period(self._effective_period(as_of=as_of or date.today())))
         return ", ".join(pieces)
 
     def _effective_period(self, *, as_of: date) -> ResolvedPeriod | SeasonPeriod:
         if isinstance(self.period, ResolvedPeriod | SeasonPeriod):
             return self.period
+        if isinstance(self.period, SymbolicPeriod):
+            raise QuerySpecError(
+                f"period {self.period.kind.value!r} must be resolved before compiling"
+            )
         return ResolvedPeriod(
             start=_parse_table_date(id_tables.FIRST_MATCH_DATES[self.class_]), end=as_of
         )
@@ -609,6 +606,13 @@ def _validate_choice_values(model: BaseModel, choices: Mapping[str, set[str]]) -
                     f"{field} value {item!r} is not valid; expected one of "
                     f"{', '.join(sorted(allowed))}"
                 )
+
+
+def _validate_name_searches(query: StatsguruQuery) -> None:
+    if query.search_player is not None and query.player_involve is None:
+        raise ValueError("search_player must be resolved to player_involve IDs first")
+    if query.search_captain is not None and query.captain_involve is None:
+        raise ValueError("search_captain must be resolved to captain_involve IDs first")
 
 
 def _validate_season_values(model: BaseModel) -> None:
@@ -807,11 +811,11 @@ def _label_filters(model: BaseModel) -> list[str]:
         prefix = "excluding " if getattr(model, "captain_involve_type", None) == "none" else ""
         labels.append(f"{prefix}captain involve {_join_words(selected, conjunction='or')}")
     simple_fields = (
+        "season",
         "ground",
         "series",
         "search_player",
         "search_captain",
-        "innings_number",
     )
     for field in simple_fields:
         value = getattr(model, field, None)

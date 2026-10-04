@@ -172,7 +172,7 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 | All-round | All the batting, bowling and fielding fields above |
 | Partnerships (`fow`) | Partnership runs (`partnership_runsmin1`, `partnership_runsmax1`, `partnership_runsquickpick`; 0–624); For wicket (`partnership_wicketmin1`, `partnership_wicketmax1`, `partnership_wicketquickpick`; 1–10); `fow_type` (1 out, 2 not out, 3 end of innings). No age, debut/last match, Captaincy or Wicketkeeper. |
 | Team | Team runs (`runsmin1`, `runsmax1`, `runsquickpick`; 0–952); Team wickets (`wicketsmin1`, `wicketsmax1`, `wicketsquickpick`; 0–10); Team balls received/bowled (`ballsmin1`, `ballsmax1`, `ballsquickpick`; 0–2012); `event` (1 all out, 2 declared, 3 target reached, 4 forfeited); Team totals for (`team_view`: blank for the batting team, `bowl` for the bowling team). No age, debut/last match, Captaincy or Wicketkeeper. |
-| Aggregate | None. It also lacks opposition, home/away, result, toss, debut/last match, age, Batting or fielding first, Wicketkeeper, Innings in match and Group figures by; it still has match-involving player and captain searches. |
+| Aggregate | None. It also lacks opposition, home/away, result, toss, Captaincy, debut/last match, age, Batting or fielding first, Wicketkeeper, Innings in match and Group figures by; it still has match-involving player and captain searches. |
 
 **Bowling quick picks:**
 - `ballsquickpick`: 1 six or less, 2 30 or less, 3 30 or more, 4 60 or less, 5 60 or more, 6 100 or more, 7 200 or more.
@@ -201,7 +201,7 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 - In all T20, national teams keep their IDs (7 Pakistan, 6 India), and domestic and franchise teams have their own, for example 5799 Lahore Qalandars, 5793 Karachi Kings, 4346 Mumbai Indians and 4849 Sydney Sixers.
 - In the advanced batting forms for D3's built-in classes, the `team` and `opposition` lists are identical, so the built-in team table can be used for both filters.
 - The class 2, 3 and 6 batting forms differ from Tests: `result` offers 5 (no result) instead of 4 (drawn), `final_type` includes 3 tournament semi-finals and 4 tournament quarter-finals, `innings_number` is 1–2 only, `batting_hand` includes 3 unknown, and there is no batting `view=match`.
-- The T20I batting form additionally has `floodlit=3` for night matches, `dismissal=9` for hit the ball twice, and age range defaults of 14–62 instead of 14–52.
+- The class 3, 6 and 11 batting forms additionally have `floodlit=3` for night matches and `dismissal=9` for hit the ball twice. The T20I batting form has age range defaults of 14–62 instead of 14–52.
 
 **Choice filters.** Checkboxes accept several values; selects and radios accept one value. Leaving a radio blank means "either".
 

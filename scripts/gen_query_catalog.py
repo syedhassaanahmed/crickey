@@ -215,7 +215,11 @@ def module_text_from_pages(
         class_id: _player_page_views(form) for class_id, form in player_forms.items()
     }
     player_page_choice_values = {
-        class_id: {"batting": _choice_values(form)} for class_id, form in player_forms.items()
+        class_id: {
+            stat_type: _player_page_choice_values(forms[class_id][stat_type])
+            for stat_type in ("allround", "batting", "bowling", "fielding")
+        }
+        for class_id in CLASS_IDS
     }
 
     text = (
@@ -342,6 +346,11 @@ def _choice_values(form: FilterForm) -> dict[str, dict[str, str]]:
         if table:
             choices[field] = dict(sorted(table.items()))
     return dict(sorted(choices.items()))
+
+
+def _player_page_choice_values(form: FilterForm) -> dict[str, dict[str, str]]:
+    choices = _choice_values(form)
+    return {field: choices[field] for field in ("home_or_away", "result") if field in choices}
 
 
 def _non_empty_values(options: tuple[FormOption, ...]) -> list[str]:
