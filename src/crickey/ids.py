@@ -113,7 +113,7 @@ def resolve_name(
     exact = tuple(
         candidate
         for candidate in rows
-        if normalized_query in _normalized_name_variants(candidate.name)
+        if normalized_query in _normalized_name_variants(candidate.name, kind)
     )
     if len(exact) == 1:
         return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=exact[0])
@@ -150,7 +150,11 @@ def resolve_name(
         return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=prefix[0])
     if len(prefix) > 1:
         return LookupResult(
-            LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind, candidates=prefix
+            LookupStatus.NEEDS_CLARIFICATION,
+            query,
+            class_id,
+            kind,
+            candidates=_rank_by_wratio(normalized_query, prefix),
         )
 
     candidates = tuple(
@@ -167,7 +171,9 @@ def resolve_name(
     if not candidates:
         return LookupResult(LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind)
     contained = _query_containment_matches(normalized_query, rows)
-    if contained:
+    if len(contained) == 1:
+        return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=contained[0])
+    if len(contained) > 1:
         return LookupResult(
             LookupStatus.NEEDS_CLARIFICATION,
             query,
@@ -267,7 +273,11 @@ class StatsguruIdResolver:
     ) -> LookupResult:
         table, can_refetch = await self._form_table(class_id, field, call, force_refetch=False)
         result = resolve_name(class_id, field, name, table)
-        if result.status == LookupStatus.MATCH or not can_refetch:
+        if (
+            result.status == LookupStatus.MATCH
+            or not can_refetch
+            or _candidates_contain_query_words(result)
+        ):
             return result
         table, _ = await self._form_table(class_id, field, call, force_refetch=True)
         return resolve_name(class_id, field, name, table)
@@ -363,11 +373,12 @@ def _normalize(value: str) -> str:
     return _SPACE_RE.sub(" ", value).strip()
 
 
-def _normalized_name_variants(value: str) -> frozenset[str]:
+def _normalized_name_variants(value: str, kind: str) -> frozenset[str]:
     variants = {value}
     if ":" in value:
         variants.add(value.split(":", 1)[1].strip())
-    variants |= {_strip_trailing_parenthetical(variant) for variant in tuple(variants)}
+    if kind.endswith("_involve"):
+        variants |= {_strip_trailing_parenthetical(variant) for variant in tuple(variants)}
     variants |= {_strip_trailing_year(variant) for variant in tuple(variants)}
     return frozenset(_normalize(variant) for variant in variants)
 
@@ -377,7 +388,7 @@ def _strip_trailing_parenthetical(value: str) -> str:
 
 
 def _strip_trailing_year(value: str) -> str:
-    return re.sub(r",?\s+\d{4}\s*$", "", value).strip()
+    return re.sub(r",?\s+\d{4}(?:/\d{2,4})?\s*$", "", value).strip()
 
 
 def _initials(value: str) -> str:
@@ -388,9 +399,11 @@ def _without_generic_words(value: str, class_id: int) -> str:
     without_apostrophes = value.replace("'", "").replace("’", "")
     dropped_words = _GENERIC_WORDS | _FORMAT_WORDS_BY_CLASS.get(class_id, frozenset())
     words = [
-        _singularize(word)
+        singular
         for word in _normalize(without_apostrophes).split()
-        if word not in dropped_words
+        if word not in _GENERIC_WORDS
+        for singular in (_singularize(word),)
+        if singular not in dropped_words
     ]
     return " ".join(words)
 
@@ -440,3 +453,11 @@ def _singularize(word: str) -> str:
     if len(word) > 3 and word.endswith("s"):
         return word[:-1]
     return word
+
+
+def _candidates_contain_query_words(result: LookupResult) -> bool:
+    query_words = _normalize(result.query).split()
+    return bool(result.candidates) and all(
+        all(word in _normalize(candidate.name).split() for word in query_words)
+        for candidate in result.candidates
+    )

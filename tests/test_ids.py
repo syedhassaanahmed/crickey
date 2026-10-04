@@ -68,11 +68,16 @@ def form_html(
     series_label: str = "Alpha Cup, 2026",
     include_new_ground: bool = False,
     include_new_series: bool = False,
+    extra_ground_options: str = "",
+    extra_series_options: str = "",
     involve_field: str | None = None,
     opposition_label: str | None = None,
 ) -> str:
     new_ground = '<option value="702">BBB: New Ground</option>' if include_new_ground else ""
     new_series = '<option value="802">New Series, 2026</option>' if include_new_series else ""
+    series_options = (
+        f'<option value="801">{series_label}</option>{new_series}{extra_series_options}'
+    )
     opposition_label = team_label if opposition_label is None else opposition_label
     involve = ""
     if involve_field is not None:
@@ -106,10 +111,10 @@ def form_html(
     </select>
     <select name="ground">
       <option value="">all grounds</option>
-      <option value="{ground_value}">{ground_label}</option>{new_ground}
+      <option value="{ground_value}">{ground_label}</option>{new_ground}{extra_ground_options}
     </select>
     <select name="series">
-      <option value="">all series</option><option value="801">{series_label}</option>{new_series}
+      <option value="">all series</option>{series_options}
     </select>
     {involve}
     </form></body></html>
@@ -210,6 +215,9 @@ def test_builtin_lookup_tiers_resolve_acronyms_and_generic_names() -> None:
         (lookup_trophy, 2, "ODI World Cups", 12),
         (lookup_trophy, 2, "One-Day World Cup", 12),
         (lookup_trophy, 3, "T20I World Cup", 89),
+        (lookup_trophy, 1, "Ashes Tests", 1),
+        (lookup_trophy, 2, "World Cup ODIs", 12),
+        (lookup_trophy, 3, "T20Is World Cup", 89),
     )
 
     for lookup, class_id, query, value in expected_matches:
@@ -232,6 +240,7 @@ def test_builtin_lookup_returns_candidates_for_collisions_and_unsafe_fuzzy_match
     assert australasia.match is None
     assert lookup_trophy(3, "World T20").candidates[0].value == 89
     assert lookup_trophy(3, "ICC World T20").candidates[0].value == 89
+    assert lookup_trophy(11, "Asia Cup").status == LookupStatus.NEEDS_CLARIFICATION
     assert lookup_team(2, "India A").match is None
 
 
@@ -239,11 +248,17 @@ def test_builtin_lookup_prefix_tier_resolves_unique_team_prefixes_only() -> None
     assert lookup_team(2, "Aus").match.value == 2
     assert lookup_team(2, "Eng").match.value == 1
     assert lookup_team(2, "Pak").match.value == 7
+    assert lookup_team(2, "Au").match is None
 
     ind = lookup_team(2, "Ind")
+    sou = lookup_team(6, "Sou")
 
     assert ind.match is None
     assert [candidate.value for candidate in ind.candidates] == [4, 6]
+    assert len(sou.candidates) == 5
+    assert [candidate.score for candidate in sou.candidates] == sorted(
+        (candidate.score for candidate in sou.candidates), reverse=True
+    )
     assert lookup_continent(1, "Australasia").match is None
 
 
@@ -269,6 +284,40 @@ def test_fuzzy_match_requires_clear_ratio_margin() -> None:
 
     assert result.needs_clarification is True
     assert result.match is None
+    assert [candidate.value for candidate in result.candidates] == [1, 2]
+
+
+def test_containment_resolves_only_when_unique_and_fuzzy_singletons_do_not() -> None:
+    containment = resolve_name(1, "ground", "Eden Gardens", {1: "IND: Eden Gardens, Kolkata"})
+    fuzzy = lookup_team(2, "India A")
+
+    assert containment.status == LookupStatus.MATCH
+    assert containment.match.value == 1
+    assert fuzzy.match is None
+
+
+def test_containment_candidates_are_ranked_by_wratio() -> None:
+    result = resolve_name(1, "series", "Foo Bar", {1: "Foo Bar Baz", 2: "Bar Foo"})
+
+    assert result.needs_clarification is True
+    assert [candidate.value for candidate in result.candidates] == [2, 1]
+
+
+def test_fuzzy_candidates_keep_score_filter() -> None:
+    result = resolve_name(
+        1,
+        "team",
+        "Alpha T",
+        {
+            1: "Alpha Tigers",
+            2: "Alpha Lions",
+            3: "Beta Bears",
+            4: "Gamma Goats",
+            5: "Delta Ducks",
+            6: "Echo Eagles",
+        },
+    )
+
     assert [candidate.value for candidate in result.candidates] == [1, 2]
 
 
@@ -354,6 +403,71 @@ def test_on_demand_lookup_miss_refetches_once() -> None:
     assert warm.match.value == 701
     assert result.match.value == 702
     assert source.requests == [form_url, form_url]
+
+
+def test_on_demand_series_without_season_returns_edition_candidates() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    source = MemoryPageSource(
+        {
+            form_url: form_html(
+                extra_series_options=(
+                    '<option value="901">New Zealand in India T20I Series, 2012</option>'
+                    '<option value="902">New Zealand in India T20I Series, 2017/18</option>'
+                    '<option value="903">New Zealand in India T20I Series, 2021/22</option>'
+                    '<option value="904">New Zealand in India T20I Series, 2022/23</option>'
+                )
+            )
+        }
+    )
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    result = run(resolver.lookup_series(class_id, "New Zealand in India T20I Series"))
+
+    assert result.needs_clarification is True
+    assert [candidate.value for candidate in result.candidates] == [901, 902, 903, 904]
+    assert source.requests == [form_url]
+
+
+def test_on_demand_unique_containment_match_uses_cache_without_refetch() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    source = MemoryPageSource({form_url: form_html(ground_label="IND: Eden Gardens, Kolkata")})
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    first = run(resolver.lookup_ground(class_id, "Eden Gardens"))
+    second = run(resolver.lookup_ground(class_id, "Eden Gardens"))
+
+    assert first.match.value == 701
+    assert second.match.value == 701
+    assert source.requests == [form_url]
+
+
+def test_on_demand_cached_ambiguous_containment_does_not_refetch() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    source = MemoryPageSource(
+        {
+            form_url: form_html(
+                extra_ground_options=(
+                    '<option value="702">UAE: Dubai International Cricket Stadium</option>'
+                    '<option value="703">UAE: Dubai Sports City Cricket Stadium</option>'
+                )
+            )
+        }
+    )
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    warm = run(resolver.lookup_ground(class_id, "Alpha Ground"))
+    ambiguous = run(resolver.lookup_ground(class_id, "Dubai"))
+
+    assert warm.match.value == 701
+    assert ambiguous.needs_clarification is True
+    assert [candidate.value for candidate in ambiguous.candidates] == [702, 703]
+    assert source.requests == [form_url]
 
 
 def test_on_demand_form_url_cache_miss_refetches_across_fields() -> None:
