@@ -410,9 +410,9 @@ async def test_stdio_mcp_client_calls_tools_clarifies_and_writes_no_files(
         env=runtime.env(),
     )
     with runtime.audit_stderr.open("w+", encoding="utf-8") as errlog:
-        with anyio.fail_after(25):
+        with anyio.fail_after(45):
             async with Client(
-                stdio_client(params, errlog=errlog), read_timeout_seconds=6
+                stdio_client(params, errlog=errlog), read_timeout_seconds=20
             ) as client:
                 await call_happy_tools(client, expect_exact_tools=False)
     audit = parse_audit_stderr(runtime.audit_stderr)

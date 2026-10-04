@@ -610,6 +610,8 @@ Development machine: Windows with Python 3.14.6, uv 0.11.21, Node.js 24.21.0, Do
 
 Dockerfile frontend 1.10+ supports `env=` on secret mounts.
 
+Dependabot's supported-ecosystems documentation lists `uv` as a Python ecosystem with version updates, and dependabot-core's uv file fetcher accepts a repository with `pyproject.toml` even when no `uv.lock` is committed ("Repo must contain a requirements.txt, uv.lock, requirements.in, or pyproject.toml").
+
 ## 16. Open questions
 To check while building:
 - Does `https://www.espncricinfo.com/ci/content/player/<id>.html` open the player's profile in a browser? Scripts get 403, so check by hand.
