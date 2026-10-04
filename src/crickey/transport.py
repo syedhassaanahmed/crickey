@@ -61,15 +61,17 @@ def create_uvicorn_server(
 ) -> tuple[uvicorn.Server, socket.socket]:
     bind = bind_host(settings)
     sock = _bind_socket(bind, settings.port)
+    app = streamable_http_app(mcp, host=bind)
+    close_listen_streams = _listen_stream_closer(mcp)
     config = uvicorn.Config(
-        streamable_http_app(mcp, host=bind),
+        app,
         host=bind,
         port=settings.port,
         log_level="warning",
         timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
     )
     server = uvicorn.Server(config)
-    _close_listen_streams_on_shutdown(server, mcp)
+    _close_listen_streams_on_shutdown(server, close_listen_streams)
     return server, sock
 
 
@@ -84,26 +86,19 @@ def serve_http(mcp: MCPServer, settings: Settings) -> None:
         sock.close()
 
 
-def _close_listen_streams_on_shutdown(server: uvicorn.Server, mcp: MCPServer) -> None:
-    original_shutdown = getattr(server, "shutdown", None)
-    if original_shutdown is None:
-        return
+def _close_listen_streams_on_shutdown(server: uvicorn.Server, close_listen_streams) -> None:
+    original_shutdown = server.shutdown
 
     async def shutdown(*args, **kwargs):
-        _close_listen_streams(mcp)
+        close_listen_streams()
         return await original_shutdown(*args, **kwargs)
 
     server.shutdown = shutdown
 
 
-def _close_listen_streams(mcp: MCPServer) -> None:
-    lowlevel = getattr(mcp, "_lowlevel_server", None)
-    handlers = getattr(lowlevel, "_request_handlers", {})
-    entry = handlers.get("subscriptions/listen")
-    handler = getattr(entry, "handler", None)
-    close = getattr(handler, "close", None)
-    if close is not None:
-        close()
+def _listen_stream_closer(mcp: MCPServer):
+    handler_entry = mcp.session_manager.app.get_request_handler("subscriptions/listen")
+    return handler_entry.handler.close
 
 
 def _bind_socket(host: str, port: int) -> socket.socket:

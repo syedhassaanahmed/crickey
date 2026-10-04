@@ -277,6 +277,9 @@ def test_serve_http_binds_once_and_hands_socket_to_uvicorn(monkeypatch: pytest.M
         def __init__(self, config: uvicorn.Config) -> None:
             self.config = config
 
+        async def shutdown(self) -> None:
+            return None
+
         def run(self, sockets: list[socket.socket]) -> None:
             assert len(sockets) == 1
             bound_host, bound_port = sockets[0].getsockname()[:2]

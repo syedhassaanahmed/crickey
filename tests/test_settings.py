@@ -23,6 +23,27 @@ ENV_NAMES = (
 )
 
 
+@pytest.fixture(autouse=True)
+def stub_cli_transports(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, Settings]]:
+    calls: list[tuple[str, Settings]] = []
+
+    def fake_create_server(settings: Settings) -> Settings:
+        calls.append(("create_server", settings))
+        return settings
+
+    def fake_serve_http(server: Settings, settings: Settings) -> None:
+        assert server is settings
+        calls.append(("serve_http", settings))
+
+    def fake_run_stdio(server: Settings) -> None:
+        calls.append(("run_stdio", server))
+
+    monkeypatch.setattr(cli, "create_server", fake_create_server)
+    monkeypatch.setattr(cli, "serve_http", fake_serve_http)
+    monkeypatch.setattr(cli, "run_stdio", fake_run_stdio)
+    return calls
+
+
 def _settings_from_cli(argv: list[str]) -> Settings:
     args = build_parser().parse_args(argv)
     return load_settings(args, {})
@@ -123,18 +144,9 @@ def test_every_serve_flag_overrides_default() -> None:
 def test_plain_crickey_accepts_serve_flags(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
+    stub_cli_transports: list[tuple[str, Settings]],
 ) -> None:
     _clear_crickey_env(monkeypatch)
-    ports: list[int] = []
-
-    def fake_create_server(settings: Settings) -> object:
-        return object()
-
-    def fake_serve_http(server: object, settings: Settings) -> None:
-        ports.append(settings.port)
-
-    monkeypatch.setattr(cli, "create_server", fake_create_server)
-    monkeypatch.setattr(cli, "serve_http", fake_serve_http)
 
     assert _settings_from_cli(["--port", "9000"]).port == 9000
     plain_status = main(["--port", "9000"])
@@ -146,7 +158,12 @@ def test_plain_crickey_accepts_serve_flags(
     assert plain_output == serve_output
     assert plain_output.out == ""
     assert plain_output.err == ""
-    assert ports == [9000, 9000]
+    assert [(name, settings.port) for name, settings in stub_cli_transports] == [
+        ("create_server", 9000),
+        ("serve_http", 9000),
+        ("create_server", 9000),
+        ("serve_http", 9000),
+    ]
 
 
 @pytest.mark.parametrize("command", ["serve", "stdio"])
