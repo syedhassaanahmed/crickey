@@ -61,6 +61,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 27. **Lower bounds for mcp and ruff.** Their lower bounds are one release below R15's versions, at 2.2.0 and 0.16.9, so crickey also installs from package indexes that don't have the newest release yet. mcp 2.2.0 already supports the 2026-07-28 spec (R15), and with no committed `uv.lock` (D23), uv still installs the newest release available (D22).
 28. **Page cache storage from cachetools.** The page cache stores pages in `cachetools.TLRUCache` (R15) instead of its own LRU code; D17's freshness rules stay crickey's own.
 29. **Rate comparisons use a runs floor when needed.** When a batting answer compares average or strike rate and the user does not give a minimum, the tool uses a runs minimum rather than an innings or balls-faced minimum. That matches the golden-question sample in R10 and avoids broad rate tables that exceed D10 before the comparison can be made.
+30. **Docker local index override uses one BuildKit secret.** The Dockerfile accepts an optional secret named `uv_index_url` mounted as `UV_DEFAULT_INDEX` only for `uv sync`, so local builds can use a private package index without storing the URL in an image layer, environment variable, argument or label.
 
 ## Considered and dropped
 

@@ -608,6 +608,8 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 
 Development machine: Windows with Python 3.14.6, uv 0.11.21, Node.js 24.21.0, Docker 29.5.2, git 2.55.0, gh 2.101.0 and curl 8.21.0.
 
+Dockerfile syntax 1.10 supports BuildKit secret mounts that expose a secret as an environment variable for a single `RUN` instruction (`env=...`), which lets the image build pass `UV_DEFAULT_INDEX` to `uv sync` without recording the value in `ENV`, `ARG`, labels or final image metadata.
+
 ## 16. Open questions
 To check while building:
 - Does `https://www.espncricinfo.com/ci/content/player/<id>.html` open the player's profile in a browser? Scripts get 403, so check by hand.
