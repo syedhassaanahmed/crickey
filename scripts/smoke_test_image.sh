@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Requirements: bash 4+, docker, curl, jq, timeout.
-set -euo pipefail
+set -Eeuo pipefail
 
 readonly EXPECTED_TOOLS='["better_than_player","find_player","leaderboard","player_record","query_stats"]'
 readonly HEALTH_BODY='{"status":"ok"}'
@@ -9,6 +9,8 @@ readonly STOP_GRACE_SECONDS=10
 readonly STOP_THRESHOLD_MS=9750
 readonly HTTP_READY_TIMEOUT_SECONDS=30
 readonly CURL_MAX_TIME=10
+readonly DOCKER_TIMEOUT_SECONDS=30
+readonly STOP_COMMAND_TIMEOUT_SECONDS=20
 
 image=${1:-}
 container_id=""
@@ -18,7 +20,6 @@ failure_message=""
 reported_failure=0
 curl_seq=0
 stop_ms=0
-session_header=()
 RPC_BODY=""
 RPC_RESPONSE=""
 ALLOW_STDIO_METHOD_NOT_FOUND=0
@@ -50,14 +51,14 @@ cleanup() {
     printf 'FAIL: %s\n' "${failure_message:-unexpected smoke test failure}" >&2
     if [[ -n "$container_id" ]]; then
       printf 'Container logs (tail 50):\n' >&2
-      docker logs --tail 50 "$container_id" >&2 || true
+      timeout "$DOCKER_TIMEOUT_SECONDS" docker logs --tail 50 "$container_id" >&2 || true
     fi
   fi
   if [[ -n "$container_id" ]]; then
-    docker rm -f "$container_id" >/dev/null 2>&1 || true
+    timeout "$DOCKER_TIMEOUT_SECONDS" docker rm -f "$container_id" >/dev/null 2>&1 || true
   fi
   if [[ -n "$stdio_container_name" ]]; then
-    docker rm -f "$stdio_container_name" >/dev/null 2>&1 || true
+    timeout "$DOCKER_TIMEOUT_SECONDS" docker rm -f "$stdio_container_name" >/dev/null 2>&1 || true
   fi
   if [[ -n "$scratch_dir" ]]; then
     rm -rf "$scratch_dir"
@@ -83,19 +84,21 @@ require_command() {
 }
 
 run_docker() {
-  docker "$@"
+  timeout "$DOCKER_TIMEOUT_SECONDS" docker "$@"
+}
+
+run_docker_stop() {
+  timeout "$STOP_COMMAND_TIMEOUT_SECONDS" docker stop --time "$STOP_GRACE_SECONDS" "$container_id"
 }
 
 assert_non_root() {
-  local user uid
-  user=$(run_docker image inspect --format '{{.Config.User}}' "$image") || fail "docker image inspect failed"
-  if [[ -z "$user" || "$user" == "root" || "$user" == "0" ]]; then
-    fail "container user must be non-root, got '${user:-<empty>}'"
-  fi
-  uid=${user%%:*}
+  local uid
+  uid=$(run_docker run --rm --entrypoint id "$image" -u) || fail "docker run id -u failed"
+  uid=${uid%%:*}
   if [[ "$uid" == "0" ]]; then
-    fail "container user must be non-root, got '$user'"
+    fail "container runs as root (id -u returned 0)"
   fi
+  [[ "$uid" =~ ^[0-9]+$ ]] || fail "could not parse container uid from id -u output: ${uid}"
 }
 
 create_and_start_http_container() {
@@ -115,12 +118,17 @@ container_exit_code() {
   run_docker inspect -f '{{.State.ExitCode}}' "$container_id" 2>/dev/null || printf '<unknown>'
 }
 
-http_port() {
+HTTP_PORT=""
+
+read_http_port() {
   local mapped port
-  mapped=$(run_docker port "$container_id" 8765/tcp) || fail "docker port failed"
+  if ! container_running; then
+    fail "HTTP container exited before Docker published a port; exit code $(container_exit_code)"
+  fi
+  mapped=$(run_docker port "$container_id" 8765/tcp) || return 1
   port=${mapped##*:}
-  [[ "$port" =~ ^[0-9]+$ ]] || fail "could not parse mapped port from '$mapped'"
-  printf '%s\n' "$port"
+  [[ "$port" =~ ^[0-9]+$ ]] || return 1
+  HTTP_PORT=$port
 }
 
 wait_for_health() {
@@ -157,26 +165,15 @@ curl_rpc() {
     --header 'Content-Type: application/json'
     --header "Mcp-Protocol-Version: ${PROTOCOL_VERSION}"
     --header "Mcp-Method: ${method}"
-    --header "Mcp-Name: ${name}"
   )
-  if ((${#session_header[@]} > 0)); then
-    curl_args+=("${session_header[@]}")
+  if [[ -n "$name" ]]; then
+    curl_args+=(--header "Mcp-Name: ${name}")
   fi
   status=$(curl "${curl_args[@]}" --data "$payload" "http://127.0.0.1:${port}/mcp" --write-out '%{http_code}') \
     || fail "curl ${method} failed"
   if [[ "$status" != 2* ]]; then
     RPC_BODY=$(cat "$body")
-    if [[ "$method" == "initialize" ]] && jq -e '.error.code == -32601' >/dev/null 2>&1 <<<"$RPC_BODY"; then
-      return
-    fi
     fail "curl ${method} returned HTTP ${status}: ${RPC_BODY}"
-  fi
-  if [[ "$method" == "initialize" ]]; then
-    local sid
-    sid=$(awk 'BEGIN{IGNORECASE=1} /^Mcp-Session-Id:/ {sub(/^[^:]+:[[:space:]]*/, ""); sub(/\r$/, ""); print; exit}' "$headers")
-    if [[ -n "$sid" ]]; then
-      session_header=(--header "Mcp-Session-Id: ${sid}")
-    fi
   fi
   RPC_BODY=$(cat "$body")
 }
@@ -228,35 +225,11 @@ check_http_mcp() {
   meta=$(mcp_meta)
   payload=$(jq -c -n --argjson meta "$meta" '{
     jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: {
-      protocolVersion: "2026-07-28",
-      capabilities: {},
-      clientInfo: {name: "crickey-smoke-test", version: "0.1.0"},
-      _meta: $meta
-    }
-  }')
-  curl_rpc "$port" initialize initialize "$payload"
-  # The 2026-07-28 HTTP protocol is stateless, so mcp 2.2.0 may reject initialize.
-  if ! jq -e '.error.code == -32601' >/dev/null 2>&1 <<<"$RPC_BODY"; then
-    rpc_result "$RPC_BODY" 1
-  fi
-
-  payload=$(jq -c -n --argjson meta "$meta" '{
-    jsonrpc: "2.0",
-    method: "notifications/initialized",
-    params: {_meta: $meta}
-  }')
-  curl_rpc "$port" notifications/initialized initialized "$payload"
-
-  payload=$(jq -c -n --argjson meta "$meta" '{
-    jsonrpc: "2.0",
     id: 2,
     method: "tools/list",
     params: {_meta: $meta}
   }')
-  curl_rpc "$port" tools/list tools/list "$payload"
+  curl_rpc "$port" tools/list "" "$payload"
   rpc_result "$RPC_BODY" 2
   response=$RPC_RESPONSE
   assert_tools_json "$response"
@@ -279,11 +252,15 @@ check_http_mcp() {
   response=$RPC_RESPONSE
   jq -e '
     .result.isError == false and
+    (.result.structuredContent | has("link")) and
     (.result.structuredContent.link | startswith("https://stats.cricinfo.com/")) and
     (.result.structuredContent.link | contains("spanmin1=")) and
     (.result.structuredContent.link | contains("spanmax1=")) and
+    (.result.structuredContent | has("fetch")) and
     .result.structuredContent.fetch == false and
+    (.result.structuredContent | has("total")) and
     .result.structuredContent.total == null and
+    (.result.structuredContent | has("rows")) and
     .result.structuredContent.rows == []
   ' >/dev/null <<<"$response" || fail "query_stats(fetch=false) returned invalid structuredContent: ${response}"
 }
@@ -292,7 +269,7 @@ stop_http_container() {
   local start_ns end_ns exit_code
   container_running || fail "HTTP container was not running before docker stop; exit code $(container_exit_code)"
   start_ns=$(date +%s%N)
-  run_docker stop --time "$STOP_GRACE_SECONDS" "$container_id" >/dev/null || fail "docker stop failed"
+  run_docker_stop >/dev/null || fail "docker stop failed"
   end_ns=$(date +%s%N)
   stop_ms=$(((end_ns - start_ns) / 1000000))
   exit_code=$(container_exit_code)
@@ -362,6 +339,7 @@ check_stdio() {
   local remaining
   remaining=$(run_docker ps -a --filter "name=${stdio_container_name}" --format '{{.Names}}' || true)
   [[ -z "$remaining" ]] || fail "stdio container ${stdio_container_name} was left behind"
+  run_docker rm -f "$stdio_container_name" >/dev/null 2>&1 || true
   stdio_container_name=""
 }
 
@@ -383,12 +361,11 @@ main() {
   mkdir -p "$scratch_dir"
   assert_non_root
   create_and_start_http_container
-  local port
-  port=$(http_port)
-  wait_for_health "$port"
-  check_http_mcp "$port"
+  read_http_port || fail "could not read published HTTP port"
+  wait_for_health "$HTTP_PORT"
+  check_http_mcp "$HTTP_PORT"
   stop_http_container
-  docker rm -f "$container_id" >/dev/null
+  run_docker rm -f "$container_id" >/dev/null
   check_no_leftover_container
   container_id=""
   check_stdio
