@@ -25,6 +25,8 @@ from crickey.parsers import (
 from crickey.query import QuerySpecError, ResolvedPeriod, StatsguruQuery, player_search_url
 from crickey.render import freshness_line
 from crickey.resolve import PlayerCandidate
+from crickey.resolve import _country_codes as country_codes
+from crickey.resolve import _normalize as normalize_country
 from crickey.resolve import _player_resolution_from_html as player_resolution_from_html
 from crickey.settings import Settings
 
@@ -90,16 +92,21 @@ def create_server(
             raise ToolError("name is required.")
         class_ids = (_format_class(format),) if format is not None else _DEFAULT_FIND_CLASSES
         candidates: dict[int, PlayerCandidate] = {}
+        country_filter_applied = country is None
         progress = _progress_callback(ctx)
         try:
             async with fetcher.call(budget=FIND_PLAYER_BUDGET_SECONDS, progress=progress) as call:
                 url = player_search_url(name)
                 was_cached = fetcher.cache.get(url, fetcher.clock.monotonic()) is not None
                 html = await call.fetch(url, freshness=Freshness.LOOKUP)
-                candidates = _player_candidates_from_search(name, html, class_ids, country)
+                candidates, country_filter_applied = _player_candidates_from_search(
+                    name, html, class_ids, country
+                )
                 if not candidates and was_cached:
                     html = await call.fetch(url, freshness=Freshness.LOOKUP, force_refetch=True)
-                    candidates = _player_candidates_from_search(name, html, class_ids, country)
+                    candidates, country_filter_applied = _player_candidates_from_search(
+                        name, html, class_ids, country
+                    )
         except (FetcherError, StatsguruParseError) as error:
             raise ToolError(str(error)) from error
 
@@ -111,7 +118,9 @@ def create_server(
             in {candidate.name.casefold(), (candidate.full_name or "").casefold()}
         ]
         status = (
-            "match" if len(ordered) == 1 and (exact or country or format) else "needs_clarification"
+            "match"
+            if len(ordered) == 1 and country_filter_applied and (exact or country or format)
+            else "needs_clarification"
         )
         if not ordered:
             status = "not_found"
@@ -120,6 +129,10 @@ def create_server(
             "query": name,
             "candidates": [_candidate_payload(candidate) for candidate in ordered],
         }
+        if country is not None and not country_filter_applied:
+            payload["note"] = (
+                f"No candidate matched country {country!r}; showing unfiltered candidates."
+            )
         if status == "match":
             payload["match"] = payload["candidates"][0]
         return _tool_result(_find_player_summary(payload), payload)
@@ -163,7 +176,7 @@ def create_server(
                     limit=limit,
                     as_of=as_of,
                     freshness=_freshness_for_query(fetch_query, as_of),
-                    max_pages=settings.max_pages,
+                    max_pages=fetcher.settings.max_pages,
                 )
         except FetcherError as error:
             raise ToolError(str(error)) from error
@@ -239,10 +252,10 @@ def _merge_candidate(
 
 def _player_candidates_from_search(
     name: str, html: str, class_ids: tuple[int, ...], country: str | None
-) -> dict[int, PlayerCandidate]:
+) -> tuple[dict[int, PlayerCandidate], bool]:
     candidates: dict[int, PlayerCandidate] = {}
     for class_id in class_ids:
-        resolution = player_resolution_from_html(name, html, class_id=class_id, country=country)
+        resolution = player_resolution_from_html(name, html, class_id=class_id, country=None)
         found = resolution.candidates
         if resolution.match is not None:
             found = (*found, resolution.match)
@@ -250,7 +263,21 @@ def _player_candidates_from_search(
             candidates[candidate.player_id] = _merge_candidate(
                 candidates.get(candidate.player_id), candidate
             )
-    return candidates
+    if country is None or not candidates:
+        return candidates, True
+    filtered = {
+        player_id: candidate
+        for player_id, candidate in candidates.items()
+        if _candidate_matches_country(candidate, country)
+    }
+    return (filtered, True) if filtered else (candidates, False)
+
+
+def _candidate_matches_country(candidate: PlayerCandidate, country: str) -> bool:
+    codes = country_codes(country)
+    if not codes:
+        return False
+    return any(normalize_country(code) in codes for code in candidate.country_codes)
 
 
 def _candidate_payload(candidate: PlayerCandidate) -> dict[str, Any]:
@@ -290,7 +317,7 @@ def _freshness_for_query(query: StatsguruQuery, as_of: date) -> Freshness:
 
 
 def _query_for_limit(query: StatsguruQuery, limit: int) -> StatsguruQuery:
-    if query.size != DEFAULT_QUERY_STATS_LIMIT or limit <= query.size:
+    if query.page is not None or query.size != DEFAULT_QUERY_STATS_LIMIT or limit <= query.size:
         return query
     for size in (100, 150, 200):
         if limit <= size:

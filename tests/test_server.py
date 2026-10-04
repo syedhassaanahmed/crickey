@@ -38,6 +38,19 @@ class FakeClock:
         await asyncio.sleep(0)
 
 
+class RecordingFetcher(Fetcher):
+    def __init__(
+        self, settings_: Settings, *, clock: FakeClock, page_source: MemoryPageSource
+    ) -> None:
+        super().__init__(settings_, clock=clock, page_source=page_source)
+        self.budgets: list[float] = []
+
+    def call(self, *, budget, progress=None):
+        seconds = budget.total_seconds() if hasattr(budget, "total_seconds") else float(budget)
+        self.budgets.append(seconds)
+        return super().call(budget=budget, progress=progress)
+
+
 def settings(**overrides: object) -> Settings:
     values = {
         "min_interval": timedelta(seconds=0),
@@ -257,6 +270,28 @@ async def test_find_player_t20_means_t20i_and_country_filters() -> None:
     assert result.structured_content["match"]["id"] == 539305
 
 
+async def test_find_player_country_fallback_needs_clarification_not_match() -> None:
+    html = """
+    <table>
+    <tr><td>Babar Azam</td><td>PAK</td><td><a href="/ci/engine/player/348144.html?class=3;type=allround">Twenty20 Internationals player</a> (2016 - 2026, 145 matches)</td></tr>
+    <tr><td>Babar Hayat</td><td>HKG</td><td><a href="/ci/engine/player/539305.html?class=3;type=allround">Twenty20 Internationals player</a> (2014 - 2026, 79 matches)</td></tr>
+    </table>
+    """
+    _, _, client = await call_with_source({player_search_url("Babar"): html})
+
+    async with client:
+        result = await client.call_tool(
+            "find_player", {"name": "Babar", "format": "T20I", "country": "India"}
+        )
+
+    assert result.structured_content["status"] == "needs_clarification"
+    assert "No candidate matched country 'India'" in result.structured_content["note"]
+    assert [candidate["id"] for candidate in result.structured_content["candidates"]] == [
+        348144,
+        539305,
+    ]
+
+
 async def test_find_player_fetcher_errors_are_tool_errors() -> None:
     url = player_search_url("Blocked")
     _, _, client = await call_with_source(
@@ -433,6 +468,38 @@ async def test_query_stats_starts_at_requested_page_and_does_not_duplicate_it() 
     assert source.requests == [page2_url]
 
 
+async def test_query_stats_page_two_limit_above_size_preserves_row_offsets() -> None:
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "page": 2})
+    page2_url = results_url(query)
+    page3_url = results_url(query, page=3)
+    source, _, client = await call_with_source(
+        {
+            page2_url: result_page(
+                [row(index, f"Player {index}", "AAA", index) for index in range(51, 101)],
+                page=2,
+                pages=4,
+                total=200,
+            ),
+            page3_url: result_page(
+                [row(index, f"Player {index}", "AAA", index) for index in range(101, 151)],
+                page=3,
+                pages=4,
+                total=200,
+            ),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting", "page": 2}, "limit": 100}
+        )
+
+    assert len(result.structured_content["rows"]) == 100
+    assert result.structured_content["rows"][0]["Player"] == "Player 51 (AAA)"
+    assert result.structured_content["rows"][-1]["Player"] == "Player 150 (AAA)"
+    assert source.requests == [page2_url, page3_url]
+
+
 async def test_query_stats_fetches_complete_multipage_result_under_cap() -> None:
     query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
     pages = {
@@ -598,6 +665,61 @@ async def test_tool_call_budgets_are_below_client_timeout() -> None:
 
     assert server_module.FETCH_BUDGET_SECONDS == 240.0
     assert server_module.FIND_PLAYER_BUDGET_SECONDS == 60.0
+
+
+async def test_tool_call_budgets_are_passed_to_fetcher_call() -> None:
+    player_html = """
+    <table>
+    <tr><td>Babar Azam</td><td>PAK</td><td><a href="/ci/engine/player/348144.html?class=3;type=allround">Twenty20 Internationals player</a> (2016 - 2026, 145 matches)</td></tr>
+    </table>
+    """
+    query = StatsguruQuery(**{"class": 2, "type": "batting"})
+    source = source_for(
+        {
+            player_search_url("Babar+Azam"): player_html,
+            results_url(query): result_page([row(1, "A", "AAA", 1)]),
+        }
+    )
+    clock = FakeClock()
+    fetcher = RecordingFetcher(settings(), clock=clock, page_source=source)
+    client = Client(create_server(settings(), fetcher=fetcher))
+
+    async with client:
+        await client.call_tool("find_player", {"name": "Babar Azam", "format": "T20I"})
+        await client.call_tool("query_stats", {"query": {"class": 2, "type": "batting"}})
+
+    assert fetcher.budgets == [60.0, 240.0]
+
+
+async def test_query_stats_uses_fetcher_settings_for_page_cap() -> None:
+    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
+    source = source_for(
+        {
+            results_url(query): result_page(
+                [row(index, f"Player {index}", "AAA", index) for index in range(1, 11)],
+                page=1,
+                pages=2,
+                total=20,
+            ),
+            results_url(query, page=2): result_page(
+                [row(index, f"Player {index}", "AAA", index) for index in range(11, 21)],
+                page=2,
+                pages=2,
+                total=20,
+            ),
+        }
+    )
+    clock = FakeClock()
+    fetcher = Fetcher(settings(max_pages=2), clock=clock, page_source=source)
+    client = Client(create_server(settings(max_pages=1), fetcher=fetcher))
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting", "size": 10}, "limit": 20}
+        )
+
+    assert result.is_error is False
+    assert len(result.structured_content["rows"]) == 20
 
 
 async def test_query_stats_d17_freshness_uses_query_end_date() -> None:
