@@ -8,20 +8,21 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
-from contextlib import closing, contextmanager
-from datetime import UTC, datetime, timedelta
+from contextlib import contextmanager
+from datetime import timedelta
 from pathlib import Path
 
 import anyio
 import pytest
 import uvicorn
+from helpers import FakeClock, free_port
+from helpers import make_settings as settings
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 from starlette.testclient import TestClient
 
 from crickey.fetcher import Fetcher, MemoryPageSource
 from crickey.server import create_server
-from crickey.settings import Settings
 from crickey.transport import (
     CONTAINER_HOST,
     GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
@@ -38,39 +39,6 @@ pytestmark = pytest.mark.anyio
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
-
-
-class FakeClock:
-    def __init__(self) -> None:
-        self.monotonic_time = 0.0
-        self.wall_time = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-        self.sleeps: list[float] = []
-
-    def monotonic(self) -> float:
-        return self.monotonic_time
-
-    def now(self) -> datetime:
-        return self.wall_time + timedelta(seconds=self.monotonic_time)
-
-    async def sleep(self, seconds: float) -> None:
-        self.sleeps.append(seconds)
-        self.monotonic_time += seconds
-        await asyncio.sleep(0)
-
-
-def settings(**overrides: object) -> Settings:
-    values = {
-        "min_interval": timedelta(seconds=0),
-        "max_retries": 0,
-        "block_pauses": (timedelta(seconds=10),),
-        "max_pages": 4,
-        "cache_max_mb": 1,
-        "recent_ttl": timedelta(seconds=30),
-        "port": 8765,
-        "in_container": False,
-    }
-    values.update(overrides)
-    return Settings(**values)
 
 
 def player_search_url(search: str) -> str:
@@ -168,12 +136,6 @@ def test_health_returns_exact_ok() -> None:
 def test_bind_host_native_and_container_rules() -> None:
     assert bind_host(settings()) == NATIVE_HOST
     assert bind_host(settings(in_container=True)) == CONTAINER_HOST
-
-
-def free_port() -> int:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-        sock.bind((NATIVE_HOST, 0))
-        return sock.getsockname()[1]
 
 
 @contextmanager
