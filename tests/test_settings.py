@@ -7,6 +7,7 @@ from datetime import timedelta
 
 import pytest
 
+from crickey import cli
 from crickey.cli import build_parser, main
 from crickey.settings import Settings, SettingsError, load_settings
 
@@ -124,6 +125,16 @@ def test_plain_crickey_accepts_serve_flags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_crickey_env(monkeypatch)
+    ports: list[int] = []
+
+    def fake_create_server(settings: Settings) -> object:
+        return object()
+
+    def fake_serve_http(server: object, settings: Settings) -> None:
+        ports.append(settings.port)
+
+    monkeypatch.setattr(cli, "create_server", fake_create_server)
+    monkeypatch.setattr(cli, "serve_http", fake_serve_http)
 
     assert _settings_from_cli(["--port", "9000"]).port == 9000
     plain_status = main(["--port", "9000"])
@@ -131,13 +142,11 @@ def test_plain_crickey_accepts_serve_flags(
     serve_status = main(["serve", "--port", "9000"])
     serve_output = capsys.readouterr()
 
-    assert plain_status == serve_status == 1
+    assert plain_status == serve_status == 0
     assert plain_output == serve_output
     assert plain_output.out == ""
-    assert (
-        plain_output.err
-        == "crickey serve is a placeholder; HTTP transport will be implemented in issue #10.\n"
-    )
+    assert plain_output.err == ""
+    assert ports == [9000, 9000]
 
 
 @pytest.mark.parametrize("command", ["serve", "stdio"])

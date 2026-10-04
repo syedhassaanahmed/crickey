@@ -5,27 +5,23 @@ import logging
 import sys
 from collections.abc import Sequence
 
+from crickey.server import create_server
 from crickey.settings import SettingsError, add_settings_flags, load_settings
+from crickey.transport import TransportError, run_stdio, serve_http
 
 LOGGER = logging.getLogger("crickey")
 
 
 def _serve(args: argparse.Namespace) -> int:
-    load_settings(args)
-    print(
-        "crickey serve is a placeholder; HTTP transport will be implemented in issue #10.",
-        file=sys.stderr,
-    )
-    return 1
+    settings = load_settings(args)
+    serve_http(create_server(settings), settings)
+    return 0
 
 
 def _stdio(args: argparse.Namespace) -> int:
-    load_settings(args)
-    print(
-        "crickey stdio is a placeholder; the stdio transport will be implemented in issue #10.",
-        file=sys.stderr,
-    )
-    return 1
+    settings = load_settings(args)
+    run_stdio(create_server(settings))
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,14 +34,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve = subparsers.add_parser(
         "serve",
-        help="serve over Streamable HTTP (placeholder)",
+        help="serve over Streamable HTTP",
         parents=[settings_parent],
     )
     serve.set_defaults(func=_serve)
 
     stdio = subparsers.add_parser(
         "stdio",
-        help="serve over stdio for debugging (placeholder)",
+        help="serve over stdio for debugging",
         parents=[settings_parent],
     )
     stdio.set_defaults(func=_stdio)
@@ -62,8 +58,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
         return args.func(args)
-    except SettingsError as error:
+    except (SettingsError, TransportError) as error:
         LOGGER.error("%s", error)
-        return 2
+        return 2 if isinstance(error, SettingsError) else 1
     finally:
         LOGGER.removeHandler(handler)
