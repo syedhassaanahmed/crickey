@@ -86,9 +86,21 @@ case "$cmd" in
       fi
     done
     if [[ "$fmt" == '{{.State.Running}}' ]]; then
-      cat "$state_dir/running"
+      if [[ "$scenario" == startup_crash ]]; then
+        echo false
+      elif [[ -f "$state_dir/running" ]]; then
+        cat "$state_dir/running"
+      else
+        echo false
+      fi
     elif [[ "$fmt" == '{{.State.ExitCode}}' ]]; then
-      cat "$state_dir/exit_code"
+      if [[ "$scenario" == startup_crash ]]; then
+        echo 2
+      elif [[ -f "$state_dir/exit_code" ]]; then
+        cat "$state_dir/exit_code"
+      else
+        echo 0
+      fi
     fi
     exit 0
     ;;
