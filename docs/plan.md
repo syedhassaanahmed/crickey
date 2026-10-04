@@ -82,7 +82,7 @@ Server instructions tell the agent to:
   - the formula from totals, if it's derived;
   - which direction is better, and its default minimum, which is stated in answers.
 
-  Examples: average = runs ÷ (innings − not outs); strike rate = runs ÷ balls × 100; innings per hundred = innings ÷ hundreds.
+  Examples: innings per hundred = innings ÷ hundreds; balls per dismissal = balls faced ÷ dismissals.
 - **Ratios:** Statsguru's displayed averages and strike rates are used as they are (D15); the registry's formulas compute only the metrics Statsguru doesn't show.
 - **Period resolver:**
   - "X's career span" is X's first and last match start dates in that format, from X's innings list (R6).

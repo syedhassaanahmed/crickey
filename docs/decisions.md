@@ -28,7 +28,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 14. **Five tools in v1:** `leaderboard`, `better_than_player`, `player_record`, `find_player` and `query_stats`.
     - The three answer tools cover the golden questions and start with batting; plan.md maps each tool to its questions.
     - More tools are added only when real questions need them.
-15. **Statsguru's numbers as displayed.** Averages, strike rates and economy rates are used as Statsguru displays them (R2, R8), not recomputed from totals. Players whose displayed values are equal count as tied, and answers say so.
+15. **Statsguru's numbers as displayed.** Averages, strike rates and economy rates are used as Statsguru displays them (R2, R8), not recomputed from totals, so answers show the same figures as Statsguru and its proof links (D16). Players whose displayed values are equal count as tied, and answers say so.
 16. **Proof links.**
     - Links come only from the tools and carry a fixed date range, so shared links don't change.
     - When Statsguru can express the final filter (for example with its extra minimums, R2), the link itself shows the answer and is fetched once to confirm.
@@ -71,7 +71,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 | Women's and youth formats; umpires and referees | Not needed. |
 | Analysis through DuckDB SQL, then a Docker Python sandbox | Replaced by server-side calculations; no code is ever executed. |
 | Letting the calling model do the maths | Too error-prone for weaker models. |
-| Recomputing averages and strike rates exactly from totals | The owner accepts Statsguru's displayed values; exact values only differ below the second decimal (R2). |
+| Recomputing averages and strike rates exactly from totals | The owner accepts Statsguru's displayed values; exact values only differ below the last decimal shown (R2, R8). |
 | More answer tools (`compare_players`, `player_breakdown`, `player_milestones`, `player_form`, `records`), a safe calculator, `compose_answer`, MCP resources and prompts, tool profiles | More than needed for now; added when real questions call for them. |
 | stdio only, then stdio as the Docker default | Each stdio session is a fresh process, so the cache, request spacing and block pause reset every session. HTTP is the default everywhere; stdio is kept for debugging. |
 | A bearer token (first required, then optional) | Removed; localhost plus Host and Origin checks is enough for now. |

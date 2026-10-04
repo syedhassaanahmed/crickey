@@ -219,6 +219,7 @@ def test_player_page_parses_bowling_innings_and_overs() -> None:
     parsed = parse_player_page(BOWLING_PLAYER_HTML)
 
     assert parsed.career_averages.iloc[0]["Overs"] == Overs(370, 3)
+    assert parsed.career_averages.iloc[0]["Econ"] == Decimal("7.83")
     assert parsed.career_averages.iloc[0]["SR"] == Decimal("16.3")
     assert parsed.innings is not None
     assert parsed.innings.iloc[0]["Overs"] == Overs(4, 0)
