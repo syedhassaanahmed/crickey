@@ -200,6 +200,8 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 - ODIs list 29 teams, T20Is 110 (including associates such as 187 Qatar and 36 Japan), combined internationals 113, and all T20 562.
 - In all T20, national teams keep their IDs (7 Pakistan, 6 India), and domestic and franchise teams have their own, for example 5799 Lahore Qalandars, 5793 Karachi Kings, 4346 Mumbai Indians and 4849 Sydney Sixers.
 - In the advanced batting forms for D3's built-in classes, the `team` and `opposition` lists are identical, so the built-in team table can be used for both filters.
+- The class 2, 3 and 6 batting forms differ from Tests: `result` offers 5 (no result) instead of 4 (drawn), `final_type` includes 3 tournament semi-finals and 4 tournament quarter-finals, `innings_number` is 1–2 only, `batting_hand` includes 3 unknown, and there is no batting `view=match`.
+- The T20I batting form additionally has `floodlit=3` for night matches, `dismissal=9` for hit the ball twice, and age range defaults of 14–62 instead of 14–52.
 
 **Choice filters.** Checkboxes accept several values; selects and radios accept one value. Leaving a radio blank means "either".
 

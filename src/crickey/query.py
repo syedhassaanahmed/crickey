@@ -72,419 +72,85 @@ FIELD_LABELS = {
     "season": "season",
 }
 
-COMMON_VIEWS = {"", "innings", "match", "series", "ground", "host", "opposition", "year", "season"}
-TYPE_VIEWS: dict[str, set[str]] = {
-    "batting": COMMON_VIEWS,
-    "bowling": COMMON_VIEWS,
-    "fielding": COMMON_VIEWS,
-    "allround": COMMON_VIEWS | {"results", "awards"},
-    "fow": COMMON_VIEWS,
-    "team": COMMON_VIEWS | {"results", "extras", "extras_innings"},
-    "aggregate": {"", "match", "results", "series", "ground", "host", "year", "season", "extras"},
+TYPE_VIEWS = {
+    class_id: {stat_type: set(views) for stat_type, views in by_type.items()}
+    for class_id, by_type in query_catalog.TYPE_VIEWS.items()
 }
-
-SHARED_FILTER_FIELDS = {
-    "team",
-    "opposition",
-    "home_or_away",
-    "host",
-    "ground",
-    "spanquickpick",
-    "season",
-    "result",
-    "continent",
-    "series",
-    "trophy",
-    "tournament_type",
-    "final_type",
-    "floodlit",
-    "toss",
-    "debut_or_last",
-    "agemin1",
-    "agemax1",
-    "agequickpick",
-    "search_player",
-    "player_involve",
-    "player_involve_type",
-    "search_captain",
-    "captain_involve",
-    "captain_involve_type",
-    "qualquickpick",
-}
-TYPE_FILTER_FIELDS: dict[str, set[str]] = {
-    "batting": SHARED_FILTER_FIELDS
-    | {
-        "batting_fielding_first",
-        "captain",
-        "keeper",
-        "batting_hand",
-        "innings_number",
-        "runsmin1",
-        "runsmax1",
-        "runsquickpick",
-        "batting_positionmin1",
-        "batting_positionmax1",
-        "batting_positionquickpick",
-        "outs",
-        "dismissal",
-    },
-    "bowling": SHARED_FILTER_FIELDS
-    | {
-        "batting_fielding_first",
-        "captain",
-        "keeper",
-        "innings_number",
-        "bowling_hand",
-        "bowling_pacespin",
-        "ballsmin1",
-        "ballsmax1",
-        "ballsquickpick",
-        "concededmin1",
-        "concededmax1",
-        "concededquickpick",
-        "wicketsmin1",
-        "wicketsmax1",
-        "wicketsquickpick",
-        "bowling_positionmin1",
-        "bowling_positionmax1",
-        "bowling_positionquickpick",
-    },
-    "fielding": SHARED_FILTER_FIELDS
-    | {
-        "batting_fielding_first",
-        "captain",
-        "keeper",
-        "innings_number",
-        "caughtmin1",
-        "caughtmax1",
-        "caughtquickpick",
-        "stumpedmin1",
-        "stumpedmax1",
-        "stumpedquickpick",
-    },
-    "allround": SHARED_FILTER_FIELDS
-    | {
-        "batting_fielding_first",
-        "captain",
-        "keeper",
-        "batting_hand",
-        "innings_number",
-        "runsmin1",
-        "runsmax1",
-        "runsquickpick",
-        "batting_positionmin1",
-        "batting_positionmax1",
-        "batting_positionquickpick",
-        "outs",
-        "dismissal",
-        "bowling_hand",
-        "bowling_pacespin",
-        "ballsmin1",
-        "ballsmax1",
-        "ballsquickpick",
-        "concededmin1",
-        "concededmax1",
-        "concededquickpick",
-        "wicketsmin1",
-        "wicketsmax1",
-        "wicketsquickpick",
-        "bowling_positionmin1",
-        "bowling_positionmax1",
-        "bowling_positionquickpick",
-        "caughtmin1",
-        "caughtmax1",
-        "caughtquickpick",
-        "stumpedmin1",
-        "stumpedmax1",
-        "stumpedquickpick",
-    },
-    "fow": SHARED_FILTER_FIELDS
-    | {
-        "batting_fielding_first",
-        "innings_number",
-        "partnership_runsmin1",
-        "partnership_runsmax1",
-        "partnership_runsquickpick",
-        "partnership_wicketmin1",
-        "partnership_wicketmax1",
-        "partnership_wicketquickpick",
-        "fow_type",
-    },
-    "team": SHARED_FILTER_FIELDS
-    | {
-        "batting_fielding_first",
-        "innings_number",
-        "runsmin1",
-        "runsmax1",
-        "runsquickpick",
-        "wicketsmin1",
-        "wicketsmax1",
-        "wicketsquickpick",
-        "ballsmin1",
-        "ballsmax1",
-        "ballsquickpick",
-        "event",
-        "team_view",
-    },
-    "aggregate": SHARED_FILTER_FIELDS
-    - {"search_captain", "captain_involve", "captain_involve_type"},
-}
-
-BAT_OVERALL = {
-    "matches",
-    "innings",
-    "notouts",
-    "outs",
-    "runs",
-    "minutes",
-    "balls_faced",
-    "batting_average",
-    "batting_strike_rate",
-    "hundreds",
-    "fifty_plus",
-    "ducks",
-    "fours",
-    "sixes",
-}
-BAT_BY_VIEW = {
-    "": BAT_OVERALL,
-    "ground": BAT_OVERALL,
-    "host": BAT_OVERALL,
-    "opposition": BAT_OVERALL,
-    "series": BAT_OVERALL,
-    "year": BAT_OVERALL | {"year"},
-    "season": BAT_OVERALL | {"season"},
-    "innings": {"batted_score", "minutes", "balls_faced", "fours", "sixes", "batting_strike_rate"},
-    "match": BAT_OVERALL | {"high_score"},
-}
-BOWL_OVERALL = {
-    "matches",
-    "innings_bowled",
-    "balls",
-    "overs",
-    "maidens",
-    "conceded",
-    "wickets",
-    "bowling_average",
-    "economy_rate",
-    "bowling_strike_rate",
-    "four_plus_wickets",
-    "five_wickets",
-    "ten_wickets",
-}
-BOWL_BY_VIEW = {
-    "": BOWL_OVERALL,
-    "ground": BOWL_OVERALL,
-    "host": BOWL_OVERALL,
-    "opposition": BOWL_OVERALL,
-    "series": BOWL_OVERALL,
-    "year": BOWL_OVERALL | {"year"},
-    "season": BOWL_OVERALL | {"season"},
-    "innings": {
-        "overs",
-        "maidens",
-        "conceded",
-        "wickets",
-        "bowling_average",
-        "economy_rate",
-        "bowling_strike_rate",
-        "bowling_position",
-    },
-    "match": BOWL_OVERALL,
-}
-FIELD_OVERALL = {
-    "matches",
-    "matches_keeper",
-    "matches_fielder",
-    "innings_fielded",
-    "dismissals",
-    "caught",
-    "stumped",
-    "caught_keeper",
-    "caught_fielder",
-    "dismissals_per_inns",
-}
-FOW_OVERALL = {
-    "fow_innings",
-    "fow_notouts",
-    "fow_outs",
-    "fow_runs",
-    "fow_average",
-    "fow_balls_faced",
-    "fow_run_rate",
-    "fow_hundreds",
-    "fow_fifty_plus",
-}
-TEAM_OVERALL = {
-    "matches",
-    "won",
-    "lost",
-    "tied",
-    "drawn",
-    "no_result",
-    "win_loss_ratio",
-    "percentage_won",
-    "percentage_lost",
-    "percentage_drawn",
-    "percentage_tied",
-    "percentage_no_result",
-    "runs",
-    "wickets",
-    "balls",
-    "team_average",
-    "runs_per_over",
-    "team_innings",
-    "team_high_score",
-    "team_low_score",
-}
-QUAL_FIELDS: dict[str, dict[str, set[str]]] = {
-    "batting": BAT_BY_VIEW,
-    "bowling": BOWL_BY_VIEW,
-    "fielding": {view: FIELD_OVERALL for view in TYPE_VIEWS["fielding"]},
-    "allround": {
-        view: BAT_OVERALL | BOWL_OVERALL | FIELD_OVERALL | {"allround_average"}
-        for view in TYPE_VIEWS["allround"]
-    },
-    "fow": {view: FOW_OVERALL for view in TYPE_VIEWS["fow"]},
-    "team": {view: TEAM_OVERALL for view in TYPE_VIEWS["team"]},
-    "aggregate": {
-        view: TEAM_OVERALL
-        - {"lost", "win_loss_ratio", "team_innings", "team_high_score", "team_low_score"}
-        for view in TYPE_VIEWS["aggregate"]
-    },
-}
-SORT_EXTRAS: dict[str, dict[str, set[str]]] = {
-    "batting": {
-        "": {"player", "start", "high_score"},
-        "ground": {"player", "start", "high_score"},
-        "host": {"player", "start", "high_score"},
-        "opposition": {"player", "start", "high_score"},
-        "series": {"player", "start", "high_score"},
-        "year": {"player", "high_score"},
-        "season": {"player", "high_score"},
-        "innings": {"player", "start", "age", "batting_position", "dismissal", "innings_number"},
-        "match": {"player", "start", "age", "batting_score1", "batting_score2"},
-    },
-    "bowling": {
-        "": {"player", "start", "bbi", "bbm"},
-        "ground": {"player", "start", "bbi", "bbm"},
-        "host": {"player", "start", "bbi", "bbm"},
-        "opposition": {"player", "start", "bbi", "bbm"},
-        "series": {"player", "start", "bbi", "bbm"},
-        "year": {"player", "bbi", "bbm"},
-        "season": {"player", "bbi", "bbm"},
-        "innings": {"player", "start", "age"},
-        "match": {"player", "start", "age", "bbi"},
-    },
-    "fielding": {
-        view: {"player", "start", "age", "max_dismissals"} for view in TYPE_VIEWS["fielding"]
-    },
-    "allround": {
-        view: {"player", "start", "high_score", "bbi", "bbm", "max_dismissals"}
-        for view in TYPE_VIEWS["allround"]
-    },
-    "fow": {view: {"partners", "start", "fow_high_score"} for view in TYPE_VIEWS["fow"]},
-    "team": {view: {"team", "start"} for view in TYPE_VIEWS["team"]},
-    "aggregate": {view: {"start"} for view in TYPE_VIEWS["aggregate"]},
-}
-
-MULTI_VALUE_LABELS = {
-    "result": {"1": "won", "2": "lost", "3": "tied", "4": "drawn", "5": "no result"},
-    "home_or_away": {"1": "home", "2": "away", "3": "neutral"},
-}
-
-CHOICE_VALUES: dict[str, set[str]] = {
-    "home_or_away": {"1", "2", "3"},
-    "result": {"1", "2", "3", "4"},
-    "tournament_type": {"2", "3", "5"},
-    "final_type": {"0", "1"},
-    "floodlit": {"1", "2"},
-    "toss": {"1", "2"},
-    "batting_fielding_first": {"1", "2"},
-    "captain": {"0", "1"},
-    "keeper": {"0", "1"},
-    "debut_or_last": {"1", "2", "3", "4"},
-    "batting_hand": {"1", "2"},
-    "bowling_hand": {"1", "2", "3"},
-    "bowling_pacespin": {"1", "2", "3"},
-    "innings_number": {"1", "2", "3", "4"},
-    "outs": {"0", "1"},
-    "dismissal": {"1", "2", "3", "4", "5", "6", "7", "8", "11", "12", "13"},
-    "fow_type": {"1", "2", "3"},
-    "event": {"1", "2", "3", "4"},
-    "team_view": {"bowl"},
-}
-
-PLAYER_PAGE_CHOICE_VALUES = CHOICE_VALUES | {"result": {"1", "2", "3", "5"}}
-
-QUICK_PICK_VALUES: dict[str, set[str]] = {
-    "spanquickpick": {str(value) for value in range(1, 28)},
-    "agequickpick": {str(value) for value in range(1, 7)},
-    "runsquickpick": {str(value) for value in range(1, 10)},
-    "batting_positionquickpick": {str(value) for value in range(1, 15)},
-    "ballsquickpick": {str(value) for value in range(1, 8)},
-    "concededquickpick": {str(value) for value in range(1, 8)},
-    "wicketsquickpick": {str(value) for value in range(1, 6)},
-    "bowling_positionquickpick": {str(value) for value in range(1, 5)},
-    "caughtquickpick": {str(value) for value in range(1, 8)},
-    "stumpedquickpick": {str(value) for value in range(1, 6)},
-}
-
-RANGE_LIMITS: dict[str, tuple[int, int]] = {
-    "agemin1": (14, 52),
-    "agemax1": (14, 52),
-    "runsmin1": (0, 952),
-    "runsmax1": (0, 952),
-    "batting_positionmin1": (0, 12),
-    "batting_positionmax1": (0, 12),
-    "ballsmin1": (0, 2012),
-    "ballsmax1": (0, 2012),
-    "concededmin1": (0, 298),
-    "concededmax1": (0, 298),
-    "wicketsmin1": (0, 10),
-    "wicketsmax1": (0, 10),
-    "bowling_positionmin1": (0, 11),
-    "bowling_positionmax1": (0, 11),
-    "caughtmin1": (0, 7),
-    "caughtmax1": (0, 7),
-    "stumpedmin1": (0, 5),
-    "stumpedmax1": (0, 5),
-    "partnership_runsmin1": (0, 624),
-    "partnership_runsmax1": (0, 624),
-    "partnership_wicketmin1": (1, 10),
-    "partnership_wicketmax1": (1, 10),
-}
-
-TYPE_VIEWS = {stat_type: set(views) for stat_type, views in query_catalog.TYPE_VIEWS.items()}
 TYPE_GROUPBYS = {
-    stat_type: set(groupbys) for stat_type, groupbys in query_catalog.TYPE_GROUPBYS.items()
+    class_id: {stat_type: set(groupbys) for stat_type, groupbys in by_type.items()}
+    for class_id, by_type in query_catalog.TYPE_GROUPBYS.items()
 }
 TYPE_FILTER_FIELDS = {
-    stat_type: set(fields) for stat_type, fields in query_catalog.TYPE_FIELD_KINDS.items()
+    class_id: {stat_type: set(fields) for stat_type, fields in by_type.items()}
+    for class_id, by_type in query_catalog.TYPE_FIELD_KINDS.items()
 }
-MULTI_FIELDS = {stat_type: set(fields) for stat_type, fields in query_catalog.MULTI_FIELDS.items()}
-for _stat_type, _fields in TYPE_FILTER_FIELDS.items():
-    if "search_player" in _fields:
-        _fields.update({"player_involve", "player_involve_type"})
-        MULTI_FIELDS[_stat_type].add("player_involve")
-    if "search_captain" in _fields:
-        _fields.update({"captain_involve", "captain_involve_type"})
-        MULTI_FIELDS[_stat_type].add("captain_involve")
+MULTI_FIELDS = {
+    class_id: {stat_type: set(fields) for stat_type, fields in by_type.items()}
+    for class_id, by_type in query_catalog.MULTI_FIELDS.items()
+}
+for _class_id, _by_type in TYPE_FILTER_FIELDS.items():
+    for _stat_type, _fields in _by_type.items():
+        if "search_player" in _fields:
+            _fields.update({"player_involve", "player_involve_type"})
+            MULTI_FIELDS[_class_id][_stat_type].add("player_involve")
+        if "search_captain" in _fields:
+            _fields.update({"captain_involve", "captain_involve_type"})
+            MULTI_FIELDS[_class_id][_stat_type].add("captain_involve")
 QUAL_FIELDS = {
-    stat_type: {view: set(fields) for view, fields in views.items()}
-    for stat_type, views in query_catalog.QUAL_FIELDS.items()
+    class_id: {
+        stat_type: {view: set(fields) for view, fields in by_view.items()}
+        for stat_type, by_view in by_type.items()
+    }
+    for class_id, by_type in query_catalog.QUAL_FIELDS.items()
 }
 SORT_FIELDS = {
-    stat_type: {view: set(fields) for view, fields in views.items()}
-    for stat_type, views in query_catalog.SORT_FIELDS.items()
+    class_id: {
+        stat_type: {view: set(fields) for view, fields in by_view.items()}
+        for stat_type, by_view in by_type.items()
+    }
+    for class_id, by_type in query_catalog.SORT_FIELDS.items()
 }
-CHOICE_VALUES = {field: set(values) for field, values in query_catalog.CHOICE_VALUES.items()}
-PLAYER_PAGE_CHOICE_VALUES = CHOICE_VALUES | {"result": {"1", "2", "3", "5"}}
-QUICKPICK_FIELDS = set(query_catalog.QUICKPICK_FIELDS)
+CHOICE_LABELS = query_catalog.CHOICE_VALUES
+CHOICE_VALUES = {
+    class_id: {
+        stat_type: {field: set(labels) for field, labels in by_field.items()}
+        for stat_type, by_field in by_type.items()
+    }
+    for class_id, by_type in CHOICE_LABELS.items()
+}
+PLAYER_PAGE_CHOICE_LABELS = query_catalog.PLAYER_PAGE_CHOICE_VALUES
+PLAYER_PAGE_CHOICE_VALUES = {
+    class_id: {
+        stat_type: {field: set(labels) for field, labels in by_field.items()}
+        for stat_type, by_field in by_type.items()
+    }
+    for class_id, by_type in PLAYER_PAGE_CHOICE_LABELS.items()
+}
+QUICKPICK_FIELDS = {
+    class_id: {stat_type: set(fields) for stat_type, fields in by_type.items()}
+    for class_id, by_type in query_catalog.QUICKPICK_FIELDS.items()
+}
 RANGE_VAL_FIELDS = query_catalog.RANGE_VAL_FIELDS
+RANGE_LIMITS = query_catalog.RANGE_LIMITS
 PLAYER_PAGE_VIEWS = {
-    stat_type: set(views) for stat_type, views in query_catalog.PLAYER_PAGE_VIEWS.items()
+    class_id: {stat_type: set(views) for stat_type, views in by_type.items()}
+    for class_id, by_type in query_catalog.PLAYER_PAGE_VIEWS.items()
 }
+RANGE_LABELS = {
+    "age": "age",
+    "balls": "balls in an innings",
+    "batting_position": "batting position",
+    "bowling_position": "bowling position",
+    "caught": "catches in an innings",
+    "conceded": "runs conceded in an innings",
+    "partnership_runs": "partnership runs",
+    "partnership_wicket": "partnership wicket",
+    "runs": "runs in an innings",
+    "stumped": "stumpings in an innings",
+    "wickets": "wickets in an innings",
+}
+ASCENDING_SORT_FIELDS = {"start"}
+
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 SEASON_RE = re.compile(r"^\d{4}(?:/\d{2})?$")
 ASCENDING_SORT_FIELDS = {
@@ -673,14 +339,14 @@ class StatsguruQuery(BaseModel):
     def validate_query(self) -> Self:
         if self.class_ not in id_tables.CLASS_IDS:
             raise ValueError(f"unknown class {self.class_}; expected one of {id_tables.CLASS_IDS}")
-        if self.view not in TYPE_VIEWS[self.type]:
+        if self.view not in TYPE_VIEWS[self.class_][self.type]:
             raise ValueError(f"view {self.view!r} is not valid for type {self.type!r}")
-        if self.groupby and self.groupby not in TYPE_GROUPBYS[self.type]:
+        if self.groupby and self.groupby not in TYPE_GROUPBYS[self.class_][self.type]:
             raise ValueError(f"groupby {self.groupby!r} is not valid for type {self.type!r}")
         _validate_filters_for_type(self)
         _validate_quickpicks(self)
         _validate_multi_values(self)
-        _validate_choice_values(self, CHOICE_VALUES)
+        _validate_choice_values(self, CHOICE_VALUES[self.class_][self.type])
         _validate_ranges(self)
         _validate_season_values(self)
         _validate_built_in_ids(self)
@@ -716,7 +382,8 @@ class StatsguruQuery(BaseModel):
             pieces.append(period_label)
         if self.orderby:
             direction = _sort_direction(self.orderby, self.orderbyad)
-            pieces.append(f"sorted by {_field_label(self.orderby)} {direction}")
+            direction_text = f" {direction}" if direction else ""
+            pieces.append(f"sorted by {_field_label(self.orderby)}{direction_text}")
         if self.page and self.page != 1:
             pieces.append(f"page {self.page}")
         if self.size != 50:
@@ -787,11 +454,11 @@ class PlayerPageSpec(BaseModel):
     def validate_page(self) -> Self:
         if self.class_ not in id_tables.CLASS_IDS:
             raise ValueError(f"unknown class {self.class_}; expected one of {id_tables.CLASS_IDS}")
-        if self.view not in PLAYER_PAGE_VIEWS[self.type]:
+        if self.view not in PLAYER_PAGE_VIEWS[self.class_][self.type]:
             raise ValueError(f"view {self.view!r} is not valid for player-page type {self.type!r}")
         _validate_quickpicks(self)
         _validate_multi_values(self, default_multi={"home_or_away", "result"})
-        _validate_choice_values(self, PLAYER_PAGE_CHOICE_VALUES)
+        _validate_choice_values(self, _player_page_choice_values(self))
         _validate_season_values(self)
         _validate_built_in_ids(self)
         if isinstance(self.period, SeasonPeriod) and self.season is not None:
@@ -856,7 +523,7 @@ def player_search_url(search: str) -> str:
 
 
 def _validate_filters_for_type(query: StatsguruQuery) -> None:
-    allowed = TYPE_FILTER_FIELDS[query.type]
+    allowed = TYPE_FILTER_FIELDS[query.class_][query.type]
     provided = set(_provided_filter_values(query))
     invalid = sorted(provided - allowed)
     if invalid:
@@ -864,14 +531,20 @@ def _validate_filters_for_type(query: StatsguruQuery) -> None:
 
 
 def _validate_quickpicks(model: BaseModel) -> None:
-    for field in QUICKPICK_FIELDS:
+    if isinstance(model, StatsguruQuery):
+        fields = QUICKPICK_FIELDS[model.class_][model.type]
+    else:
+        fields = {"spanquickpick"}
+    for field in fields:
         if getattr(model, field, None) is not None:
+            if field == "spanquickpick":
+                raise ValueError("spanquickpick is not supported; use period instead")
             raise ValueError(f"{field} is not supported; use min/max fields instead")
 
 
 def _validate_multi_values(model: BaseModel, *, default_multi: set[str] | None = None) -> None:
     if isinstance(model, StatsguruQuery):
-        multi = MULTI_FIELDS[model.type]
+        multi = MULTI_FIELDS[model.class_][model.type]
     else:
         multi = default_multi or set()
     for name in _provided_filter_values(model):
@@ -919,7 +592,7 @@ def _validate_ranges(query: StatsguruQuery) -> None:
         high = getattr(query, high_name)
         if low is not None and high is not None and low > high:
             raise ValueError(f"{low_name} must be <= {high_name}")
-    for field, (low, high) in RANGE_LIMITS.items():
+    for field, (low, high) in RANGE_LIMITS[query.class_][query.type].items():
         value = getattr(query, field)
         if value is not None and not low <= value <= high:
             raise ValueError(f"{field} must be from {low} to {high}")
@@ -973,8 +646,12 @@ def _validate_built_in_ids(model: BaseModel) -> None:
 
 
 def _validate_qualifications_and_sort(query: StatsguruQuery) -> None:
-    qual_fields = QUAL_FIELDS[query.type].get(query.view, QUAL_FIELDS[query.type].get("", set()))
-    sort_fields = SORT_FIELDS[query.type].get(query.view, SORT_FIELDS[query.type].get("", set()))
+    qual_fields = QUAL_FIELDS[query.class_][query.type].get(
+        query.view, QUAL_FIELDS[query.class_][query.type].get("", set())
+    )
+    sort_fields = SORT_FIELDS[query.class_][query.type].get(
+        query.view, SORT_FIELDS[query.class_][query.type].get("", set())
+    )
     for qualification in query.qualifications:
         if qualification.field not in qual_fields:
             raise ValueError(
@@ -992,16 +669,28 @@ def _filter_params(model: BaseModel) -> list[tuple[str, str]]:
     params: list[tuple[str, str]] = []
     provided_names = set(_provided_filter_values(model))
     for name in _provided_filter_values(model):
+        if (
+            isinstance(model, StatsguruQuery)
+            and name == "search_player"
+            and getattr(model, "player_involve", None) is not None
+        ):
+            continue
+        if (
+            isinstance(model, StatsguruQuery)
+            and name == "search_captain"
+            and getattr(model, "captain_involve", None) is not None
+        ):
+            continue
         value = getattr(model, name)
         values = _as_sequence(value)
-        if isinstance(model, StatsguruQuery) and name in MULTI_FIELDS[model.type]:
+        if isinstance(model, StatsguruQuery) and name in MULTI_FIELDS[model.class_][model.type]:
             values = tuple(sorted(values, key=lambda item: str(item)))
         elif isinstance(model, PlayerPageSpec) and name in {"home_or_away", "result"}:
             values = tuple(sorted(values, key=lambda item: str(item)))
         for item in values:
             params.append((name, _value(item)))
     if isinstance(model, StatsguruQuery):
-        for prefix, val in RANGE_VAL_FIELDS[model.type].items():
+        for prefix, val in RANGE_VAL_FIELDS[model.class_][model.type].items():
             if f"{prefix}min1" in provided_names or f"{prefix}max1" in provided_names:
                 params.append((f"{prefix}val1", val))
     return params
@@ -1095,20 +784,11 @@ def _label_filters(model: BaseModel) -> list[str]:
         else:
             labels.append(f"{noun} {_join_words(names, conjunction='or')}")
     choice_labels = {
-        "home_or_away": {"1": "home", "2": "away", "3": "neutral"},
-        "result": {"1": "won", "2": "lost", "3": "tied", "4": "drawn", "5": "no result"},
-        "tournament_type": {
-            "2": "two-team series",
-            "3": "three- or four-team tournament",
-            "5": "five-plus-team tournament",
-        },
-        "final_type": {"1": "finals", "0": "preliminary matches"},
-        "floodlit": {"1": "day", "2": "day/night"},
-        "toss": {"1": "toss won", "2": "toss lost"},
-        "batting_fielding_first": {"1": "batting first", "2": "fielding first"},
-        "captain": {"1": "as captain", "0": "not as captain"},
-        "keeper": {"1": "as wicketkeeper", "0": "not as wicketkeeper"},
-        "team_view": {"bowl": "bowling team totals"},
+        **(
+            CHOICE_LABELS[model.class_][model.type]
+            if isinstance(model, StatsguruQuery)
+            else PLAYER_PAGE_CHOICE_LABELS[model.class_].get(model.type, {})
+        )
     }
     for field, names in choice_labels.items():
         value = getattr(model, field, None)
@@ -1118,24 +798,20 @@ def _label_filters(model: BaseModel) -> list[str]:
             names.get(str(item), str(item)) for item in sorted(_as_sequence(value), key=str)
         ]
         labels.append(f"{field.replace('_', ' ')} {_join_words(selected, conjunction='or')}")
+    if getattr(model, "player_involve", None) is not None:
+        selected = [str(item) for item in sorted(_as_sequence(model.player_involve), key=str)]
+        prefix = "excluding " if getattr(model, "player_involve_type", None) == "none" else ""
+        labels.append(f"{prefix}player involve {_join_words(selected, conjunction='or')}")
+    if getattr(model, "captain_involve", None) is not None:
+        selected = [str(item) for item in sorted(_as_sequence(model.captain_involve), key=str)]
+        prefix = "excluding " if getattr(model, "captain_involve_type", None) == "none" else ""
+        labels.append(f"{prefix}captain involve {_join_words(selected, conjunction='or')}")
     simple_fields = (
         "ground",
         "series",
         "search_player",
-        "player_involve",
-        "player_involve_type",
         "search_captain",
-        "captain_involve",
-        "captain_involve_type",
         "innings_number",
-        "batting_hand",
-        "bowling_hand",
-        "bowling_pacespin",
-        "outs",
-        "dismissal",
-        "debut_or_last",
-        "fow_type",
-        "event",
     )
     for field in simple_fields:
         value = getattr(model, field, None)
@@ -1150,18 +826,18 @@ def _label_filters(model: BaseModel) -> list[str]:
 
 def _label_ranges(query: StatsguruQuery) -> list[str]:
     labels: list[str] = []
-    for prefix in RANGE_VAL_FIELDS[query.type]:
+    for prefix in RANGE_VAL_FIELDS[query.class_][query.type]:
         low = getattr(query, f"{prefix}min1", None)
         high = getattr(query, f"{prefix}max1", None)
         if low is None and high is None:
             continue
-        label = _field_label(prefix)
+        label = RANGE_LABELS.get(prefix, _field_label(prefix))
         if low is not None and high is not None:
             labels.append(f"{label} from {low} to {high}")
         elif low is not None:
-            labels.append(f"{label} at least {low}")
+            labels.append(f"at least {low} {label}")
         else:
-            labels.append(f"{label} at most {high}")
+            labels.append(f"at most {high} {label}")
     return labels
 
 
@@ -1196,10 +872,17 @@ def _label_date(value: date) -> str:
 
 
 def _sort_direction(field: str, orderbyad: str) -> str:
-    default = "ascending" if field in ASCENDING_SORT_FIELDS else "descending"
+    default = "ascending" if field in ASCENDING_SORT_FIELDS else ""
+    if not default:
+        return "reverse order" if orderbyad == "reverse" else ""
     if orderbyad == "reverse":
         return "descending" if default == "ascending" else "ascending"
     return default
+
+
+def _player_page_choice_values(model: PlayerPageSpec) -> Mapping[str, set[str]]:
+    by_type = PLAYER_PAGE_CHOICE_VALUES[model.class_]
+    return by_type.get(model.type, by_type.get("batting", {}))
 
 
 __all__ = [
