@@ -6,13 +6,13 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 from math import ceil
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import BaseModel, PositiveInt, ValidationError
+from pydantic import BaseModel, Field, PositiveInt, ValidationError
 
 from crickey.fetcher import Fetcher, FetcherError, Freshness, TooBroadError, freshness_from_end_date
 from crickey.ids import LookupResult, lookup_host
@@ -99,42 +99,43 @@ class AnswerMetric(StrEnum):
 
 
 class AllTimePeriod(BaseModel):
-    kind: Literal["all_time"] = "all_time"
+    kind: Literal["all_time"]
 
 
 class CareerPeriod(BaseModel):
-    kind: Literal["career"] = "career"
+    kind: Literal["career"]
 
 
 class FirstYearsPeriod(BaseModel):
-    kind: Literal["first_years"] = "first_years"
+    kind: Literal["first_years"]
     years: PositiveInt
 
 
 class LastYearsPeriod(BaseModel):
-    kind: Literal["last_years"] = "last_years"
+    kind: Literal["last_years"]
     years: PositiveInt
 
 
 class DatesPeriod(BaseModel):
-    kind: Literal["dates"] = "dates"
+    kind: Literal["dates"]
     start: date
     end: date
 
 
 class AnswerSeasonPeriod(BaseModel):
-    kind: Literal["season"] = "season"
+    kind: Literal["season"]
     season: str
 
 
-AnswerPeriod = (
+AnswerPeriod = Annotated[
     AllTimePeriod
     | CareerPeriod
     | FirstYearsPeriod
     | LastYearsPeriod
     | DatesPeriod
-    | AnswerSeasonPeriod
-)
+    | AnswerSeasonPeriod,
+    Field(discriminator="kind"),
+]
 
 
 def create_server(
@@ -150,9 +151,8 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: Which players have scored Test hundreds more frequently than "
-            "Babar Azam? Find Statsguru player candidates by name, with player ID, "
-            "country, formats and career spans."
+            "Example: Find Babar Azam in T20Is. Find Statsguru player candidates "
+            "by name, with player ID, country, formats and career spans."
         ),
     )
     async def find_player(
@@ -213,9 +213,8 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: How many hundreds has Babar Azam scored in ODI World Cups? "
-            "Compile and optionally fetch any Statsguru query, returning rows, "
-            "totals and the pinned link."
+            "Example: Fetch ODI batting rows sorted by hundreds. Compile and optionally "
+            "fetch any Statsguru query, returning rows, totals and the pinned link."
         ),
     )
     async def query_stats(
@@ -301,7 +300,7 @@ def create_server(
     async def leaderboard(
         format: str | int,
         metric: AnswerMetric | str,
-        period: AnswerPeriod | None = None,
+        period: AnswerPeriod | dict[str, Any] | None = None,
         team: str | None = None,
         opposition: str | None = None,
         host_country: str | None = None,
@@ -334,8 +333,9 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: Which batters had better average and strike rate in T20 than "
-            "Babar Azam, in the same period that Babar Azam played? Compare players."
+            "Example: Which players have scored Test hundreds more frequently than "
+            "Babar Azam? Which batters had better average and strike rate in T20 "
+            "than Babar Azam, in the same period that Babar Azam played? Compare players."
         ),
     )
     async def better_than_player(
@@ -343,7 +343,7 @@ def create_server(
         format: str | int,
         metrics: list[AnswerMetric | str],
         match: str = "all",
-        period: AnswerPeriod | None = None,
+        period: AnswerPeriod | dict[str, Any] | None = None,
         team: str | None = None,
         opposition: str | None = None,
         host_country: str | None = None,
@@ -377,13 +377,14 @@ def create_server(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
             "Example: What was Babar Azam's Test batting average in the last Y years "
-            "of his career? Return one player's batting record with a proof link."
+            "of his career? How many hundreds has Babar Azam scored in ODI World Cups? "
+            "Return one player's batting record with a proof link."
         ),
     )
     async def player_record(
         player_name: str,
         format: str | int,
-        period: AnswerPeriod | None = None,
+        period: AnswerPeriod | dict[str, Any] | None = None,
         opposition: str | None = None,
         host_country: str | None = None,
         ground: str | None = None,
@@ -415,7 +416,7 @@ async def _leaderboard_tool(
     *,
     format: str | int,
     metric_key: str,
-    period: AnswerPeriod | None,
+    period: AnswerPeriod | dict[str, Any] | None,
     team: str | None,
     opposition: str | None,
     host_country: str | None,
@@ -433,6 +434,7 @@ async def _leaderboard_tool(
         class_id = _format_class(format)
         metric = _answer_metric(metric_key)
         metric.require_supported(class_id)
+        _validate_period_shape(period)
         minimum_value = minimum if minimum is not None else metric.default_minimum(class_id).minimum
         minimum_field = metric.default_minimum(class_id).field
         resolved_period = _parse_period(period)
@@ -507,10 +509,7 @@ async def _leaderboard_tool(
                 ),
             ),
             method=(
-                (
-                    "Fetched every qualifying Statsguru row within the "
-                    f"{settings.max_pages}-page limit."
-                ),
+                _leaderboard_fetch_method(metric, pages, settings),
                 "Calculated derived metrics from totals."
                 if metric.is_derived
                 else "Used Statsguru displayed values.",
@@ -555,7 +554,7 @@ async def _better_than_player_tool(
     format: str | int,
     metric_keys: list[AnswerMetric | str],
     match_mode: str,
-    period: AnswerPeriod | None,
+    period: AnswerPeriod | dict[str, Any] | None,
     team: str | None,
     opposition: str | None,
     host_country: str | None,
@@ -573,6 +572,7 @@ async def _better_than_player_tool(
     try:
         class_id = _format_class(format)
         metrics = tuple(_answer_metric(key) for key in metric_keys)
+        _validate_period_shape(period)
         for metric in metrics:
             metric.require_supported(class_id)
     except ValueError as error:
@@ -631,26 +631,29 @@ async def _better_than_player_tool(
                 metric.display_value(metric.value_from_row(target, class_id=class_id))
                 for metric in metrics
             )
-            winners = []
+            comparison_rows: list[tuple[dict[str, Any], str]] = []
             for row in all_rows:
                 comparisons = [
                     metric.compare(metric.value_from_row(row, class_id=class_id), target_value)
                     for metric, target_value in zip(metrics, target_values, strict=True)
                 ]
                 if _row_id(row) == resolution.match.player_id:
-                    winners.append(row)
+                    comparison_rows.append((row, "target"))
                     continue
+                tied = match_mode == "all" and all(value == 0 for value in comparisons)
                 beats = (
                     all(value > 0 for value in comparisons)
                     if match_mode == "all"
                     else any(value > 0 for value in comparisons)
                 )
                 if beats:
-                    winners.append(row)
-            winners = sorted(
-                winners,
-                key=lambda row: tuple(
-                    rank_key(metric, metric.value_from_row(row, class_id=class_id))
+                    comparison_rows.append((row, "beats"))
+                elif tied:
+                    comparison_rows.append((row, "ties"))
+            comparison_rows = sorted(
+                comparison_rows,
+                key=lambda item: tuple(
+                    rank_key(metric, metric.value_from_row(item[0], class_id=class_id))
                     for metric in metrics
                 ),
             )
@@ -667,7 +670,7 @@ async def _better_than_player_tool(
                 query,
                 thresholds=proof_thresholds,
                 expected_player_ids=tuple(
-                    _row_id(row) for row in winners if _row_id(row) is not None
+                    _row_id(row) for row, _relation in comparison_rows if _row_id(row) is not None
                 ),
                 call=call,
                 as_of=_today(fetcher),
@@ -690,18 +693,22 @@ async def _better_than_player_tool(
         ) from error
 
     payload_rows = [
-        _comparison_row_payload(row, metrics, class_id, resolution.match.player_id)
-        for row in winners
+        _comparison_row_payload(row, metrics, class_id, resolution.match.player_id, relation)
+        for row, relation in comparison_rows
     ]
     as_of = _today(fetcher)
     metric_labels = tuple(metric.label for metric in metrics)
     beater_count = len([row for row in payload_rows if row["relation"] == "beats"])
+    tie_count = len([row for row in payload_rows if row["relation"] == "ties"])
     metrics_text = " and ".join(metric_labels)
+    tie_text = (
+        f" {tie_count} player(s) were tied with {resolution.match.name}." if tie_count else ""
+    )
     answer = render_answer(
         AnswerRenderInput(
             short_answer=(
-                f"{beater_count} players matched {resolution.match.name}'s "
-                f"displayed {metrics_text}."
+                f"{beater_count} player(s) beat {resolution.match.name}'s displayed "
+                f"{metrics_text}.{tie_text}"
             ),
             table=RenderedTable(
                 headers=("Player", *metric_labels, "Relation"),
@@ -714,7 +721,7 @@ async def _better_than_player_tool(
                 "Compared Statsguru displayed values; equal displayed values count as ties.",
                 (
                     f"Required {'all' if match_mode == 'all' else 'any'} metric(s) "
-                    "to match or beat the player."
+                    "to beat the player; all-metric ties are reported separately."
                 ),
             ),
             assumptions=(
@@ -740,6 +747,7 @@ async def _better_than_player_tool(
             "metrics": [metric.key for metric in metrics],
             "rows": payload_rows,
             "beaters": [row for row in payload_rows if row["relation"] == "beats"],
+            "ties": [row for row in payload_rows if row["relation"] == "ties"],
             "proof": _jsonable(proof),
             "request_pages": len(pages),
         },
@@ -751,7 +759,7 @@ async def _player_record_tool(
     *,
     player_name: str,
     format: str | int,
-    period: AnswerPeriod | None,
+    period: AnswerPeriod | dict[str, Any] | None,
     opposition: str | None,
     host_country: str | None,
     ground: str | None,
@@ -762,6 +770,7 @@ async def _player_record_tool(
 ) -> CallToolResult:
     try:
         class_id = _format_class(format)
+        _validate_period_shape(period)
     except ValueError as error:
         raise ToolError(str(error)) from error
     progress = _progress_callback(ctx)
@@ -821,9 +830,35 @@ async def _player_record_tool(
             _validation_message(error) if isinstance(error, ValidationError) else str(error)
         ) from error
 
+    proof = ProofLink(spec.label(as_of=as_of), url, True, True, row_count=len(page.career_averages))
+    if row is None:
+        answer = render_answer(
+            AnswerRenderInput(
+                short_answer=f"No matches found for {resolution.match.name} with those filters.",
+                table=RenderedTable(
+                    headers=("Player", "Result"), rows=((resolution.match.name, "No matches"),)
+                ),
+                method=("Read the player's Statsguru batting page with the same filters.",),
+                assumptions=(f"Period: {_period_text(period_value, as_of=as_of)}.",),
+                proof_links=(proof,),
+                players=(RenderPlayer(resolution.match.name, resolution.match.player_id),),
+                as_of=as_of,
+                current_or_recent_matches=recent,
+            )
+        )
+        return _tool_result(
+            "No matching player record.",
+            {
+                "status": "no_matches",
+                "answer_markdown": answer,
+                "player": _candidate_payload(resolution.match),
+                "row": None,
+                "proof": _jsonable(proof),
+            },
+        )
+
     columns = _player_record_columns(page)
     values = {column: _display_value(row, column) for column in columns}
-    proof = ProofLink(spec.label(as_of=as_of), url, True, True, row_count=len(page.career_averages))
     summary_values = _player_record_summary(resolution.match.name, values)
     answer = render_answer(
         AnswerRenderInput(
@@ -954,6 +989,11 @@ def _parse_period(value: AnswerPeriod | Mapping[str, Any] | None) -> Period:
     if not data or data == {"kind": "all_time"}:
         return None
     kind = data.get("kind")
+    if kind is None:
+        raise QuerySpecError(
+            "period.kind is required; expected one of all_time, career, first_years, "
+            "last_years, dates or season"
+        )
     if kind in {"dates", "date_range"}:
         return ResolvedPeriod(start=_date_value(data["start"]), end=_date_value(data["end"]))
     if kind == "season":
@@ -964,10 +1004,22 @@ def _parse_period(value: AnswerPeriod | Mapping[str, Any] | None) -> Period:
     raise QuerySpecError(f"unsupported period kind {kind!r}")
 
 
+def _validate_period_shape(value: AnswerPeriod | Mapping[str, Any] | None) -> None:
+    if isinstance(value, Mapping) and value and "kind" not in value:
+        raise QuerySpecError(
+            "period.kind is required; expected one of all_time, career, first_years, "
+            "last_years, dates or season"
+        )
+
+
 async def _comparison_period(
-    fetcher: Fetcher, player_id: int, class_id: int, value: AnswerPeriod | None, call
+    fetcher: Fetcher,
+    player_id: int,
+    class_id: int,
+    value: AnswerPeriod | Mapping[str, Any] | None,
+    call,
 ) -> Period:
-    period = _parse_period(value or CareerPeriod())
+    period = _parse_period(value or CareerPeriod(kind="career"))
     if isinstance(period, SymbolicPeriod):
         return await PeriodResolver(fetcher).resolve_symbolic(
             player_id, class_id=class_id, period=period, call=call
@@ -976,7 +1028,11 @@ async def _comparison_period(
 
 
 async def _record_period(
-    fetcher: Fetcher, player_id: int, class_id: int, value: AnswerPeriod | None, call
+    fetcher: Fetcher,
+    player_id: int,
+    class_id: int,
+    value: AnswerPeriod | Mapping[str, Any] | None,
+    call,
 ) -> Period:
     period = _parse_period(value)
     if isinstance(period, SymbolicPeriod):
@@ -1145,7 +1201,7 @@ def _select_ranked_with_ties(
 
 def _page_size_for_top_n(top_n: int) -> int:
     for size in (10, 25, 50, 100, 150, 200):
-        if top_n < size:
+        if top_n <= size:
             return size
     return 200
 
@@ -1210,12 +1266,16 @@ def _metric_row_payload(
 
 
 def _comparison_row_payload(
-    row: Mapping[str, Any], metrics: tuple[Metric, ...], class_id: int, target_id: int
+    row: Mapping[str, Any],
+    metrics: tuple[Metric, ...],
+    class_id: int,
+    target_id: int,
+    relation: str,
 ) -> dict[str, Any]:
     return {
         "player": row.get("player_name") or row.get("Player"),
         "player_id": _row_id(row),
-        "relation": "target" if _row_id(row) == target_id else "beats",
+        "relation": "target" if _row_id(row) == target_id else relation,
         "values": {
             metric.key: metric.display_value(metric.value_from_row(row, class_id=class_id))
             for metric in metrics
@@ -1223,10 +1283,14 @@ def _comparison_row_payload(
     }
 
 
-def _player_record_row(page) -> Mapping[str, Any]:
+def _player_record_row(page) -> Mapping[str, Any] | None:
     rows = page.career_averages.to_dict("records")
     filtered = [row for row in rows if str(row.get("Grouping", "")).casefold() == "filtered"]
-    return filtered[0] if filtered else rows[-1]
+    if filtered:
+        return filtered[0]
+    if any(str(row.get("Grouping", "")).casefold() == "unfiltered" for row in rows):
+        return None
+    return rows[0] if len(rows) == 1 else None
 
 
 def _player_record_columns(page) -> list[str]:
@@ -1269,6 +1333,18 @@ def _leaderboard_short_answer(
         )
     leader = leaders[0]
     return f"{leader['player']} leads with {leader['value']} {metric.label}.{group_text}"
+
+
+def _leaderboard_fetch_method(
+    metric: Metric, pages: tuple[ResultsPage, ...], settings: Settings
+) -> str:
+    if metric.is_derived:
+        return f"Fetched every qualifying Statsguru row within the {settings.max_pages}-page limit."
+    page_text = "page" if len(pages) == 1 else "pages"
+    return (
+        f"Fetched {len(pages)} sorted Statsguru result {page_text}; "
+        "extra pages only cover boundary ties."
+    )
 
 
 def _clarification_result(name: str, resolution) -> CallToolResult:
@@ -1519,7 +1595,12 @@ def _text_content(
         lines.extend(["", f"Pinned link: [{label}]({link})"])
     candidates = structured_content.get("candidates")
     if isinstance(candidates, list) and candidates:
-        lines.extend(["", _markdown_table(("ID", "Name", "Country"), _candidate_rows(candidates))])
+        headers = (
+            ("Value", "Name", "Kind")
+            if _has_lookup_candidates(candidates)
+            else ("ID", "Name", "Country")
+        )
+        lines.extend(["", _markdown_table(headers, _candidate_rows(candidates))])
     rows = structured_content.get("rows")
     columns = structured_content.get("columns")
     if isinstance(rows, list) and rows and isinstance(columns, list):
@@ -1566,6 +1647,13 @@ def _candidate_rows(candidates: list[Any]) -> list[tuple[Any, ...]]:
             (candidate.get("id"), candidate.get("name"), "/".join(candidate.get("country", [])))
         )
     return rows[:10]
+
+
+def _has_lookup_candidates(candidates: list[Any]) -> bool:
+    return any(
+        isinstance(candidate, Mapping) and isinstance(candidate.get("candidates"), list)
+        for candidate in candidates
+    )
 
 
 def _markdown_table(headers: tuple[str, ...], rows: Iterable[tuple[Any, ...]]) -> str:

@@ -232,7 +232,7 @@ async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache
             ),
             form_url: form,
             url(base_query): result_page(rows, total=182),
-            url(proof_query): result_page(rows[:7], total=7),
+            url(proof_query): result_page(rows[:8], total=8),
         }
     )
 
@@ -265,9 +265,11 @@ async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache
         "K Kadowaki-Fleming",
         "Muhammad Tanveer",
     ]
-    assert cold.structured_content["rows"][-1]["relation"] == "target"
+    assert any(row["relation"] == "target" for row in cold.structured_content["rows"])
     assert "Tie Player" not in [row["player"] for row in cold.structured_content["beaters"]]
     assert "Average Only" not in [row["player"] for row in cold.structured_content["beaters"]]
+    assert [row["player"] for row in cold.structured_content["ties"]] == ["Tie Player"]
+    assert "tied with Babar Azam" in cold.structured_content["answer_markdown"]
     assert cold.structured_content["proof"]["confirmed"] is True
     assert "qualval2=batting_average" in cold.structured_content["proof"]["url"]
 
@@ -445,6 +447,31 @@ async def test_golden_question_5_babar_odi_world_cup_record_requests_and_cache()
     assert "hundreds 20" not in short_answer
 
 
+async def test_player_record_without_filtered_row_reports_no_matches() -> None:
+    spec = PlayerPageSpec(player_id=348144, **{"class": 2, "type": "batting", "trophy": 12})
+    source, client = await client_for(
+        {
+            player_search_url("Babar Azam"): search_page(
+                search_row("Babar Azam", "PAK", 348144, 2, "One-Day Internationals", "2015 - 2026")
+            ),
+            spec.url(as_of=FakeClock().now().date()): player_page(
+                '<tr class="data1"><td>unfiltered</td><td>2015-2026</td><td>143</td><td>140</td><td>16</td><td>6626</td><td>158</td><td>53.43</td><td>7652</td><td>86.59</td><td>20</td><td>38</td><td>5</td></tr>'
+            ),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "player_record",
+            {"player_name": "Babar Azam", "format": "ODI", "trophy": "World Cup"},
+        )
+
+    assert len(source.requests) == 2
+    assert result.structured_content["status"] == "no_matches"
+    assert result.structured_content["row"] is None
+    assert "No matches found" in result.structured_content["answer_markdown"]
+
+
 async def test_leaderboard_ties_share_rank_and_extend_top_n_boundary() -> None:
     query = StatsguruQuery(
         **{
@@ -478,6 +505,142 @@ async def test_leaderboard_ties_share_rank_and_extend_top_n_boundary() -> None:
     assert [row["rank"] for row in result.structured_content["rows"]] == [1, 1]
     assert [row["player"] for row in result.structured_content["rows"]] == ["P1", "P2"]
     assert "tied for the lead" in result.structured_content["answer_markdown"]
+
+
+async def test_sortable_leaderboard_follows_boundary_tie_to_next_page() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "qualifications": (Qualification(field="innings", minimum=20),),
+            "orderby": "batting_average",
+            "size": 10,
+        }
+    )
+    page2 = query.model_copy(update={"page": 2})
+    source, client = await client_for(
+        {
+            url(query): result_page(
+                [
+                    row(
+                        index,
+                        f"P{index}",
+                        "AAA",
+                        "2000-2010",
+                        20,
+                        1000,
+                        "50.00",
+                        1000,
+                        "100.00",
+                        1,
+                        1,
+                    )
+                    for index in range(1, 11)
+                ],
+                pages=2,
+                total=11,
+            ),
+            url(page2): result_page(
+                [row(11, "P11", "AAA", "2000-2010", 20, 1000, "50.00", 1000, "100.00", 1, 1)],
+                page=2,
+                pages=2,
+                total=11,
+            ),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard", {"format": "ODI", "metric": "average", "top_n": 10}
+        )
+
+    assert len(source.requests) == 2
+    assert len(result.structured_content["rows"]) == 11
+
+
+async def test_sortable_leaderboard_boundary_tie_overflow_errors() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "qualifications": (Qualification(field="innings", minimum=20),),
+            "orderby": "batting_average",
+            "size": 10,
+        }
+    )
+    source, client = await client_for(
+        {
+            url(query): result_page(
+                [
+                    row(
+                        index,
+                        f"P{index}",
+                        "AAA",
+                        "2000-2010",
+                        20,
+                        1000,
+                        "50.00",
+                        1000,
+                        "100.00",
+                        1,
+                        1,
+                    )
+                    for index in range(1, 11)
+                ],
+                pages=2,
+                total=11,
+            )
+        },
+        settings(max_pages=1),
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard", {"format": "ODI", "metric": "average", "top_n": 10}
+        )
+
+    assert result.is_error is True
+    assert "tie at rank 10 continues" in result.content[0].text
+    assert len(source.requests) == 1
+
+
+async def test_derived_leaderboard_fetches_later_pages_for_ranks_and_group() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "qualifications": (Qualification(field="hundreds", minimum=10),),
+            "orderby": "hundreds",
+            "orderbyad": "reverse",
+            "size": 200,
+        }
+    )
+    page2 = query.model_copy(update={"page": 2})
+    source, client = await client_for(
+        {
+            url(query): result_page(
+                [row(1, "Page One", "AAA", "2000-2010", 100, 4000, "40.00", 5000, "80.00", 10, 10)],
+                pages=2,
+                total=2,
+            ),
+            url(page2): result_page(
+                [row(2, "Page Two", "BBB", "2000-2010", 60, 3000, "50.00", 4000, "75.00", 10, 10)],
+                page=2,
+                pages=2,
+                total=2,
+            ),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard",
+            {"format": "ODI", "metric": "innings_per_hundred", "minimum": 10, "top_n": 1},
+        )
+
+    assert len(source.requests) == 2
+    assert result.structured_content["rows"][0]["player"] == "Page Two"
+    assert result.structured_content["group"]["value"] == "8.00"
 
 
 async def test_better_than_any_mode_skips_confirmation_fetch() -> None:
@@ -566,6 +729,75 @@ async def test_better_than_any_mode_skips_confirmation_fetch() -> None:
     ]
 
 
+async def test_comparison_proof_uses_only_remaining_page_allowance() -> None:
+    period = ResolvedPeriod(start="2016-09-07", end="2026-02-24")
+    base_query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "batting",
+            "period": period,
+            "qualifications": (Qualification(field="runs", minimum=1000),),
+            "orderby": "batting_average",
+            "size": 200,
+        }
+    )
+    proof_query = base_query.model_copy(
+        update={
+            "qualifications": (
+                Qualification(field="runs", minimum=1000),
+                Qualification(field="batting_average", minimum="38.94"),
+            )
+        }
+    )
+    form_url, form = career_form(348144, 3, "07 Sep 2016", "24 Feb 2026")
+    base_rows = [
+        row(1, "Average Beater", "AAA", "2019-2025", 50, 1500, "40.00", 1500, "100.00", 1, 5),
+        row(348144, "Babar Azam", "PAK", "2016-2026", 136, 4596, "38.94", 3590, "128.02", 3, 39),
+    ]
+    source, client = await client_for(
+        {
+            player_search_url("Babar Azam"): search_page(
+                search_row("Babar Azam", "PAK", 348144, 3, "Twenty20 Internationals", "2016 - 2026")
+            ),
+            form_url: form,
+            url(base_query): result_page(base_rows, pages=3, total=402),
+            url(base_query.model_copy(update={"page": 2})): result_page(
+                [row(2, "Page2", "AAA", "2019-2025", 50, 1000, "30.00", 1000, "100.00", 1, 5)],
+                page=2,
+                pages=3,
+                total=402,
+            ),
+            url(base_query.model_copy(update={"page": 3})): result_page(
+                [row(3, "Page3", "AAA", "2019-2025", 50, 1000, "20.00", 1000, "100.00", 1, 5)],
+                page=3,
+                pages=3,
+                total=402,
+            ),
+            url(proof_query): result_page(base_rows[:1], pages=2, total=2),
+            url(proof_query.model_copy(update={"page": 2})): result_page(
+                base_rows[1:],
+                page=2,
+                pages=2,
+                total=2,
+            ),
+        },
+        settings(max_pages=4),
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {"player_name": "Babar Azam", "format": "T20I", "metrics": ["average"]},
+        )
+
+    assert result.structured_content["proof"]["confirmed"] is False
+    assert (
+        "confirmation needs 2 proof pages, over the 1-page limit"
+        in result.structured_content["proof"]["label"]
+    )
+    assert url(proof_query.model_copy(update={"page": 2})) not in source.requests
+
+
 async def test_sortable_metric_leaderboard_fetches_one_page_when_query_is_broad() -> None:
     query = StatsguruQuery(
         **{
@@ -610,6 +842,7 @@ async def test_sortable_metric_leaderboard_fetches_one_page_when_query_is_broad(
     assert result.is_error is False
     assert len(source.requests) == 1
     assert len(result.structured_content["rows"]) == 3
+    assert "Fetched 1 sorted Statsguru result page" in result.structured_content["answer_markdown"]
 
 
 async def test_answer_tools_clarification_unsupported_ties_and_too_broad() -> None:
@@ -694,6 +927,26 @@ async def test_filter_clarification_text_shows_lookup_candidates() -> None:
     assert "Dubai Sports City Cricket Stadium" in result.content[0].text
     assert "ICC Academy, Dubai" in result.content[0].text
     assert source.requests == [form_url]
+
+
+async def test_period_without_kind_is_rejected_with_available_kinds() -> None:
+    source, client = await client_for({})
+
+    async with client:
+        result = await client.call_tool(
+            "player_record",
+            {
+                "player_name": "Babar Azam",
+                "format": "Test",
+                "period": {"years": 2},
+            },
+        )
+
+    assert source.requests == []
+    assert result.is_error is True
+    assert "period.kind is required" in result.content[0].text
+    assert "all_time" in result.content[0].text
+    assert "last_years" in result.content[0].text
 
 
 def test_issue_9_review_follow_up_innings_per_hundred_precision() -> None:

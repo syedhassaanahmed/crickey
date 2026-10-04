@@ -763,6 +763,7 @@ def test_proof_confirmation_requires_matching_total_row_count() -> None:
         assert proof.confirmed is False
         assert proof.row_count == 2
         assert proof.url == input_url
+        assert source.requests == [proof_url, page2_url]
 
     asyncio.run(run())
 
