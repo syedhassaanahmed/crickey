@@ -4,7 +4,7 @@ Everything learned while planning crickey, so it doesn't need to be redone. Unle
 - **(search summary)** marks facts from a web-search summary rather than the primary page.
 - **(unverified)** marks facts seen in other people's code that we haven't tested.
 
-[plan.md](plan.md) has the goal, the golden questions and how crickey is built, and [decisions.md](decisions.md) records what was decided from these facts (D1–D26).
+[plan.md](plan.md) has the goal, the golden questions and how crickey is built, and [decisions.md](decisions.md) records what was decided from these facts, by number (D1, D2, …).
 
 ## Contents
 1. Access and robots.txt

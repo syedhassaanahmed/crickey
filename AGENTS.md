@@ -4,7 +4,7 @@ crickey is an MCP server that answers cricket statistics questions from Cricinfo
 
 ## Read first
 - [docs/plan.md](docs/plan.md): the goal, golden questions and design.
-- [docs/decisions.md](docs/decisions.md): decisions D1–D26, and the options that were dropped.
+- [docs/decisions.md](docs/decisions.md): the numbered decisions (D1, D2, …) and the options that were dropped.
 - [docs/research.md](docs/research.md): facts about Statsguru and the tools, in sections R1–R16.
 
 Each fact lives in one of these files, and the others refer to it as D# or R#. Keep it that way: new facts go in research.md, new choices (with the reason) in decisions.md, and design changes in plan.md. If a decision gets in the way, raise it with the owner instead of working around it.
