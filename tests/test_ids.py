@@ -63,12 +63,17 @@ def form_html(
     *,
     spanmin0: str = "01 Jan 2000",
     team_label: str = "Alpha XI",
+    ground_value: int = 701,
     ground_label: str = "AAA: Alpha Ground",
     series_label: str = "Alpha Cup, 2026",
     include_new_ground: bool = False,
+    include_new_series: bool = False,
     involve_field: str | None = None,
+    opposition_label: str | None = None,
 ) -> str:
     new_ground = '<option value="702">BBB: New Ground</option>' if include_new_ground else ""
+    new_series = '<option value="802">New Series, 2026</option>' if include_new_series else ""
+    opposition_label = team_label if opposition_label is None else opposition_label
     involve = ""
     if involve_field is not None:
         involve = (
@@ -85,7 +90,7 @@ def form_html(
     </select>
     <select name="opposition">
       <option value="">all teams</option>
-      <option value="7">{team_label}</option>
+      <option value="7">{opposition_label}</option>
       <option value="8">Beta XI</option>
     </select>
     <select name="host">
@@ -101,10 +106,10 @@ def form_html(
     </select>
     <select name="ground">
       <option value="">all grounds</option>
-      <option value="701">{ground_label}</option>{new_ground}
+      <option value="{ground_value}">{ground_label}</option>{new_ground}
     </select>
     <select name="series">
-      <option value="">all series</option><option value="801">{series_label}</option>
+      <option value="">all series</option><option value="801">{series_label}</option>{new_series}
     </select>
     {involve}
     </form></body></html>
@@ -135,6 +140,22 @@ def test_generator_builds_exact_tables_from_synthetic_forms() -> None:
     assert namespace["CONTINENTS"][1] == {2: "Asia"}
     assert namespace["TROPHIES"][2] == {12: "World Cup", 117: "Indian Premier League"}
     assert namespace["OPPOSITION_DIFFERS_FROM_TEAM_CLASSES"] == ()
+
+
+def test_generator_records_classes_with_different_opposition_tables() -> None:
+    html_by_class = {
+        class_id: form_html(spanmin0=f"0{index} Jan 2000", team_label=f"Class {class_id} XI")
+        for index, class_id in enumerate(CLASS_IDS, start=1)
+    }
+    html_by_class[3] = form_html(
+        spanmin0="03 Jan 2000", team_label="Class 3 XI", opposition_label="Other XI"
+    )
+
+    text = module_text_from_html_by_class(html_by_class, generated_on=datetime(2026, 10, 4).date())
+    namespace: dict[str, object] = {}
+    exec(text, namespace)
+
+    assert namespace["OPPOSITION_DIFFERS_FROM_TEAM_CLASSES"] == (3,)
 
 
 def test_generator_emits_ruff_formatted_output_from_synthetic_forms() -> None:
@@ -185,6 +206,10 @@ def test_builtin_lookup_tiers_resolve_acronyms_and_generic_names() -> None:
         (lookup_trophy, 2, "ICC Cricket World Cup", 12),
         (lookup_trophy, 3, "T20 World Cup", 89),
         (lookup_trophy, 11, "T20 World Cup", 89),
+        (lookup_trophy, 2, "ODI World Cup", 12),
+        (lookup_trophy, 2, "ODI World Cups", 12),
+        (lookup_trophy, 2, "One-Day World Cup", 12),
+        (lookup_trophy, 3, "T20I World Cup", 89),
     )
 
     for lookup, class_id, query, value in expected_matches:
@@ -205,6 +230,21 @@ def test_builtin_lookup_returns_candidates_for_collisions_and_unsafe_fuzzy_match
     assert premier_league.match is None
     assert australasia.needs_clarification is True
     assert australasia.match is None
+    assert lookup_trophy(3, "World T20").candidates[0].value == 89
+    assert lookup_trophy(3, "ICC World T20").candidates[0].value == 89
+    assert lookup_team(2, "India A").match is None
+
+
+def test_builtin_lookup_prefix_tier_resolves_unique_team_prefixes_only() -> None:
+    assert lookup_team(2, "Aus").match.value == 2
+    assert lookup_team(2, "Eng").match.value == 1
+    assert lookup_team(2, "Pak").match.value == 7
+
+    ind = lookup_team(2, "Ind")
+
+    assert ind.match is None
+    assert [candidate.value for candidate in ind.candidates] == [4, 6]
+    assert lookup_continent(1, "Australasia").match is None
 
 
 def test_name_lookup_exact_case_insensitive_and_fuzzy_matches() -> None:
@@ -314,6 +354,60 @@ def test_on_demand_lookup_miss_refetches_once() -> None:
     assert warm.match.value == 701
     assert result.match.value == 702
     assert source.requests == [form_url, form_url]
+
+
+def test_on_demand_form_url_cache_miss_refetches_across_fields() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    source = MemoryPageSource({form_url: form_html()})
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    warm = run(resolver.lookup_ground(class_id, "Alpha Ground"))
+    source.pages[form_url] = form_html(include_new_series=True)
+    result = run(resolver.lookup_series(class_id, "New Series"))
+
+    assert warm.match.value == 701
+    assert result.match.value == 802
+    assert source.requests == [form_url, form_url]
+
+
+def test_on_demand_form_cache_keys_include_class() -> None:
+    class_2_url = FORM_URL.format(class_id=2)
+    class_3_url = FORM_URL.format(class_id=3)
+    source = MemoryPageSource(
+        {
+            class_2_url: form_html(ground_value=701, ground_label="AAA: Alpha Ground"),
+            class_3_url: form_html(ground_value=703, ground_label="AAA: Alpha Ground"),
+        }
+    )
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    class_2 = run(resolver.lookup_ground(2, "Alpha Ground"))
+    class_3 = run(resolver.lookup_ground(3, "Alpha Ground"))
+
+    assert class_2.match.value == 701
+    assert class_3.match.value == 703
+    assert source.requests == [class_2_url, class_3_url]
+
+
+def test_on_demand_involve_cached_miss_refetches_once() -> None:
+    class_id = 3
+    player_url = INVOLVE_URL.format(
+        class_id=class_id, search_field="search_player", query="babar+azam"
+    )
+    source = MemoryPageSource({player_url: form_html()})
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    miss = run(resolver.lookup_player_involve(class_id, "babar azam"))
+    source.pages[player_url] = form_html(involve_field="player_involve")
+    result = run(resolver.lookup_player_involve(class_id, "babar azam"))
+
+    assert miss.match is None
+    assert result.match.value == 56880
+    assert source.requests == [player_url, player_url]
 
 
 def test_on_demand_lookup_first_miss_does_not_refetch() -> None:

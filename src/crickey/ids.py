@@ -33,6 +33,13 @@ _SPACE_RE = re.compile(r"\s+")
 _INVOLVE_LABEL_RE = re.compile(r'^found using "[^"]+":\s*(?P<name>.+)$')
 _ACRONYM_SKIP_WORDS = frozenset({"and", "of", "the"})
 _GENERIC_WORDS = frozenset({"cricket", "icc", "mens", "the"})
+_FORMAT_WORDS_BY_CLASS = {
+    1: frozenset({"test"}),
+    2: frozenset({"day", "international", "odi", "one"}),
+    3: frozenset({"international", "t20", "t20i"}),
+    6: frozenset({"t20"}),
+    11: frozenset({"international"}),
+}
 
 
 class FetchCall(Protocol):
@@ -103,7 +110,11 @@ def resolve_name(
         return LookupResult(LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind)
     normalized_query = _normalize(query)
     rows = tuple(IdCandidate(class_id, kind, value, label) for value, label in table.items())
-    exact = tuple(candidate for candidate in rows if _normalize(candidate.name) == normalized_query)
+    exact = tuple(
+        candidate
+        for candidate in rows
+        if normalized_query in _normalized_name_variants(candidate.name)
+    )
     if len(exact) == 1:
         return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=exact[0])
     if len(exact) > 1:
@@ -124,13 +135,22 @@ def resolve_name(
     generic = tuple(
         candidate
         for candidate in rows
-        if _without_generic_words(candidate.name) == _without_generic_words(query)
+        if _without_generic_words(candidate.name, class_id)
+        == _without_generic_words(query, class_id)
     )
     if len(generic) == 1:
         return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=generic[0])
     if len(generic) > 1:
         return LookupResult(
             LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind, candidates=generic
+        )
+
+    prefix = _single_word_prefix_matches(normalized_query, rows)
+    if len(prefix) == 1:
+        return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=prefix[0])
+    if len(prefix) > 1:
+        return LookupResult(
+            LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind, candidates=prefix
         )
 
     candidates = tuple(
@@ -147,8 +167,14 @@ def resolve_name(
     if not candidates:
         return LookupResult(LookupStatus.NEEDS_CLARIFICATION, query, class_id, kind)
     contained = _query_containment_matches(normalized_query, rows)
-    if len(contained) == 1:
-        return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=contained[0])
+    if contained:
+        return LookupResult(
+            LookupStatus.NEEDS_CLARIFICATION,
+            query,
+            class_id,
+            kind,
+            candidates=_rank_by_wratio(normalized_query, contained),
+        )
     scored_by_ratio = tuple(
         sorted(
             (
@@ -267,10 +293,14 @@ class StatsguruIdResolver:
         if not force_refetch and key in self._form_tables:
             return self._form_tables[key], True
         url = FORM_URL.format(class_id=class_id)
+        page_was_cached = (
+            not force_refetch
+            and self._fetcher.cache.get(url, self._fetcher.clock.monotonic()) is not None
+        )
         html = await call.fetch(url, freshness=Freshness.LOOKUP, force_refetch=force_refetch)
         table = _options_to_table(parse_filter_form(html).select_lists.get(field, ()), field)
         self._form_tables[key] = table
-        return table, False
+        return table, page_was_cached
 
     async def _involve_table(
         self,
@@ -333,13 +363,35 @@ def _normalize(value: str) -> str:
     return _SPACE_RE.sub(" ", value).strip()
 
 
+def _normalized_name_variants(value: str) -> frozenset[str]:
+    variants = {value}
+    if ":" in value:
+        variants.add(value.split(":", 1)[1].strip())
+    variants |= {_strip_trailing_parenthetical(variant) for variant in tuple(variants)}
+    variants |= {_strip_trailing_year(variant) for variant in tuple(variants)}
+    return frozenset(_normalize(variant) for variant in variants)
+
+
+def _strip_trailing_parenthetical(value: str) -> str:
+    return re.sub(r"\s+\([A-Z]{2,3}\)\s*$", "", value).strip()
+
+
+def _strip_trailing_year(value: str) -> str:
+    return re.sub(r",?\s+\d{4}\s*$", "", value).strip()
+
+
 def _initials(value: str) -> str:
     return "".join(word[0] for word in _normalize(value).split() if word not in _ACRONYM_SKIP_WORDS)
 
 
-def _without_generic_words(value: str) -> str:
+def _without_generic_words(value: str, class_id: int) -> str:
     without_apostrophes = value.replace("'", "").replace("’", "")
-    words = [word for word in _normalize(without_apostrophes).split() if word not in _GENERIC_WORDS]
+    dropped_words = _GENERIC_WORDS | _FORMAT_WORDS_BY_CLASS.get(class_id, frozenset())
+    words = [
+        _singularize(word)
+        for word in _normalize(without_apostrophes).split()
+        if word not in dropped_words
+    ]
     return " ".join(words)
 
 
@@ -354,3 +406,37 @@ def _query_containment_matches(
         for candidate in rows
         if all(word in _normalize(candidate.name).split() for word in query_words)
     )
+
+
+def _single_word_prefix_matches(
+    normalized_query: str, rows: tuple[IdCandidate, ...]
+) -> tuple[IdCandidate, ...]:
+    if len(normalized_query) < 3 or " " in normalized_query:
+        return ()
+    return tuple(
+        candidate
+        for candidate in rows
+        if any(word.startswith(normalized_query) for word in _normalize(candidate.name).split())
+    )
+
+
+def _rank_by_wratio(
+    normalized_query: str, rows: tuple[IdCandidate, ...]
+) -> tuple[IdCandidate, ...]:
+    return tuple(
+        sorted(
+            (
+                _with_score(
+                    candidate, float(fuzz.WRatio(normalized_query, _normalize(candidate.name)))
+                )
+                for candidate in rows
+            ),
+            key=lambda candidate: (-(candidate.score or 0.0), candidate.value),
+        )[:MAX_CANDIDATES]
+    )
+
+
+def _singularize(word: str) -> str:
+    if len(word) > 3 and word.endswith("s"):
+        return word[:-1]
+    return word
