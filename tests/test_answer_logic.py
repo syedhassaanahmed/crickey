@@ -699,7 +699,7 @@ def test_proof_confirmation_mismatch_no_expected_ids_and_no_records_fall_back() 
         )
 
         assert mismatch.confirmed is False
-        assert "confirmation did not match Statsguru rows" in mismatch.label
+        assert "confirmation did not match the expected player IDs" in mismatch.label
         assert mismatch.url == input_url
         assert no_records.confirmed is False
         assert no_records.url == input_url
@@ -737,7 +737,19 @@ def test_proof_confirmation_requires_matching_total_row_count() -> None:
         <tr class="data1"><td><a href="/ci/content/player/348144.html">Babar Azam</a> (PAK)</td><td>38.94</td></tr>
         </table><table><tr><td>Page <b>1</b> of <b>2</b></td><td>Showing <b>1</b> - <b>1</b> of <b>2</b></td></tr></table>
         """
-        source = MemoryPageSource({proof_url: html})
+        page2_url = (
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?"
+            "class=3;page=2;qualmin1=1000;qualmin2=38.94;qualval1=runs;"
+            "qualval2=batting_average;size=200;spanmax1=24+Feb+2026;"
+            "spanmin1=07+Sep+2016;spanval1=span;template=results;type=batting"
+        )
+        page2 = """
+        <table class="engineTable"><caption>Overall figures</caption>
+        <tr><th>Player</th><th>Ave</th></tr>
+        <tr class="data1"><td><a href="/ci/content/player/1.html">Extra Player</a> (AAA)</td><td>38.94</td></tr>
+        </table><table><tr><td>Page <b>2</b> of <b>2</b></td><td>Showing <b>2</b> - <b>2</b> of <b>2</b></td></tr></table>
+        """
+        source = MemoryPageSource({proof_url: html, page2_url: page2})
         fetcher = Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
         async with fetcher.call(budget=5) as call:
             proof = await build_proof_link(
@@ -751,6 +763,82 @@ def test_proof_confirmation_requires_matching_total_row_count() -> None:
         assert proof.confirmed is False
         assert proof.row_count == 2
         assert proof.url == input_url
+
+    asyncio.run(run())
+
+
+def test_proof_confirmation_respects_remaining_page_allowance() -> None:
+    async def run() -> None:
+        query = StatsguruQuery(
+            **{
+                "class": 3,
+                "type": "batting",
+                "qualifications": (Qualification(field="runs", minimum=1000),),
+                "size": 200,
+            }
+        )
+        proof_url = (
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?"
+            "class=3;qualmin1=1000;qualmin2=38.94;qualval1=runs;"
+            "qualval2=batting_average;size=200;spanmax1=04+Oct+2026;"
+            "spanmin1=17+Feb+2005;spanval1=span;template=results;type=batting"
+        )
+        page2_url = proof_url.replace("class=3;", "class=3;page=2;")
+        html = """
+        <table class="engineTable"><caption>Overall figures</caption>
+        <tr><th>Player</th><th>Ave</th></tr>
+        <tr class="data1"><td><a href="/ci/content/player/348144.html">Babar Azam</a> (PAK)</td><td>38.94</td></tr>
+        </table><table><tr><td>Page <b>1</b> of <b>2</b></td><td>Showing <b>1</b> - <b>1</b> of <b>2</b></td></tr></table>
+        """
+        source = MemoryPageSource({proof_url: html, page2_url: html})
+        fetcher = Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
+        async with fetcher.call(budget=5) as call:
+            proof = await build_proof_link(
+                query,
+                thresholds=(Threshold(batting_metric("average"), Decimal("38.94")),),
+                expected_player_ids=(348144,),
+                call=call,
+                as_of=date(2026, 10, 4),
+                page_allowance=1,
+            )
+
+        assert proof.confirmed is False
+        assert "confirmation needs 2 proof pages" in proof.label
+        assert source.requests == [proof_url]
+
+    asyncio.run(run())
+
+
+def test_proof_confirmation_parse_error_falls_back_without_crashing() -> None:
+    async def run() -> None:
+        query = StatsguruQuery(
+            **{
+                "class": 3,
+                "type": "batting",
+                "qualifications": (Qualification(field="runs", minimum=1000),),
+                "size": 200,
+            }
+        )
+        proof_url = (
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?"
+            "class=3;qualmin1=1000;qualmin2=38.94;qualval1=runs;"
+            "qualval2=batting_average;size=200;spanmax1=04+Oct+2026;"
+            "spanmin1=17+Feb+2005;spanval1=span;template=results;type=batting"
+        )
+        source = MemoryPageSource({proof_url: "<html><body>not a statsguru table</body></html>"})
+        fetcher = Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
+        async with fetcher.call(budget=5) as call:
+            proof = await build_proof_link(
+                query,
+                thresholds=(Threshold(batting_metric("average"), Decimal("38.94")),),
+                expected_player_ids=(348144,),
+                call=call,
+                as_of=date(2026, 10, 4),
+            )
+
+        assert proof.confirmed is False
+        assert "could not be parsed" in proof.label
+        assert source.requests == [proof_url]
 
     asyncio.run(run())
 

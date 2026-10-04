@@ -154,12 +154,24 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         tools = (await client.list_tools()).tools
         by_name = {tool.name: tool for tool in tools}
 
-        assert set(by_name) == {"find_player", "query_stats"}
+        assert set(by_name) == {
+            "better_than_player",
+            "find_player",
+            "leaderboard",
+            "player_record",
+            "query_stats",
+        }
         assert by_name["find_player"].annotations.read_only_hint is True
         assert by_name["find_player"].annotations.open_world_hint is True
         assert by_name["query_stats"].annotations.read_only_hint is True
+        assert by_name["leaderboard"].annotations.read_only_hint is True
+        assert by_name["better_than_player"].annotations.read_only_hint is True
+        assert by_name["player_record"].annotations.read_only_hint is True
         assert by_name["find_player"].description.startswith("Example:")
         assert by_name["query_stats"].description.startswith("Example:")
+        assert by_name["leaderboard"].description.startswith("Example:")
+        assert by_name["better_than_player"].description.startswith("Example:")
+        assert by_name["player_record"].description.startswith("Example:")
         assert client.instructions == "\n".join(
             [
                 "Prefer crickey's answer tools and show answer_markdown as-is when they return it.",
