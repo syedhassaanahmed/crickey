@@ -8,6 +8,7 @@ import httpx
 import pytest
 import respx
 
+from crickey.cache import PageCache
 from crickey.fetcher import (
     USER_AGENT,
     BlockedError,
@@ -946,52 +947,65 @@ def test_settled_or_recent_helper_uses_query_end_date() -> None:
 
 def test_cache_size_cap_evicts_least_recently_used_page() -> None:
     clock = FakeClock()
-    source = SequenceSource(
-        [
-            ok(URL, text="A" * 900 + " Statsguru"),
-            ok(OTHER_URL, text="B" * 900 + " Statsguru"),
-            ok(URL, text="A refetched Statsguru"),
-        ]
-    )
-    fetcher = Fetcher(settings(cache_max_mb=1), clock=clock, page_source=source)
-    fetcher.cache._max_bytes = 40
+    cache = PageCache(40 / (1024 * 1024), timer=clock.monotonic)
 
-    assert "A" in run(fetcher.fetch(URL, freshness=Freshness.SETTLED, budget=10))
-    assert "B" in run(fetcher.fetch(OTHER_URL, freshness=Freshness.SETTLED, budget=20))
-    assert (
-        run(fetcher.fetch(URL, freshness=Freshness.SETTLED, budget=20)) == "A refetched Statsguru"
-    )
+    cache.put(URL, "A" * 900 + " Statsguru", expires_at=None)
+    cache.put(OTHER_URL, "B" * 900 + " Statsguru", expires_at=None)
 
-    assert [request[0] for request in source.requests] == [URL, OTHER_URL, URL]
+    assert cache.get(URL, clock.monotonic()) is None
+    assert cache.get(OTHER_URL, clock.monotonic()) is not None
 
 
 def test_cache_eviction_is_lru_and_decrements_bytes() -> None:
     clock = FakeClock()
     third_url = f"{URL};page=3"
-    source = SequenceSource(
-        [
-            ok(URL, text="A" * 200 + " Statsguru"),
-            ok(OTHER_URL, text="B" * 200 + " Statsguru"),
-            ok(third_url, text="C" * 200 + " Statsguru"),
-            ok(OTHER_URL, text="B refetched Statsguru"),
-        ]
-    )
-    fetcher = Fetcher(settings(cache_max_mb=1), clock=clock, page_source=source)
-    fetcher.cache._max_bytes = 60
+    cache = PageCache(60 / (1024 * 1024), timer=clock.monotonic)
 
-    assert "A" in run(fetcher.fetch(URL, freshness=Freshness.SETTLED, budget=10))
-    assert "B" in run(fetcher.fetch(OTHER_URL, freshness=Freshness.SETTLED, budget=20))
-    bytes_after_two = fetcher.cache.current_bytes
-    assert "A" in run(fetcher.fetch(URL, freshness=Freshness.SETTLED, budget=10))
-    assert "C" in run(fetcher.fetch(third_url, freshness=Freshness.SETTLED, budget=20))
-    bytes_after_eviction = fetcher.cache.current_bytes
-    assert (
-        run(fetcher.fetch(OTHER_URL, freshness=Freshness.SETTLED, budget=20))
-        == "B refetched Statsguru"
-    )
+    cache.put(URL, "A" * 200 + " Statsguru", expires_at=None)
+    cache.put(OTHER_URL, "B" * 200 + " Statsguru", expires_at=None)
+    bytes_after_two = cache.current_bytes
+    assert cache.get(URL, clock.monotonic()) is not None
+    cache.put(third_url, "C" * 200 + " Statsguru", expires_at=None)
+    bytes_after_eviction = cache.current_bytes
 
     assert bytes_after_eviction <= bytes_after_two
-    assert [request[0] for request in source.requests] == [URL, OTHER_URL, third_url, OTHER_URL]
+    assert cache.get(OTHER_URL, clock.monotonic()) is None
+    assert cache.get(URL, clock.monotonic()) is not None
+    assert cache.get(third_url, clock.monotonic()) is not None
+
+
+def test_cache_does_not_store_page_larger_than_cap() -> None:
+    clock = FakeClock()
+    cache = PageCache(20 / (1024 * 1024), timer=clock.monotonic)
+
+    cache.put(URL, "A" * 900 + " Statsguru", expires_at=None)
+
+    assert cache.get(URL, clock.monotonic()) is None
+    assert cache.current_bytes == 0
+
+
+def test_cache_oversized_replacement_drops_cached_page() -> None:
+    clock = FakeClock()
+    cache = PageCache(20 / (1024 * 1024), timer=clock.monotonic)
+
+    cache.put(URL, "ok", expires_at=None)
+    assert cache.current_bytes > 0
+    cache.put(URL, "A" * 900 + " Statsguru", expires_at=None)
+
+    assert cache.get(URL, clock.monotonic()) is None
+    assert cache.current_bytes == 0
+
+
+def test_cache_expired_entry_is_not_returned_and_frees_bytes() -> None:
+    clock = FakeClock()
+    cache = PageCache(1, timer=clock.monotonic)
+
+    cache.put(URL, "recent Statsguru", expires_at=5)
+    assert cache.current_bytes > 0
+    clock.monotonic_time = 6
+
+    assert cache.get(URL, clock.monotonic()) is None
+    assert cache.current_bytes == 0
 
 
 def test_page_cap_refuses_after_first_page_and_keeps_it_cached() -> None:

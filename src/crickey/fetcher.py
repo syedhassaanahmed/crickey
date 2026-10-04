@@ -147,7 +147,7 @@ class Fetcher:
         self._jitter = (
             (lambda base: random.uniform(-base * 0.1, base * 0.1)) if jitter is None else jitter
         )
-        self._cache = PageCache(settings.cache_max_mb)
+        self._cache = PageCache(settings.cache_max_mb, timer=self.clock.monotonic)
         self._last_request_at: float | None = None
         self._not_before: float | None = None
         self._unavailable: set[str] = set()
