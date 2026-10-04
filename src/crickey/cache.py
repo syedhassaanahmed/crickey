@@ -42,7 +42,7 @@ class PageCache:
         except KeyError:
             return None
         if entry.expires_at is not None and entry.expires_at <= now:
-            del self._entries[url]
+            self._entries.pop(url, None)
             return None
         return CachedPage(url=url, text=zlib.decompress(entry.compressed).decode("utf-8"))
 
@@ -50,5 +50,6 @@ class PageCache:
         compressed = zlib.compress(text.encode("utf-8"))
         entry = _Entry(compressed=compressed, expires_at=expires_at)
         if len(entry.compressed) > self._entries.maxsize:
+            self._entries.pop(url, None)
             return
         self._entries[url] = entry

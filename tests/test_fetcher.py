@@ -984,6 +984,18 @@ def test_cache_does_not_store_page_larger_than_cap() -> None:
     assert cache.current_bytes == 0
 
 
+def test_cache_oversized_replacement_drops_cached_page() -> None:
+    clock = FakeClock()
+    cache = PageCache(20 / (1024 * 1024), timer=clock.monotonic)
+
+    cache.put(URL, "ok", expires_at=None)
+    assert cache.current_bytes > 0
+    cache.put(URL, "A" * 900 + " Statsguru", expires_at=None)
+
+    assert cache.get(URL, clock.monotonic()) is None
+    assert cache.current_bytes == 0
+
+
 def test_cache_expired_entry_is_not_returned_and_frees_bytes() -> None:
     clock = FakeClock()
     cache = PageCache(1, timer=clock.monotonic)
