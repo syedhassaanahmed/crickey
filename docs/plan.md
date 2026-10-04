@@ -83,10 +83,13 @@ Server instructions tell the agent to:
   - which direction is better, and its default minimum, which is stated in answers.
 
   Examples: innings per hundred = innings ÷ hundreds; balls per dismissal = balls faced ÷ dismissals.
+- **Default minimums:** see the metric registry; the code is the single source for the proposed values.
 - **Ratios:** Statsguru's displayed averages and strike rates are used as they are (D15); the registry's formulas compute only the metrics Statsguru doesn't show.
+- **Derived displays:** derived metrics are shown to 2 decimals with round-half-up rounding; ties are decided on that shown value.
 - **Period resolver:**
-  - "X's career span" is X's first and last match start dates in that format, from X's innings list (R6).
+  - "X's career span" is X's first and last match start dates in that format, from the player's form page `spanmin0`/`spanmax0` first, with the innings list as the fallback (R6).
   - "The last Y years of X's career" runs from Y years before X's last match to that match.
+- **Player country filters:** map country names to player-search country codes through an explicit table, cross-checked against the team names in the filter forms; if a country cannot be applied or matches no candidate, return candidates for clarification instead of auto-matching.
 
 ## Proof links and freshness
 The proof-link builder implements D16, and the answer renderer D17.

@@ -269,7 +269,7 @@ Each advanced form contains one `qualval1` list and one `orderby` list per view 
 The sort list for each view contains all its minimum fields plus the extras shown.
 
 **Field meanings:**
-- **Batting:** matches = matches played; innings = innings batted; notouts = not outs; outs = batting dismissals; runs = runs scored; minutes = minutes batted; balls_faced = balls faced; batting_average; batting_strike_rate; hundreds = hundreds scored; fifty_plus = scores of fifty or more; ducks = ducks scored; fours, sixes = boundaries; high_score = highest innings score; batted_score = runs in the innings (innings view); batting_score1, batting_score2 = runs in the 1st and 2nd innings of a match.
+- **Batting:** matches = matches played; innings = innings batted; notouts = not outs; outs = batting dismissals; runs = runs scored; minutes = minutes batted; balls_faced = balls faced; batting_average; batting_strike_rate; hundreds = hundreds scored; fifty_plus = fifties only (scores of 50-99); ducks = ducks scored; fours, sixes = boundaries; high_score = highest innings score; batted_score = runs in the innings (innings view); batting_score1, batting_score2 = runs in the 1st and 2nd innings of a match.
 - **Context:** player = player name; start = start date; age = age at the start of the match; batting_position = batting order position; dismissal = method of dismissal; innings_number = innings number in the match; year = year of match start; season = match season.
 - **Partnerships (`fow_*`):** fow_wicket = fall-of-wicket number; fow_score = partnership runs; fow_in, fow_out = team score at the partnership's start and end; fow_innings = number of partnerships; fow_notouts = unbroken partnerships; fow_outs = broken partnerships; fow_runs = total partnership runs; fow_high_score = highest partnership; fow_average = average partnership per dismissal; fow_hundreds = century partnerships; fow_fifty_plus = partnerships of fifty or more; partner = partner name.
 - **Dismissals (`dis_*`):** dis_matches = matches against each other; dis_dismissals = total dismissals; dis_bowled, dis_caught_fielder, dis_caught_keeper, dis_stumped, dis_lbw, dis_hit_wicket, dis_run_out, dis_other, dis_not_out = counts by type; dis_average = average score upon dismissal; dis_ducks = ducks; dis_matches_per_dismissal = matches per dismissal; dis_runs = batter's runs in the innings; dis_innings_number = innings number in the match; dis_how_out = method of dismissal; dis_bowler, dis_fielder = bowler or fielder who took the dismissal; dis_span = playing span against each other.
@@ -334,13 +334,17 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
 - **Batting columns (overall view):**
   - ODIs: Player, Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0
   - T20Is: the ODI columns plus 4s and 6s
+  - All T20: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
+  - All Test/ODI/T20I combined: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
   - Tests: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
+- The `50` batting column counts fifties only (scores of 50-99), not hundreds plus fifties. For example, Tendulkar's ODI row shows 49 hundreds and 96 fifties.
 - **Bowling columns (overall view):**
   - Tests: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, BBM, Ave, Econ, SR, 5, 10
   - ODIs: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5
   - T20Is: Player, Span, Mat, Inns, Overs, Mdns, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5 (overs such as "449.5", not balls)
 - **Bowling decimals:** averages and economy rates (2 decimals) and strike rates (1 decimal) are truncated like batting figures. In all 334 cases on three pages where truncating and rounding differ, the page showed the truncated value.
 - **Player cell:** "Name (COUNTRY)", for example "Babar Azam (PAK)". Players who represented several teams list them all, for example "Rashid Khan (AFG/ICC)". T20I lists include players from associate nations (for example QAT and JPN).
+- **Player-search country codes:** saved player-search, results and player pages use country/team codes from Statsguru rows and ground prefixes. Codes that differ from obvious first letters include Austria = AUT, Bermuda = BER, Indonesia = INA, Malaysia = MAS, Saudi Arabia = KSA, Sierra Leone = SLE, Scotland = SCOT, Netherlands = NED and Nepal = NEP. Italy appeared only as the ground prefix ITA in saved pages, not as a player row.
 - **Sort caption:** for example "Ordered by runs scored (descending)" or "Ordered by wickets taken (descending)".
 - **No results:** the table has one row reading "No records available to match this query".
 - **Freshness note:** each results page says "Statsguru includes the following current or recent <format> matches:", followed by match names, dates and links (`/ci/engine/match/<id>.html`, labelled like "Test # 2635").
@@ -395,6 +399,11 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 **Batters with at least 1 hundred** (the loosest form of golden questions 1 and 2), fetched 3 Oct 2026:
 - ODIs: 520 players, 3 pages of 200. `https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;orderby=hundreds;qualmin1=1;qualval1=hundreds;size=200;template=results;type=batting`
 - Tests: 850 players, 5 pages of 200. The same query with `class=1`, plus `page=2` and so on for later pages. Rank 200 has 7 hundreds and rank 400 has 3, so a minimum of 4 hundreds fits in 2 pages.
+
+**Default-minimum count checks** (size=10 pages, fetched 4 Oct 2026 for issue #7):
+- Hundreds minimums: Tests `hundreds>=5` 292 rows; ODIs `hundreds>=5` 144; T20Is `hundreds>=1` 191; all T20 `hundreds>=3` 121; combined internationals `hundreds>=10` 207.
+- Candidate innings-per-fifty-plus innings minimums were too broad: Tests `innings>=20` 1225 rows; ODIs `innings>=20` 1060; T20Is `innings>=20` 1064; all T20 `innings>=30` 2347; combined internationals `innings>=30` 1965.
+- Candidate balls-per-dismissal outs minimums were too broad: ODIs `outs>=20` 907 rows; T20Is `outs>=15` 1114; all T20 `outs>=25` 2167; combined internationals `outs>=40` 1279.
 
 **Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
 - Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`
