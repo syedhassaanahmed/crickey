@@ -292,6 +292,33 @@ async def test_find_player_country_fallback_needs_clarification_not_match() -> N
     ]
 
 
+async def test_find_player_country_filter_sees_candidates_beyond_top_five() -> None:
+    html = """
+    <table>
+    <tr><td>Babar One</td><td>AAA</td><td><a href="/ci/engine/player/1.html?class=6;type=allround">Twenty20 matches player</a> (2020 - 2021, 50 matches)</td></tr>
+    <tr><td>Babar Two</td><td>BBB</td><td><a href="/ci/engine/player/2.html?class=6;type=allround">Twenty20 matches player</a> (2020 - 2021, 49 matches)</td></tr>
+    <tr><td>Babar Three</td><td>CCC</td><td><a href="/ci/engine/player/3.html?class=6;type=allround">Twenty20 matches player</a> (2020 - 2021, 48 matches)</td></tr>
+    <tr><td>Babar Four</td><td>DDD</td><td><a href="/ci/engine/player/4.html?class=6;type=allround">Twenty20 matches player</a> (2020 - 2021, 47 matches)</td></tr>
+    <tr><td>Babar Five</td><td>EEE</td><td><a href="/ci/engine/player/5.html?class=6;type=allround">Twenty20 matches player</a> (2020 - 2021, 46 matches)</td></tr>
+    <tr><td>Fahad Babar</td><td>USA</td><td><a href="/ci/engine/player/6.html?class=6;type=allround">Twenty20 matches player</a> (2020 - 2021, 10 matches)</td></tr>
+    </table>
+    """
+    _, _, client = await call_with_source({player_search_url("Babar"): html})
+
+    async with client:
+        usa = await client.call_tool(
+            "find_player", {"name": "Babar", "format": "all T20", "country": "USA"}
+        )
+        india = await client.call_tool(
+            "find_player", {"name": "Babar", "format": "all T20", "country": "India"}
+        )
+
+    assert usa.structured_content["status"] == "match"
+    assert usa.structured_content["match"]["id"] == 6
+    assert india.structured_content["status"] == "needs_clarification"
+    assert "No candidate matched country 'India'" in india.structured_content["note"]
+
+
 async def test_find_player_fetcher_errors_are_tool_errors() -> None:
     url = player_search_url("Blocked")
     _, _, client = await call_with_source(

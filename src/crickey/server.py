@@ -255,7 +255,7 @@ def _player_candidates_from_search(
 ) -> tuple[dict[int, PlayerCandidate], bool]:
     candidates: dict[int, PlayerCandidate] = {}
     for class_id in class_ids:
-        resolution = player_resolution_from_html(name, html, class_id=class_id, country=None)
+        resolution = player_resolution_from_html(name, html, class_id=class_id, country=country)
         found = resolution.candidates
         if resolution.match is not None:
             found = (*found, resolution.match)
