@@ -1,6 +1,6 @@
 # Decisions
 
-Key decisions for crickey. Each one says what was decided and why, and keeps its number for good: a new decision takes the next number. Options considered and dropped are listed at the end, so they aren't reopened without new information.
+Key decisions for crickey. Each one says what was decided and why, and keeps its number for good: a new decision takes the next number and goes at the end, under "Added while building". Options considered and dropped are listed at the end, so they aren't reopened without new information.
 - [plan.md](plan.md) has the goal and golden questions, puts these decisions into practice and refers to them by number (D1, D2, …).
 - [research.md](research.md) has the supporting facts, referred to here as R1–R16.
 
@@ -12,7 +12,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 5. **Stat types.** Batting, bowling, fielding, all-round, partnerships, team and aggregates. No umpires or referees.
 
 ## Data access
-6. **Personal use at each user's own risk.** Cricinfo's robots.txt disallows results pages (R1) and its terms ban data-extraction tools. Everyone who runs crickey accepts that risk. There's no consent step. Instead, the README and the image description carry a disclaimer: crickey is for personal use at the user's own risk, Cricinfo's terms ban data-extraction tools, and crickey isn't affiliated with Cricinfo.
+6. **Personal use at each user's own risk.** Cricinfo's robots.txt disallows results pages (R1) and its terms ban data-extraction tools. Everyone who runs crickey accepts that risk. There's no consent step. Instead, the README and the image description carry a disclaimer: crickey is for personal use at the user's own risk, Cricinfo's terms ban data-extraction tools, and crickey isn't affiliated with Cricinfo, ESPNcricinfo or ESPN.
 7. **Only stats.cricinfo.com is fetched.** www.cricinfo.com, including its player profile pages, blocks scripts (R1) and is never fetched. Nothing tries to get around a block. Answers can still link to it (D16).
 8. **On demand only.** Requests happen only during tool calls: no prefetching, crawling or background refresh.
 9. **15 seconds between requests** by default, matching robots.txt's crawl delay (R1). It can be lowered to 2 seconds, with a warning.
