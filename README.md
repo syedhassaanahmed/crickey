@@ -6,13 +6,7 @@ crickey is an MCP server that answers cricket statistics questions from Cricinfo
 
 ## Start it
 
-Docker image: `ghcr.io/syedhassaanahmed/crickey`, tagged as a version (`0.1.0`), a minor version (`0.1`) and `latest`. Use `0.1` for patch releases.
-
-```sh
-docker pull ghcr.io/syedhassaanahmed/crickey:0.1
-```
-
-Stop the container and run it again to use the pulled image.
+Docker image: `ghcr.io/syedhassaanahmed/crickey`, tagged as a version (`0.1.0`), a minor version (`0.1`) and `latest`. The commands use `0.1`, which gets its patch releases.
 
 ```sh
 docker run -d --rm --read-only --name crickey -p 127.0.0.1:8765:8765 ghcr.io/syedhassaanahmed/crickey:0.1
@@ -24,6 +18,12 @@ Stop it:
 
 ```sh
 docker stop crickey
+```
+
+Update: pull the latest patch release, then stop the container and run it again.
+
+```sh
+docker pull ghcr.io/syedhassaanahmed/crickey:0.1
 ```
 
 Pass a setting with `-e`:
