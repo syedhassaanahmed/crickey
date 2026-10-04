@@ -370,7 +370,13 @@ async def test_stdio_subprocess_lists_tools_and_stdout_is_protocol() -> None:
         async with Client(params, read_timeout_seconds=5) as client:
             tools = (await client.list_tools()).tools
 
-    assert [tool.name for tool in tools] == ["find_player", "query_stats"]
+    assert {tool.name for tool in tools} == {
+        "better_than_player",
+        "find_player",
+        "leaderboard",
+        "player_record",
+        "query_stats",
+    }
 
 
 async def test_stdio_stdout_lines_are_jsonrpc() -> None:
