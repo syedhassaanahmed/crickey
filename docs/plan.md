@@ -32,7 +32,7 @@ flowchart LR
         logic["Shared logic<br/>metric registry · name and period resolvers<br/>proof-link builder · answer renderer"]
         query["Query spec + built-in ID tables<br/>URL compiler: standard form, pinned dates"]
         fetch["Polite fetcher<br/>spacing · retries · block pause<br/>in-memory cache · page cap"]
-        parse["Parsers<br/>pandas tables with exact columns"]
+        parse["Parsers<br/>pandas tables"]
         tools --> logic --> query --> fetch
         fetch --> parse --> logic
     end
@@ -66,7 +66,7 @@ Five tools (D14), all read-only.
    - Proof link: the player's Statsguru page with the same filters (R6).
 4. **`find_player`**: candidates with ID, country, formats and career spans (R7).
 5. **`query_stats`**: any Statsguru query (see coverage above).
-   - Returns up to `limit` rows (default 50, maximum 200), the total row count, exact columns and the pinned link.
+   - Returns up to `limit` rows (default 50, maximum 200), the total row count, the table's columns and the pinned link.
    - With `fetch=false` it only builds the link, so no request is made.
 
 Server instructions tell the agent to:
@@ -79,11 +79,11 @@ Server instructions tell the agent to:
 - **Metric registry (batting first):** for each metric it records:
   - the label;
   - the Statsguru column, sort field and qualification field, if Statsguru has the metric;
-  - the exact formula from totals, if it's derived;
+  - the formula from totals, if it's derived;
   - which direction is better, and its default minimum, which is stated in answers.
 
-  Examples: average = runs ÷ (innings − not outs); strike rate = runs ÷ balls × 100; innings per hundred = innings ÷ hundreds.
-- **Exact columns:** computed with the registry's formulas and used as D15 requires (R2).
+  Examples: innings per hundred = innings ÷ hundreds; balls per dismissal = balls faced ÷ dismissals.
+- **Ratios:** Statsguru's displayed averages and strike rates are used as they are (D15); the registry's formulas compute only the metrics Statsguru doesn't show.
 - **Period resolver:**
   - "X's career span" is X's first and last match start dates in that format, from X's innings list (R6).
   - "The last Y years of X's career" runs from Y years before X's last match to that match.
@@ -166,7 +166,7 @@ The work is split into [GitHub issues #1–#18](https://github.com/syedhassaanah
 - **Unit tests:**
   - URL compiler golden tests, spec validation, and parsers on synthetic fixtures (including the "current or recent matches" note).
   - Built-in ID tables: their format, lookups, and the fallback to form pages.
-  - Exact columns and metric formulas, including ties and truncated display values.
+  - Metric formulas, and ties between equal displayed values.
   - Name resolution and clarification, and the period resolver (career span; first or last N years).
   - The fetcher: rate limiter, page cap, retries (`Retry-After`, jitter limits, time budget), pauses after a block, unavailable URLs, the cache size cap and the freshness rules.
 - **Answer tools:** each one against synthetic pages, with expected answers and proof links.

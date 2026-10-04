@@ -10,7 +10,7 @@ from crickey.parsers.common import (
     element_text,
     first_int_from_path,
 )
-from crickey.parsers.results import _add_exact_batting_columns, _rows_to_frame, _usable_headers
+from crickey.parsers.results import _rows_to_frame, _usable_headers
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,6 @@ def parse_player_page(page: str) -> PlayerPage:
     if not career_tables:
         raise StatsguruParseError("Career averages table is missing")
     career = _table_to_frame(career_tables[0], default_blank="Grouping")
-    _add_exact_batting_columns(career)
     profile_id = _profile_id(career_tables[0])
 
     innings_tables = doc.xpath(

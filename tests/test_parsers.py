@@ -3,7 +3,6 @@ from __future__ import annotations
 # ruff: noqa: E501
 from datetime import date
 from decimal import Decimal
-from fractions import Fraction
 
 import pytest
 
@@ -20,7 +19,6 @@ from crickey.parsers import (
     parse_score,
     parse_span,
 )
-from crickey.parsers.convert import exact_batting_average, exact_strike_rate
 
 RESULTS_HTML = """
 <html><body>
@@ -69,8 +67,6 @@ def test_results_table_parses_rows_player_metadata_totals_and_recent_matches() -
         "100",
         "50",
         "0",
-        "exact_batting_average",
-        "exact_batting_strike_rate",
     )
     assert len(parsed.table) == 3
     first = parsed.table.iloc[0]
@@ -81,11 +77,12 @@ def test_results_table_parses_rows_player_metadata_totals_and_recent_matches() -
     assert first["HS"] == 122
     assert first["HS_not_out"] is True
     assert first["Ave"] == Decimal("38.94")
-    assert first["exact_batting_average"] == Fraction(4596, 118)
-    assert first["exact_batting_strike_rate"] == Fraction(459600, 3590)
+    assert first["SR"] == Decimal("128.02")
     assert parsed.table.iloc[1]["player_team_codes"] == ("AFG", "ICC")
     assert parsed.table.iloc[2]["player_id"] is None
     assert parsed.table.iloc[2]["Runs"] is None
+    assert parsed.table.iloc[2]["Ave"] is None
+    assert parsed.table.iloc[2]["SR"] is None
     assert parsed.table.iloc[2]["Runs_not_out"] is False
     first_recent = parsed.current_or_recent_matches[0]
     assert first_recent.name == "Synthetic XI v Example XI at Testville, 3rd Test"
@@ -203,7 +200,8 @@ def test_player_page_parses_filtered_career_and_batting_innings() -> None:
     assert list(parsed.career_averages["Grouping"]) == ["unfiltered", "filtered"]
     assert parsed.career_averages.iloc[1]["HS"] == 101
     assert parsed.career_averages.iloc[1]["HS_not_out"] is True
-    assert parsed.career_averages.iloc[0]["exact_batting_average"] == Fraction(4596, 118)
+    assert parsed.career_averages.iloc[0]["Ave"] == Decimal("38.94")
+    assert parsed.career_averages.iloc[0]["SR"] == Decimal("128.02")
     assert parsed.innings is not None
     innings = parsed.innings.iloc[0]
     assert innings["Runs"] == 15
@@ -221,6 +219,8 @@ def test_player_page_parses_bowling_innings_and_overs() -> None:
     parsed = parse_player_page(BOWLING_PLAYER_HTML)
 
     assert parsed.career_averages.iloc[0]["Overs"] == Overs(370, 3)
+    assert parsed.career_averages.iloc[0]["Econ"] == Decimal("7.83")
+    assert parsed.career_averages.iloc[0]["SR"] == Decimal("16.3")
     assert parsed.innings is not None
     assert parsed.innings.iloc[0]["Overs"] == Overs(4, 0)
     assert parsed.innings.iloc[1]["Overs"] is None
@@ -313,7 +313,7 @@ def test_filter_form_requires_gurumenu_form() -> None:
         )
 
 
-def test_converters_handle_spans_overs_no_innings_and_exact_undefined_values() -> None:
+def test_converters_handle_spans_and_overs() -> None:
     assert parse_span("2015/16 - 2026") == Span("2015/16", "2026")
     assert parse_span("2016-2026") == Span("2016", "2026")
     assert parse_span("2026") == Span("2026")
@@ -321,8 +321,6 @@ def test_converters_handle_spans_overs_no_innings_and_exact_undefined_values() -
     assert parse_overs("4") == Overs(4, 0)
     assert parse_overs("DNB") is None
     assert parse_overs("TDNB") is None
-    assert exact_batting_average(100, 10, 10) is None
-    assert exact_strike_rate(100, 0) is None
     with pytest.raises(ValueError, match="legal balls"):
         parse_overs("47.8")
 
