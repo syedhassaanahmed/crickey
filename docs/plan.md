@@ -107,7 +107,8 @@ Implements D7–D12 and D17.
 - **Cache:** compressed, in memory, keyed by standard URL, with D17's freshness rules and size cap. Player search and form pages are lookups: they're kept for the life of the process and refetched once when a lookup misses.
 - **Retries (D11):** after D11's waits, each further retry waits twice as long as the one before. A tool call stops retrying when the next attempt wouldn't fit in its time budget, which stays below the client timeout (300 s in the README's setup). `Retry-After` sets a "not before" time; if that's past the budget, the call fails at once with "try again after HH:MM".
 - **Unavailable URLs:** a URL that returns 400 or 404 isn't requested again by the same process.
-- **Block pause (D11):** while paused, calls that need Cricinfo fail at once with "paused until HH:MM", and cached pages still work. The test request after a pause comes from the next tool call that needs Cricinfo, never from the background.
+- **Time messages:** "try again after" and "paused until" use the process's local time with its UTC offset and are rounded up to the next minute.
+- **Block pause (D11):** while paused, calls that need Cricinfo fail at once with "paused until HH:MM (UTC±HH:MM)", and cached pages still work. The test request after a pause comes from the next tool call that needs Cricinfo, never from the background.
 - **Challenge pages:** detected only when a response has no Statsguru markers (`Statsguru`, `engineTable` or `/ci/engine/`) and does have challenge markers such as `captcha`, `challenge`, `cf-challenge`, `access denied` or `enable javascript`.
 - **Requests:** the page cap (D10), checked against the total on the first page (R2), and progress notifications while waiting.
 - **Tests:** a test-only hook serves synthetic pages instead of the network.

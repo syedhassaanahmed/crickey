@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import email.utils
+import html
 import logging
 import random
 import re
@@ -26,6 +28,7 @@ STATS_ORIGIN = f"https://{STATS_HOST}"
 USER_AGENT = "curl/8.21.0"
 
 _PAGE_COUNT_RE = re.compile(r"Page\s+\d+\s+of\s+(?P<count>\d+)", re.IGNORECASE)
+_REQUEST_TIMEOUT_MARGIN = 0.5
 _STATS_MARKERS = ("engineTable", "Statsguru", "/ci/engine/")
 _CHALLENGE_MARKERS = (
     "captcha",
@@ -100,7 +103,14 @@ class _HttpPageSource:
         self._client = client
 
     async def get(self, url: str, headers: Mapping[str, str]) -> FetchResponse:
-        response = await self._client.get(url, headers=headers, follow_redirects=False)
+        return await self.get_with_timeout(url, headers, timeout=None)
+
+    async def get_with_timeout(
+        self, url: str, headers: Mapping[str, str], *, timeout: float | None
+    ) -> FetchResponse:
+        response = await self._client.get(
+            url, headers=headers, follow_redirects=False, timeout=timeout
+        )
         return FetchResponse(
             url=str(response.url),
             status_code=response.status_code,
@@ -141,6 +151,7 @@ class Fetcher:
         self._unavailable: set[str] = set()
         self._block_until: float | None = None
         self._block_step = 0
+        self._request_lock = asyncio.Lock()
 
     @property
     def cache(self) -> PageCache:
@@ -211,7 +222,6 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
                 return cached.text
         if url in self._fetcher._unavailable:
             raise UnavailableUrlError("This Statsguru page was unavailable earlier in this run.")
-        await self._check_pause()
         response = await self._request_with_retries(url)
         if response.status_code in {400, 404}:
             self._fetcher._unavailable.add(url)
@@ -225,8 +235,6 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         self._fetcher.cache.put(response.url, response.text, expires_at)
         if response.url != url:
             self._fetcher.cache.put(url, response.text, expires_at)
-        self._fetcher._block_step = 0
-        self._fetcher._block_until = None
         return response.text
 
     async def fetch_pages(
@@ -252,16 +260,28 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         attempts = self._fetcher.settings.max_retries + 1
         current_url = url
         for attempt in range(attempts):
-            await self._honour_not_before()
             try:
-                response = await self._request_following_safe_redirects(current_url)
-            except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as error:
+                async with self._fetcher._request_lock:
+                    tested_after_pause = await self._check_pause()
+                    await self._honour_not_before()
+                    response = await self._request_following_safe_redirects(current_url)
+                    if response.status_code in {400, 404}:
+                        self._fetcher._unavailable.add(url)
+                    if response.status_code == 403 or _looks_like_challenge(response.text):
+                        self._start_block_pause()
+                        raise BlockedError(_blocked_message())
+                    if tested_after_pause and response.status_code < 400:
+                        self._fetcher._block_step = 0
+            except httpx.TransportError as error:
                 if attempt + 1 >= attempts:
                     raise FetchTimeoutError("Statsguru did not respond in time.") from error
-                await self._retry_wait(attempt, None)
+                await self._retry_wait(attempt, None, has_next=True)
                 continue
-            if response.status_code in {429, 500, 502, 503, 504} and attempt + 1 < attempts:
-                await self._retry_wait(attempt, response)
+            if response.status_code == 429:
+                await self._retry_wait(attempt, response, has_next=attempt + 1 < attempts)
+                continue
+            if response.status_code >= 500 and attempt + 1 < attempts:
+                await self._retry_wait(attempt, response, has_next=True)
                 continue
             return response
         raise AssertionError("retry loop should have returned or raised")
@@ -271,7 +291,7 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         for _ in range(5):
             await self._space_request()
             self._fetcher._last_request_at = self._fetcher.clock.monotonic()
-            response = await self._fetcher._source.get(current_url, {"User-Agent": USER_AGENT})
+            response = await self._get(current_url)
             if response.status_code not in {301, 302, 303, 307, 308}:
                 return response
             location = response.headers.get("location") or response.headers.get("Location")
@@ -280,6 +300,15 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
             current_url = urljoin(current_url, location)
             _validate_url(current_url)
         raise RefusedUrlError("Statsguru redirected too many times.")
+
+    async def _get(self, url: str) -> FetchResponse:
+        remaining = self._deadline - self._fetcher.clock.monotonic()
+        timeout = max(0.001, remaining - _REQUEST_TIMEOUT_MARGIN)
+        if isinstance(self._fetcher._source, _HttpPageSource):
+            return await self._fetcher._source.get_with_timeout(
+                url, {"User-Agent": USER_AGENT}, timeout=timeout
+            )
+        return await self._fetcher._source.get(url, {"User-Agent": USER_AGENT})
 
     async def _honour_not_before(self) -> None:
         not_before = self._fetcher._not_before
@@ -308,33 +337,47 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
                 raise FetchTimeoutError("Not enough time left to wait before the next request.")
             await self._wait(wait, "spacing requests politely")
 
-    async def _retry_wait(self, attempt: int, response: FetchResponse | None) -> None:
+    async def _retry_wait(
+        self, attempt: int, response: FetchResponse | None, *, has_next: bool
+    ) -> None:
         retry_after = (
             _retry_after_seconds(response, self._fetcher.clock.now()) if response else None
         )
         if retry_after is not None:
-            self._fetcher._not_before = self._fetcher.clock.monotonic() + retry_after
+            not_before = self._fetcher.clock.monotonic() + retry_after
+            current = self._fetcher._not_before
+            if current is None or not_before > current:
+                self._fetcher._not_before = not_before
+            recorded_not_before = self._fetcher._not_before
             if not self._fits(retry_after):
                 raise FetchTimeoutError(
-                    f"Please try again after {self._hhmm(self._fetcher._not_before)}."
+                    f"Please try again after {self._hhmm(recorded_not_before)}."
+                )
+            if not has_next:
+                raise FetchTimeoutError(
+                    f"Please try again after {self._hhmm(recorded_not_before)}."
                 )
             await self._wait(retry_after, "waiting for Statsguru's Retry-After time")
-            self._fetcher._not_before = None
+            if self._fetcher._not_before == not_before:
+                self._fetcher._not_before = None
             return
+        if not has_next:
+            raise FetcherError(f"Statsguru returned HTTP {response.status_code}.")
         base = 15.0 * (2**attempt)
         wait = max(0.0, base + self._fetcher._jitter(base))
         if not self._fits(wait):
             raise FetchTimeoutError("Not enough time left to retry Statsguru.")
         await self._wait(wait, "waiting before retrying Statsguru")
 
-    async def _check_pause(self) -> None:
+    async def _check_pause(self) -> bool:
         block_until = self._fetcher._block_until
         if block_until is None:
-            return
+            return False
         wait = block_until - self._fetcher.clock.monotonic()
         if wait > 0:
             raise BlockedError(f"Statsguru access is paused until {self._hhmm(block_until)}.")
         self._fetcher._block_until = None
+        return True
 
     def _start_block_pause(self) -> None:
         pauses = self._fetcher.settings.block_pauses
@@ -363,7 +406,14 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
     def _hhmm(self, monotonic_time: float) -> str:
         delta = monotonic_time - self._fetcher.clock.monotonic()
         wall = self._fetcher.clock.now() + timedelta(seconds=max(0, delta))
-        return wall.strftime("%H:%M")
+        if wall.second or wall.microsecond:
+            wall = (wall + timedelta(minutes=1)).replace(second=0, microsecond=0)
+        offset = wall.utcoffset() or timedelta(0)
+        sign = "+" if offset >= timedelta(0) else "-"
+        offset = abs(offset)
+        hours, remainder = divmod(int(offset.total_seconds()), 3600)
+        minutes = remainder // 60
+        return f"{wall:%H:%M} (UTC{sign}{hours:02d}:{minutes:02d})"
 
 
 def _validate_url(url: str) -> None:
@@ -380,7 +430,11 @@ def _retry_after_seconds(response: FetchResponse | None, now: datetime) -> float
         return None
     if raw.isdecimal():
         return float(raw)
-    parsed = email.utils.parsedate_to_datetime(raw)
+    try:
+        parsed = email.utils.parsedate_to_datetime(raw)
+    except TypeError, ValueError:
+        LOGGER.warning("Ignoring malformed Retry-After header: %r.", raw)
+        return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return max(0.0, (parsed - now).total_seconds())
@@ -398,7 +452,8 @@ def _blocked_message() -> str:
 
 
 def _page_count(text: str) -> int:
-    match = _PAGE_COUNT_RE.search(text)
+    plain_text = re.sub(r"<[^>]+>", " ", html.unescape(text))
+    match = _PAGE_COUNT_RE.search(plain_text)
     if match is None:
         return 1
     return int(match.group("count"))

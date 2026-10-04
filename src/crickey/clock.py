@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Protocol
 
 
@@ -19,7 +19,7 @@ class SystemClock:
         return time.monotonic()
 
     def now(self) -> datetime:
-        return datetime.now(UTC)
+        return datetime.now().astimezone()
 
     async def sleep(self, seconds: float) -> None:
         await asyncio.sleep(seconds)
