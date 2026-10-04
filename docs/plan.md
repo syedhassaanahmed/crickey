@@ -105,12 +105,12 @@ Implements D7–D12 and D17.
 - **Client:** httpx, with the User-Agent from D12.
 - **State per process, in memory:** the rate limiter, retry state, block pause and unavailable URLs.
 - **Cache:** compressed, in memory, keyed by standard URL, with D17's freshness rules and size cap. Player search and form pages are lookups: they're kept for the life of the process and refetched once when a lookup misses.
-- **Retries (D11):** a tool call stops retrying when the next attempt wouldn't fit in its time budget, which stays below the client timeout (300 s in the README's setup). `Retry-After` sets a "not before" time; if that's past the budget, the call fails at once with "try again after HH:MM".
+- **Retries (D11):** after D11's waits, each further retry waits twice as long as the one before. A tool call stops retrying when the next attempt wouldn't fit in its time budget, which stays below the client timeout (300 s in the README's setup). `Retry-After` sets a "not before" time; if that's past the budget, the call fails at once with "try again after HH:MM".
 - **Unavailable URLs:** a URL that returns 400 or 404 isn't requested again by the same process.
 - **Block pause (D11):** while paused, calls that need Cricinfo fail at once with "paused until HH:MM", and cached pages still work. The test request after a pause comes from the next tool call that needs Cricinfo, never from the background.
 - **Requests:** the page cap (D10), checked against the total on the first page (R2), and progress notifications while waiting.
 - **Tests:** a test-only hook serves synthetic pages instead of the network.
-- **Settings** (environment variables, or matching flags): `CRICKEY_MIN_INTERVAL`, `CRICKEY_MAX_RETRIES`, `CRICKEY_BLOCK_PAUSES`, `CRICKEY_MAX_PAGES`, `CRICKEY_CACHE_MAX_MB`, `CRICKEY_RECENT_TTL`, `CRICKEY_PORT` and `CRICKEY_IN_CONTAINER`.
+- **Settings** (environment variables, or matching flags; flags win): `CRICKEY_MIN_INTERVAL`, `CRICKEY_MAX_RETRIES`, `CRICKEY_BLOCK_PAUSES`, `CRICKEY_MAX_PAGES`, `CRICKEY_CACHE_MAX_MB`, `CRICKEY_RECENT_TTL`, `CRICKEY_PORT` and `CRICKEY_IN_CONTAINER`. `CRICKEY_MAX_RETRIES` counts retries after the first attempt, and `0` turns them off. Durations use seconds by default or an `s`, `m` or `h` suffix; block pauses are a comma-separated list of durations.
 
 ## HTTP transport
 - **Serving:** `crickey serve`, which plain `crickey` also runs, serves `mcp.streamable_http_app()` with uvicorn on port 8765 (`--port` or `CRICKEY_PORT`), as one process. This is the default mode (D20).
