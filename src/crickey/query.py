@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -10,7 +11,7 @@ from urllib.parse import quote_plus
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 
-from crickey import id_tables
+from crickey import id_tables, query_catalog
 
 STATS_BASE = "https://stats.cricinfo.com/ci/engine"
 
@@ -60,6 +61,15 @@ FIELD_LABELS = {
     "matches": "matches",
     "player": "player",
     "start": "start date",
+    "batted_score": "innings score",
+    "team_score": "team score",
+    "team_wickets": "team wickets",
+    "team_overs": "team overs",
+    "fow_score": "partnership score",
+    "fow_wicket": "wicket",
+    "awards_match": "match awards",
+    "year": "year",
+    "season": "season",
 }
 
 COMMON_VIEWS = {"", "innings", "match", "series", "ground", "host", "opposition", "year", "season"}
@@ -445,6 +455,51 @@ RANGE_LIMITS: dict[str, tuple[int, int]] = {
     "partnership_wicketmax1": (1, 10),
 }
 
+TYPE_VIEWS = {stat_type: set(views) for stat_type, views in query_catalog.TYPE_VIEWS.items()}
+TYPE_GROUPBYS = {
+    stat_type: set(groupbys) for stat_type, groupbys in query_catalog.TYPE_GROUPBYS.items()
+}
+TYPE_FILTER_FIELDS = {
+    stat_type: set(fields) for stat_type, fields in query_catalog.TYPE_FIELD_KINDS.items()
+}
+MULTI_FIELDS = {stat_type: set(fields) for stat_type, fields in query_catalog.MULTI_FIELDS.items()}
+for _stat_type, _fields in TYPE_FILTER_FIELDS.items():
+    if "search_player" in _fields:
+        _fields.update({"player_involve", "player_involve_type"})
+        MULTI_FIELDS[_stat_type].add("player_involve")
+    if "search_captain" in _fields:
+        _fields.update({"captain_involve", "captain_involve_type"})
+        MULTI_FIELDS[_stat_type].add("captain_involve")
+QUAL_FIELDS = {
+    stat_type: {view: set(fields) for view, fields in views.items()}
+    for stat_type, views in query_catalog.QUAL_FIELDS.items()
+}
+SORT_FIELDS = {
+    stat_type: {view: set(fields) for view, fields in views.items()}
+    for stat_type, views in query_catalog.SORT_FIELDS.items()
+}
+CHOICE_VALUES = {field: set(values) for field, values in query_catalog.CHOICE_VALUES.items()}
+PLAYER_PAGE_CHOICE_VALUES = CHOICE_VALUES | {"result": {"1", "2", "3", "5"}}
+QUICKPICK_FIELDS = set(query_catalog.QUICKPICK_FIELDS)
+RANGE_VAL_FIELDS = query_catalog.RANGE_VAL_FIELDS
+PLAYER_PAGE_VIEWS = {
+    stat_type: set(views) for stat_type, views in query_catalog.PLAYER_PAGE_VIEWS.items()
+}
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+SEASON_RE = re.compile(r"^\d{4}(?:/\d{2})?$")
+ASCENDING_SORT_FIELDS = {
+    "player",
+    "team",
+    "partners",
+    "start",
+    "year",
+    "season",
+    "ground",
+    "host",
+    "opposition",
+    "series",
+}
+
 Value = str | int | Decimal | date
 ValueList = Annotated[Value | Sequence[Value], Field(union_mode="left_to_right")]
 
@@ -477,6 +532,12 @@ class SeasonPeriod(BaseModel):
 
     season: str
 
+    @model_validator(mode="after")
+    def validate_season(self) -> Self:
+        if not SEASON_RE.match(self.season):
+            raise ValueError("season must be YYYY or YYYY/YY")
+        return self
+
 
 class SymbolicPeriod(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -499,7 +560,9 @@ class SymbolicPeriod(BaseModel):
             return ResolvedPeriod(start=first_match, end=last_match)
         assert self.years is not None
         if self.kind == SymbolicPeriodKind.FIRST_YEARS:
-            return ResolvedPeriod(start=first_match, end=_add_years(first_match, self.years))
+            return ResolvedPeriod(
+                start=first_match, end=min(_add_years(first_match, self.years), last_match)
+            )
         return ResolvedPeriod(start=_add_years(last_match, -self.years), end=last_match)
 
 
@@ -612,11 +675,14 @@ class StatsguruQuery(BaseModel):
             raise ValueError(f"unknown class {self.class_}; expected one of {id_tables.CLASS_IDS}")
         if self.view not in TYPE_VIEWS[self.type]:
             raise ValueError(f"view {self.view!r} is not valid for type {self.type!r}")
-        if self.groupby and self.type == "aggregate":
-            raise ValueError("field 'groupby' is not valid for type 'aggregate'")
+        if self.groupby and self.groupby not in TYPE_GROUPBYS[self.type]:
+            raise ValueError(f"groupby {self.groupby!r} is not valid for type {self.type!r}")
         _validate_filters_for_type(self)
+        _validate_quickpicks(self)
+        _validate_multi_values(self)
         _validate_choice_values(self, CHOICE_VALUES)
         _validate_ranges(self)
+        _validate_season_values(self)
         _validate_built_in_ids(self)
         _validate_qualifications_and_sort(self)
         if len(self.qualifications) > 3:
@@ -636,6 +702,10 @@ class StatsguruQuery(BaseModel):
 
     def label(self, *, as_of: date | None = None) -> str:
         pieces = [f"{CLASS_LABELS[self.class_]} {TYPE_LABELS[self.type]}"]
+        if self.view:
+            pieces.append(f"view {self.view.replace('_', ' ')}")
+        if self.groupby:
+            pieces.append(f"grouped by {self.groupby.replace('_', ' ')}")
         filters = _label_filters(self)
         if filters:
             pieces.append(", ".join(filters))
@@ -645,8 +715,12 @@ class StatsguruQuery(BaseModel):
         if period_label:
             pieces.append(period_label)
         if self.orderby:
-            direction = "ascending" if self.orderbyad == "reverse" else "descending"
+            direction = _sort_direction(self.orderby, self.orderbyad)
             pieces.append(f"sorted by {_field_label(self.orderby)} {direction}")
+        if self.page and self.page != 1:
+            pieces.append(f"page {self.page}")
+        if self.size != 50:
+            pieces.append(f"{self.size} results per page")
         return ", ".join(pieces)
 
     def _params(self, *, as_of: date, include_template: bool) -> list[tuple[str, str]]:
@@ -663,7 +737,7 @@ class StatsguruQuery(BaseModel):
             params.append(("groupby", self.groupby))
         params.extend(_filter_params(self))
         period = self._effective_period(as_of=as_of)
-        params.extend(_period_params(period))
+        params.extend(_period_params(period, class_id=self.class_, as_of=as_of))
         for index, qualification in enumerate(self.qualifications, start=1):
             params.append((f"qualval{index}", qualification.field))
             if qualification.minimum is not None:
@@ -676,7 +750,7 @@ class StatsguruQuery(BaseModel):
             params.append(("orderbyad", self.orderbyad))
         if self.size != 50:
             params.append(("size", str(self.size)))
-        if self.page is not None:
+        if self.page is not None and self.page != 1:
             params.append(("page", str(self.page)))
         return params
 
@@ -713,7 +787,12 @@ class PlayerPageSpec(BaseModel):
     def validate_page(self) -> Self:
         if self.class_ not in id_tables.CLASS_IDS:
             raise ValueError(f"unknown class {self.class_}; expected one of {id_tables.CLASS_IDS}")
+        if self.view not in PLAYER_PAGE_VIEWS[self.type]:
+            raise ValueError(f"view {self.view!r} is not valid for player-page type {self.type!r}")
+        _validate_quickpicks(self)
+        _validate_multi_values(self, default_multi={"home_or_away", "result"})
         _validate_choice_values(self, PLAYER_PAGE_CHOICE_VALUES)
+        _validate_season_values(self)
         _validate_built_in_ids(self)
         if isinstance(self.period, SeasonPeriod) and self.season is not None:
             raise ValueError("period season and season filter cannot both be set")
@@ -738,8 +817,20 @@ class PlayerPageSpec(BaseModel):
             params.append(("view", self.view))
         params.extend(_filter_params(self))
         period = self._effective_period(as_of=as_of or date.today())
-        params.extend(_period_params(period))
+        params.extend(_period_params(period, class_id=self.class_, as_of=as_of or date.today()))
         return _build_url(f"{STATS_BASE}/player/{self.player_id}.html", params)
+
+    def label(self, *, as_of: date | None = None) -> str:
+        pieces = [
+            f"{CLASS_LABELS[self.class_]} player {TYPE_LABELS[self.type]} for {self.player_id}"
+        ]
+        if self.view:
+            pieces.append(f"view {self.view.replace('_', ' ')}")
+        filters = _label_filters(self)
+        if filters:
+            pieces.append(", ".join(filters))
+        pieces.append(_label_period(self._effective_period(as_of=as_of or date.today())))
+        return ", ".join(pieces)
 
     def _effective_period(self, *, as_of: date) -> ResolvedPeriod | SeasonPeriod:
         if isinstance(self.period, ResolvedPeriod | SeasonPeriod):
@@ -770,6 +861,23 @@ def _validate_filters_for_type(query: StatsguruQuery) -> None:
     invalid = sorted(provided - allowed)
     if invalid:
         raise ValueError(f"field {invalid[0]!r} is not valid for type {query.type!r}")
+
+
+def _validate_quickpicks(model: BaseModel) -> None:
+    for field in QUICKPICK_FIELDS:
+        if getattr(model, field, None) is not None:
+            raise ValueError(f"{field} is not supported; use min/max fields instead")
+
+
+def _validate_multi_values(model: BaseModel, *, default_multi: set[str] | None = None) -> None:
+    if isinstance(model, StatsguruQuery):
+        multi = MULTI_FIELDS[model.type]
+    else:
+        multi = default_multi or set()
+    for name in _provided_filter_values(model):
+        value = getattr(model, name)
+        if name not in multi and _is_sequence_value(value):
+            raise ValueError(f"field {name!r} accepts only one value")
 
 
 def _provided_filter_values(model: BaseModel) -> Iterable[str]:
@@ -828,15 +936,18 @@ def _validate_choice_values(model: BaseModel, choices: Mapping[str, set[str]]) -
                     f"{field} value {item!r} is not valid; expected one of "
                     f"{', '.join(sorted(allowed))}"
                 )
-    for field, allowed in QUICK_PICK_VALUES.items():
-        value = getattr(model, field, None)
-        if value is None:
-            continue
-        if str(value) not in allowed:
-            raise ValueError(
-                f"{field} value {value!r} is not valid; expected one of "
-                f"{', '.join(sorted(allowed))}"
-            )
+
+
+def _validate_season_values(model: BaseModel) -> None:
+    period = getattr(model, "period", None)
+    if isinstance(period, SeasonPeriod):
+        return
+    season = getattr(model, "season", None)
+    if season is None:
+        return
+    for item in _as_sequence(season):
+        if not isinstance(item, str) or not SEASON_RE.match(item):
+            raise ValueError(f"season value {item!r} is not valid; expected YYYY or YYYY/YY")
 
 
 def _validate_built_in_ids(model: BaseModel) -> None:
@@ -853,15 +964,17 @@ def _validate_built_in_ids(model: BaseModel) -> None:
             continue
         allowed = table[class_id]
         for item in _as_sequence(value):
-            if int(item) not in allowed:
+            try:
+                item_id = int(item)
+            except TypeError, ValueError:
+                raise ValueError(f"{kind} ID {item!r} is not a number") from None
+            if item_id not in allowed:
                 raise ValueError(f"unknown {kind} ID {item} for class {class_id}")
 
 
 def _validate_qualifications_and_sort(query: StatsguruQuery) -> None:
     qual_fields = QUAL_FIELDS[query.type].get(query.view, QUAL_FIELDS[query.type].get("", set()))
-    sort_fields = qual_fields | SORT_EXTRAS[query.type].get(
-        query.view, SORT_EXTRAS[query.type].get("", set())
-    )
+    sort_fields = SORT_FIELDS[query.type].get(query.view, SORT_FIELDS[query.type].get("", set()))
     for qualification in query.qualifications:
         if qualification.field not in qual_fields:
             raise ValueError(
@@ -877,16 +990,34 @@ def _validate_qualifications_and_sort(query: StatsguruQuery) -> None:
 
 def _filter_params(model: BaseModel) -> list[tuple[str, str]]:
     params: list[tuple[str, str]] = []
+    provided_names = set(_provided_filter_values(model))
     for name in _provided_filter_values(model):
         value = getattr(model, name)
-        for item in _as_sequence(value):
+        values = _as_sequence(value)
+        if isinstance(model, StatsguruQuery) and name in MULTI_FIELDS[model.type]:
+            values = tuple(sorted(values, key=lambda item: str(item)))
+        elif isinstance(model, PlayerPageSpec) and name in {"home_or_away", "result"}:
+            values = tuple(sorted(values, key=lambda item: str(item)))
+        for item in values:
             params.append((name, _value(item)))
+    if isinstance(model, StatsguruQuery):
+        for prefix, val in RANGE_VAL_FIELDS[model.type].items():
+            if f"{prefix}min1" in provided_names or f"{prefix}max1" in provided_names:
+                params.append((f"{prefix}val1", val))
     return params
 
 
-def _period_params(period: ResolvedPeriod | SeasonPeriod) -> list[tuple[str, str]]:
+def _period_params(
+    period: ResolvedPeriod | SeasonPeriod, *, class_id: int, as_of: date
+) -> list[tuple[str, str]]:
     if isinstance(period, SeasonPeriod):
-        return [("season", period.season)]
+        return [("season", period.season)] + _period_params(
+            ResolvedPeriod(
+                start=_parse_table_date(id_tables.FIRST_MATCH_DATES[class_id]), end=as_of
+            ),
+            class_id=class_id,
+            as_of=as_of,
+        )
     return [
         ("spanmax1", _format_date(period.end)),
         ("spanmin1", _format_date(period.start)),
@@ -900,6 +1031,10 @@ def _as_sequence(value: object) -> tuple[object, ...]:
     if isinstance(value, Sequence):
         return tuple(value)
     return (value,)
+
+
+def _is_sequence_value(value: object) -> bool:
+    return isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray)
 
 
 def _build_url(base: str, params: Sequence[tuple[str, str]]) -> str:
@@ -924,18 +1059,12 @@ def _number(value: Decimal | int) -> str:
 
 
 def _format_date(value: date) -> str:
-    return value.strftime("%d %b %Y")
+    return f"{value.day:02d} {MONTHS[value.month - 1]} {value.year:04d}"
 
 
 def _parse_table_date(value: str) -> date:
     day, month_name, year = value.split()
-    month = {
-        name: index
-        for index, name in enumerate(
-            ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"),
-            start=1,
-        )
-    }[month_name]
+    month = {name: index for index, name in enumerate(MONTHS, start=1)}[month_name]
     return date(int(year), month, int(day))
 
 
@@ -947,8 +1076,9 @@ def _add_years(value: date, years: int) -> date:
         return value.replace(year=target_year, day=28)
 
 
-def _label_filters(query: StatsguruQuery) -> list[str]:
+def _label_filters(model: BaseModel) -> list[str]:
     labels = []
+    class_id = model.class_
     for field, table, noun in (
         ("team", id_tables.TEAMS, "team"),
         ("opposition", id_tables.TEAMS, "opposition"),
@@ -956,20 +1086,82 @@ def _label_filters(query: StatsguruQuery) -> list[str]:
         ("continent", id_tables.CONTINENTS, "continent"),
         ("trophy", id_tables.TROPHIES, "trophy"),
     ):
-        value = getattr(query, field)
+        value = getattr(model, field, None)
         if value is None:
             continue
-        names = [table[query.class_][int(item)] for item in _as_sequence(value)]
+        names = [table[class_id][int(item)] for item in sorted(_as_sequence(value), key=str)]
         if noun == "in":
-            labels.append(f"in {_join_words(names)}")
+            labels.append(f"in {_join_words(names, conjunction='or')}")
         else:
-            labels.append(f"{noun} {_join_words(names)}")
-    for field, names in MULTI_VALUE_LABELS.items():
-        value = getattr(query, field)
+            labels.append(f"{noun} {_join_words(names, conjunction='or')}")
+    choice_labels = {
+        "home_or_away": {"1": "home", "2": "away", "3": "neutral"},
+        "result": {"1": "won", "2": "lost", "3": "tied", "4": "drawn", "5": "no result"},
+        "tournament_type": {
+            "2": "two-team series",
+            "3": "three- or four-team tournament",
+            "5": "five-plus-team tournament",
+        },
+        "final_type": {"1": "finals", "0": "preliminary matches"},
+        "floodlit": {"1": "day", "2": "day/night"},
+        "toss": {"1": "toss won", "2": "toss lost"},
+        "batting_fielding_first": {"1": "batting first", "2": "fielding first"},
+        "captain": {"1": "as captain", "0": "not as captain"},
+        "keeper": {"1": "as wicketkeeper", "0": "not as wicketkeeper"},
+        "team_view": {"bowl": "bowling team totals"},
+    }
+    for field, names in choice_labels.items():
+        value = getattr(model, field, None)
         if value is None:
             continue
-        selected = [names.get(str(item), str(item)) for item in _as_sequence(value)]
-        labels.append(f"{field.replace('_', ' ')} {_join_words(selected)}")
+        selected = [
+            names.get(str(item), str(item)) for item in sorted(_as_sequence(value), key=str)
+        ]
+        labels.append(f"{field.replace('_', ' ')} {_join_words(selected, conjunction='or')}")
+    simple_fields = (
+        "ground",
+        "series",
+        "search_player",
+        "player_involve",
+        "player_involve_type",
+        "search_captain",
+        "captain_involve",
+        "captain_involve_type",
+        "innings_number",
+        "batting_hand",
+        "bowling_hand",
+        "bowling_pacespin",
+        "outs",
+        "dismissal",
+        "debut_or_last",
+        "fow_type",
+        "event",
+    )
+    for field in simple_fields:
+        value = getattr(model, field, None)
+        if value is None:
+            continue
+        selected = [str(item) for item in sorted(_as_sequence(value), key=str)]
+        labels.append(f"{field.replace('_', ' ')} {_join_words(selected, conjunction='or')}")
+    if isinstance(model, StatsguruQuery):
+        labels.extend(_label_ranges(model))
+    return labels
+
+
+def _label_ranges(query: StatsguruQuery) -> list[str]:
+    labels: list[str] = []
+    for prefix in RANGE_VAL_FIELDS[query.type]:
+        low = getattr(query, f"{prefix}min1", None)
+        high = getattr(query, f"{prefix}max1", None)
+        if low is None and high is None:
+            continue
+        label = _field_label(prefix)
+        if low is not None and high is not None:
+            labels.append(f"{label} from {low} to {high}")
+        elif low is not None:
+            labels.append(f"{label} at least {low}")
+        else:
+            labels.append(f"{label} at most {high}")
     return labels
 
 
@@ -993,14 +1185,21 @@ def _field_label(field: str) -> str:
     return FIELD_LABELS.get(field, field.replace("_", " "))
 
 
-def _join_words(values: Sequence[str]) -> str:
+def _join_words(values: Sequence[str], *, conjunction: str = "and") -> str:
     if len(values) == 1:
         return values[0]
-    return ", ".join(values[:-1]) + f" and {values[-1]}"
+    return ", ".join(values[:-1]) + f" {conjunction} {values[-1]}"
 
 
 def _label_date(value: date) -> str:
-    return f"{value.day} {value.strftime('%b %Y')}"
+    return f"{value.day} {MONTHS[value.month - 1]} {value.year:04d}"
+
+
+def _sort_direction(field: str, orderbyad: str) -> str:
+    default = "ascending" if field in ASCENDING_SORT_FIELDS else "descending"
+    if orderbyad == "reverse":
+        return "descending" if default == "ascending" else "ascending"
+    return default
 
 
 __all__ = [

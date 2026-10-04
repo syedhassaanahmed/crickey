@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 ## Statsguru coverage (`query_stats`)
-`query_stats` exposes Statsguru's own basic and advanced forms for every stat type, with Statsguru's field names and values (R4) and its minimum and sort options (R5). Nothing is renamed or regrouped. It accepts checkbox groups as repeated values and all three result qualifications that Statsguru supports (R2).
+`query_stats` exposes Statsguru's own basic and advanced forms for every stat type, with Statsguru's field names and values (R4) and its minimum and sort options (R5). Nothing is renamed or regrouped. It accepts checkbox groups as repeated values, sorted for stable URLs, and all three result qualifications that Statsguru supports (R2).
 
 ## MCP tools (v1)
 Five tools (D14), all read-only.
