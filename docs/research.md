@@ -337,6 +337,7 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - All T20: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
   - All Test/ODI/T20I combined: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
   - Tests: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
+- All T20 player rows have class `data2`; player cells contain only the linked name with no `(COUNTRY)` suffix, with teams in a following `note` row as bracketed comma-separated names.
 - The `50` batting column counts fifties only (scores of 50-99), not hundreds plus fifties. For example, Tendulkar's ODI row shows 49 hundreds and 96 fifties.
 - **Bowling columns (overall view):**
   - Tests: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, BBM, Ave, Econ, SR, 5, 10

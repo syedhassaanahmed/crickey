@@ -108,6 +108,97 @@ def test_results_table_parses_rows_player_metadata_totals_and_recent_matches() -
     assert single_date.end_date == date(2026, 10, 3)
 
 
+CLASS6_RESULTS_HTML = """
+<html><body>
+<table class="engineTable"><tr class="data2"><td>Navigation row, not results</td></tr></table>
+<table class="engineTable"><caption>Overall figures</caption>
+<tr class="headlinks"><th>Player</th><th>Span</th><th>Mat</th><th>Inns</th><th>NO</th><th>Runs</th><th>HS</th><th>Ave</th><th>100</th><th>50</th><th>0</th><th></th></tr>
+<tr class="data2"><td><a href="/ci/content/player/308967.html">JC Buttler</a></td><td>2009-2026</td><td>437</td><td>420</td><td>70</td><td>12012</td><td>124</td><td>34.32</td><td>8</td><td>82</td><td>19</td><td><a href="javascript:void(0)"></a></td></tr>
+<tr class="note"><td colspan="12">(Comilla Victorians, Durban's Super Giants, England, Southern Brave (Men))</td></tr>
+<tr class="data2"><td><a href="/ci/content/player/379143.html">V Kohli</a></td><td>2007-2026</td><td>399</td><td>382</td><td>70</td><td>12886</td><td>122*</td><td>41.30</td><td>9</td><td>98</td><td>10</td><td></td></tr>
+<tr class="data2"><td><a href="/ci/content/player/5334.html">CH Gayle</a></td><td>2005-2022</td><td>463</td><td>455</td><td>54</td><td>14562</td><td>175*</td><td>36.22</td><td>22</td><td>88</td><td>29</td><td></td></tr>
+<tr class="note"><td colspan="12">(Barisal Burners, Jamaica Tallawahs, West Indies)</td></tr>
+</table>
+<table><tr><td>Page <b>1</b> of <b>13</b></td><td>Showing <b>1</b> - <b>10</b> of <b>121</b></td></tr></table>
+</body></html>
+"""
+
+
+def test_class6_results_parse_data2_rows_and_note_teams() -> None:
+    parsed = parse_results_page(CLASS6_RESULTS_HTML)
+
+    assert parsed.no_records is False
+    assert parsed.totals.page == 1
+    assert parsed.totals.pages == 13
+    assert parsed.totals.showing_from == 1
+    assert parsed.totals.showing_to == 10
+    assert parsed.totals.total == 121
+    assert parsed.headers == (
+        "Player",
+        "player_name",
+        "player_id",
+        "player_team_codes",
+        "player_team_names",
+        "Span",
+        "Mat",
+        "Inns",
+        "NO",
+        "Runs",
+        "Runs_not_out",
+        "HS",
+        "HS_not_out",
+        "Ave",
+        "100",
+        "50",
+        "0",
+    )
+    assert len(parsed.table) == 3
+    first = parsed.table.iloc[0]
+    assert first["player_name"] == "JC Buttler"
+    assert first["player_id"] == 308967
+    assert first["player_team_codes"] == ()
+    assert first["player_team_names"] == (
+        "Comilla Victorians",
+        "Durban's Super Giants",
+        "England",
+        "Southern Brave (Men)",
+    )
+    assert first["Span"] == Span("2009", "2026")
+    assert first["Mat"] == 437
+    assert first["Runs"] == 12012
+    assert first["Runs_not_out"] is False
+    assert first["HS"] == 124
+    assert first["HS_not_out"] is False
+    assert first["Ave"] == Decimal("34.32")
+    no_note = parsed.table.iloc[1]
+    assert no_note["player_name"] == "V Kohli"
+    assert no_note["player_id"] == 379143
+    assert no_note["player_team_names"] is None
+    third = parsed.table.iloc[2]
+    assert third["player_name"] == "CH Gayle"
+    assert third["player_id"] == 5334
+    assert third["player_team_names"] == (
+        "Barisal Burners",
+        "Jamaica Tallawahs",
+        "West Indies",
+    )
+    assert third["HS"] == 175
+    assert third["HS_not_out"] is True
+
+
+def test_class6_no_records_data2_page_is_empty_and_flagged() -> None:
+    html = """
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr class="headlinks"><th>Player</th><th>Span</th><th>Mat</th></tr>
+    <tr class="data2"><td>No records available to match this query</td></tr></table>
+    """
+
+    parsed = parse_results_page(html)
+
+    assert parsed.no_records is True
+    assert parsed.table.empty
+
+
 def test_no_records_table_is_empty_and_flagged() -> None:
     html = """
     <table class="engineTable"><caption>Overall figures</caption>

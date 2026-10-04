@@ -18,6 +18,11 @@ from crickey.parsers.convert import clean_text, convert_cell, parse_date
 _PAGE_RE = re.compile(r"Page\s+(\d+)\s+of\s+(\d+)", re.I)
 _SHOWING_RE = re.compile(r"Showing\s+(\d+)\s+-\s+(\d+)\s+of\s+(\d+)", re.I)
 _TEAMS_RE = re.compile(r"\(([^()]*)\)\s*$")
+_DATA_ROWS_XPATH = (
+    './/tr[(contains(concat(" ", normalize-space(@class), " "), " data1 ")'
+    ' or contains(concat(" ", normalize-space(@class), " "), " data2 "))'
+    ' and not(contains(concat(" ", normalize-space(@class), " "), " note "))]'
+)
 
 
 @dataclass(frozen=True)
@@ -62,7 +67,7 @@ class ResultsPage:
 def parse_results_page(page: str) -> ResultsPage:
     doc = document_from_html(page)
     table = _find_results_table(doc)
-    rows = table.xpath('.//tr[contains(concat(" ", normalize-space(@class), " "), " data1 ")]')
+    rows = table.xpath(_DATA_ROWS_XPATH)
     if not rows:
         raise StatsguruParseError("results table has no data rows")
 
@@ -129,18 +134,17 @@ def _find_results_table(doc: HtmlElement) -> HtmlElement:
         'self::table[contains(concat(" ", normalize-space(@class), " "), " engineTable ")]'
         ' | //table[contains(concat(" ", normalize-space(@class), " "), " engineTable ")]'
     )
-    data_tables = [
-        table
-        for table in tables
-        if table.xpath('.//tr[contains(concat(" ", normalize-space(@class), " "), " data1 ")]')
-    ]
     saw_caption = False
-    for table in data_tables:
+    saw_data_rows = False
+    for table in tables:
+        if not table.xpath(_DATA_ROWS_XPATH):
+            continue
+        saw_data_rows = True
         caption = element_text(table.xpath("./caption")[0]) if table.xpath("./caption") else ""
         saw_caption = saw_caption or bool(caption)
         if caption and (table.xpath(".//tr[th]") or "No records available" in element_text(table)):
             return table
-    if data_tables:
+    if saw_data_rows:
         if saw_caption:
             raise StatsguruParseError("results table header row is missing")
         raise StatsguruParseError("results table caption is missing")
@@ -193,6 +197,8 @@ def _rows_to_frame(
                 record["player_name"] = player.name
                 record["player_id"] = player.player_id
                 record["player_team_codes"] = player.team_codes
+                if team_names := _following_note_teams(row):
+                    record["player_team_names"] = team_names
             if header == "Match":
                 link = cells[index].xpath('.//a[contains(@href, "/ci/engine/match/")][1]')
                 if link:
@@ -217,6 +223,18 @@ def parse_player_cell(cell: HtmlElement) -> PlayerCell:
     else:
         name = _TEAMS_RE.sub("", text).strip()
     return PlayerCell(name=name, player_id=player_id, team_codes=teams)
+
+
+def _following_note_teams(row: HtmlElement) -> tuple[str, ...]:
+    notes = row.xpath(
+        'following-sibling::tr[1][contains(concat(" ", normalize-space(@class), " "), " note ")]'
+    )
+    if not notes:
+        return ()
+    text = element_text(notes[0])
+    if not (text.startswith("(") and text.endswith(")")):
+        return ()
+    return tuple(part.strip() for part in text[1:-1].split(",") if part.strip())
 
 
 def _parse_totals(doc: HtmlElement, *, require: bool = False) -> PageTotals:
