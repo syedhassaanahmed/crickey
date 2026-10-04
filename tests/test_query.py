@@ -15,7 +15,7 @@ from mcp import Client
 from pydantic import ValidationError
 from stat_type_cases import REPRESENTATIVE_STAT_QUERIES, representative_query_payload
 
-from crickey import id_tables
+from crickey import query_catalog
 from crickey.fetcher import Fetcher, MemoryPageSource
 from crickey.query import (
     PlayerPageSpec,
@@ -46,6 +46,13 @@ TYPE_LABELS_FOR_TESTS = {
     "bowling": "bowling",
     "fielding": "fielding",
 }
+FIRST_MATCH_DATES = {
+    1: "15 Mar 1877",
+    2: "05 Jan 1971",
+    3: "17 Feb 2005",
+    6: "13 Jun 2003",
+    11: "15 Mar 1877",
+}
 
 
 class FrozenClock:
@@ -69,7 +76,7 @@ def _query_pairs(url: str) -> dict[str, list[str]]:
 
 
 def _first_match_date(class_id: int) -> str:
-    return id_tables.FIRST_MATCH_DATES[class_id]
+    return FIRST_MATCH_DATES[class_id]
 
 
 async def _query_stats_fetch_false(query: dict[str, object]) -> dict[str, object]:
@@ -345,42 +352,107 @@ def test_every_stat_type_and_class_compiles_representative_query(
 
 
 @pytest.mark.parametrize(
-    ("stat_type", "kwargs", "message"),
+    ("stat_type", "case_kind", "kwargs", "message"),
     [
         (
             "batting",
+            "minimum",
             {"qualifications": (Qualification(field="wickets", minimum=1),)},
             "qualification field 'wickets' is not valid",
         ),
+        ("batting", "sort", {"orderby": "wickets"}, "sort field 'wickets' is not valid"),
+        ("batting", "field", {"wicketsmin1": 1}, "field 'wicketsmin1' is not valid"),
         (
             "bowling",
+            "minimum",
+            {"qualifications": (Qualification(field="hundreds", minimum=1),)},
+            "qualification field 'hundreds' is not valid",
+        ),
+        (
+            "bowling",
+            "sort",
             {"orderby": "hundreds"},
             "sort field 'hundreds' is not valid",
         ),
+        ("bowling", "field", {"runsmin1": 1}, "field 'runsmin1' is not valid"),
         (
             "fielding",
+            "minimum",
             {"qualifications": (Qualification(field="runs", minimum=1),)},
             "qualification field 'runs' is not valid",
         ),
-        ("allround", {"orderby": "fow_runs"}, "sort field 'fow_runs' is not valid"),
-        ("fow", {"orderby": "player"}, "sort field 'player' is not valid"),
+        (
+            "fielding",
+            "sort",
+            {"orderby": "high_score"},
+            "sort field 'high_score' is not valid",
+        ),
+        ("fielding", "field", {"wicketsmin1": 1}, "field 'wicketsmin1' is not valid"),
+        (
+            "allround",
+            "minimum",
+            {"qualifications": (Qualification(field="fow_runs", minimum=1),)},
+            "qualification field 'fow_runs' is not valid",
+        ),
+        ("allround", "sort", {"orderby": "fow_runs"}, "sort field 'fow_runs' is not valid"),
+        (
+            "allround",
+            "field",
+            {"partnership_runsmin1": 1},
+            "field 'partnership_runsmin1' is not valid",
+        ),
+        (
+            "fow",
+            "minimum",
+            {"qualifications": (Qualification(field="runs", minimum=1),)},
+            "qualification field 'runs' is not valid",
+        ),
+        ("fow", "sort", {"orderby": "player"}, "sort field 'player' is not valid"),
+        ("fow", "field", {"captain": 1}, "field 'captain' is not valid"),
         (
             "team",
+            "minimum",
             {"qualifications": (Qualification(field="allround_average", minimum=1),)},
             "qualification field 'allround_average' is not valid",
         ),
+        ("team", "sort", {"orderby": "player"}, "sort field 'player' is not valid"),
+        ("team", "field", {"agemin1": 20}, "field 'agemin1' is not valid"),
         (
             "aggregate",
+            "minimum",
             {"qualifications": (Qualification(field="lost", minimum=1),)},
             "qualification field 'lost' is not valid",
         ),
+        ("aggregate", "sort", {"orderby": "team"}, "sort field 'team' is not valid"),
+        ("aggregate", "field", {"opposition": 7}, "field 'opposition' is not valid"),
     ],
 )
-def test_stat_types_reject_other_types_minimums_and_sorts(
-    stat_type: str, kwargs: dict[str, object], message: str
+def test_stat_types_reject_other_types_minimums_sorts_and_fields(
+    stat_type: str, case_kind: str, kwargs: dict[str, object], message: str
 ) -> None:
+    assert case_kind in {"minimum", "sort", "field"}
     with pytest.raises(ValidationError, match=message):
         StatsguruQuery(**{"class": 1, "type": stat_type, **kwargs})
+
+
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_every_overall_minimum_field_is_accepted(class_id: int, stat_type: str) -> None:
+    for field in query_catalog.QUAL_FIELDS[class_id][stat_type][""]:
+        StatsguruQuery(
+            **{
+                "class": class_id,
+                "type": stat_type,
+                "qualifications": (Qualification(field=field, minimum=1),),
+            }
+        )
+
+
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_every_overall_sort_field_is_accepted(class_id: int, stat_type: str) -> None:
+    for field in query_catalog.SORT_FIELDS[class_id][stat_type][""]:
+        StatsguruQuery(**{"class": class_id, "type": stat_type, "orderby": field})
 
 
 def test_season_period_compiles_without_dates() -> None:

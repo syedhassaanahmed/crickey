@@ -190,9 +190,10 @@ def _headlinks(headers: tuple[str, ...], orderbys: tuple[str, ...], stat_type: s
     cells = []
     for index, (header, orderby) in enumerate(zip(headers, orderbys, strict=True)):
         attrs = []
-        if index < 2 or (stat_type == "aggregate" and index == 0):
+        left_columns = 1 if stat_type == "aggregate" else 2
+        if index < left_columns:
             attrs.append('class="left"')
-        if header in {"HS", "High"}:
+        if header == "High" or (header == "HS" and stat_type in {"batting", "allround"}):
             attrs = ['class="padAst"']
         if header:
             attrs.append("nowrap")
@@ -500,7 +501,7 @@ def _synthetic_results_page(
                     "<td>8</td>",
                     "<td>400</td>",
                     '<td class="padAst">99</td>',
-                    "<td>40.00</td>",
+                    "<td>36</td>",
                     "<td>1</td>",
                     "<td>20</td>",
                     "<td>5/30</td>",
@@ -537,7 +538,7 @@ def _synthetic_results_page(
                 "player_name": "Delta Allrounder",
                 "player_id": 4,
                 "player_team_codes": ("DDD",),
-                "Bat Av": Decimal("40.00"),
+                "Bat Av": 36,
                 "100": 1,
                 "Wkts": 20,
                 "Bowl Av": Decimal("22.50"),
@@ -628,7 +629,7 @@ def _synthetic_results_page(
                     "<td>3</td>",
                     "<td>0</td>",
                     "<td>1</td>",
-                    "<td>2.000</td>",
+                    "<td>2</td>",
                     "<td>31.25</td>",
                     "<td>8.10</td>",
                     "<td>10</td>",
@@ -659,7 +660,7 @@ def _synthetic_results_page(
                 "Won": 6,
                 "Lost": 3,
                 "NR": 1,
-                "W/L": Decimal("2.000"),
+                "W/L": 2,
                 "Ave": Decimal("31.25"),
                 "RPO": Decimal("8.10"),
                 "HS": 250,
