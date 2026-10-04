@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 import asyncio
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -116,6 +117,18 @@ def bowling_page() -> str:
     """
 
 
+def team_page() -> str:
+    return """
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr><th>Team</th><th>Span</th><th>Mat</th><th>Won</th><th>Lost</th><th>Tied</th><th>NR</th><th>W/L</th><th>Ave</th><th>RPO</th><th>Inns</th><th>HS</th><th>LS</th></tr>
+    <tr class="data1"><td><a href="/ci/content/team/99.html">Example XI</a></td><td>2020-2026</td><td>14</td><td>9</td><td>4</td><td>0</td><td>1</td><td>2.250</td><td>32.10</td><td>7.65</td><td>14</td><td>210</td><td>80</td></tr>
+    </table>
+    <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
+    </body></html>
+    """
+
+
 def row(player_id: int, name: str, team: str, runs: int, ave: str = "50.00") -> str:
     return f"""
     <tr class="data1"><td><a href="/ci/content/player/{player_id}.html">{name}</a> ({team})</td><td>2015-2026</td><td>10</td><td>{runs}</td><td>101*</td><td>{ave}</td><td>1</td></tr>
@@ -128,6 +141,20 @@ def detailed_batting_page() -> str:
     <table class="engineTable"><caption>Overall figures</caption>
     <tr><th>Player</th><th>Span</th><th>Mat</th><th>Inns</th><th>NO</th><th>Runs</th><th>HS</th><th>Ave</th><th>BF</th><th>SR</th><th>100</th><th>50</th><th>0</th></tr>
     <tr class="data1"><td><a href="/ci/content/player/348144.html">Babar Azam</a> (PAK)</td><td>2015-2026</td><td>143</td><td>140</td><td>16</td><td>6626</td><td>158</td><td>53.43</td><td>7652</td><td>86.59</td><td>20</td><td>38</td><td>5</td></tr>
+    </table>
+    <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
+    </body></html>
+    """
+
+
+def sorted_column_page(headers: Sequence[str], row: Sequence[str]) -> str:
+    header_html = "".join(f"<th>{header}</th>" for header in headers)
+    row_html = "".join(f"<td>{value}</td>" for value in row)
+    return f"""
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr>{header_html}</tr>
+    <tr class="data1">{row_html}</tr>
     </table>
     <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
     </body></html>
@@ -474,6 +501,176 @@ async def test_query_stats_text_table_includes_sort_and_qualification_columns() 
     assert "(0 more row(s), 4 more column(s) omitted.)" in text
 
 
+@pytest.mark.parametrize(
+    ("query_args", "headers", "row_values", "required_column"),
+    [
+        (
+            {"class": 1, "type": "batting", "orderby": "fifty_plus"},
+            ("Player", "Span", "Mat", "Inns", "NO", "Runs", "HS", "Ave", "100", "50", "0"),
+            ("A Batter (AAA)", "2020-2026", "5", "4", "1", "250", "101", "83.33", "1", "2", "0"),
+            "50",
+        ),
+        (
+            {"class": 3, "type": "bowling", "orderby": "five_wickets"},
+            (
+                "Player",
+                "Span",
+                "Mat",
+                "Inns",
+                "Overs",
+                "Mdns",
+                "Runs",
+                "Wkts",
+                "BBI",
+                "Ave",
+                "Econ",
+                "SR",
+                "4",
+                "5",
+            ),
+            (
+                "B Bowler (BBB)",
+                "2021-2026",
+                "6",
+                "6",
+                "24.5",
+                "2",
+                "150",
+                "9",
+                "4/22",
+                "16.66",
+                "6.04",
+                "16.5",
+                "1",
+                "0",
+            ),
+            "5",
+        ),
+        (
+            {"class": 1, "type": "fielding", "orderby": "max_dismissals"},
+            ("Player", "Span", "Mat", "Inns", "Dis", "Ct", "St", "Ct Wk", "Ct Fi", "MD", "D/I"),
+            (
+                "C Keeper (CCC)",
+                "2019-2026",
+                "7",
+                "10",
+                "18",
+                "15",
+                "3",
+                "12",
+                "3",
+                "5 (4ct 1st)",
+                "1.800",
+            ),
+            "MD",
+        ),
+        (
+            {"class": 1, "type": "allround", "orderby": "allround_average"},
+            (
+                "Player",
+                "Span",
+                "Mat",
+                "Runs",
+                "HS",
+                "Bat Av",
+                "100",
+                "Wkts",
+                "BBI",
+                "Bowl Av",
+                "5",
+                "Ct",
+                "St",
+                "Ave Diff",
+            ),
+            (
+                "D Allrounder (DDD)",
+                "2018-2026",
+                "8",
+                "400",
+                "99",
+                "40.00",
+                "1",
+                "20",
+                "5/30",
+                "22.50",
+                "2",
+                "12",
+                "0",
+                "17.50",
+            ),
+            "Ave Diff",
+        ),
+        (
+            {"class": 1, "type": "fow", "orderby": "fow_fifty_plus"},
+            ("Partners", "Span", "Inns", "NO", "Runs", "High", "Ave", "100", "50"),
+            ("E Opener, Z Opener (EEE)", "2022-2026", "9", "1", "700", "199", "87.50", "2", "3"),
+            "50",
+        ),
+        (
+            {"class": 1, "type": "team", "orderby": "runs_per_over"},
+            (
+                "Team",
+                "Span",
+                "Mat",
+                "Won",
+                "Lost",
+                "Tied",
+                "Draw",
+                "Runs",
+                "Wkts",
+                "Balls",
+                "Ave",
+                "RPO",
+                "Inns",
+                "HS",
+                "LS",
+            ),
+            (
+                "Example XI",
+                "2020-2026",
+                "10",
+                "6",
+                "3",
+                "0",
+                "1",
+                "2000",
+                "70",
+                "1500",
+                "31.25",
+                "8.10",
+                "10",
+                "250",
+                "90",
+            ),
+            "RPO",
+        ),
+        (
+            {"class": 1, "type": "aggregate", "orderby": "runs_per_over"},
+            ("Span", "Mat", "Won", "Tied", "Draw", "Runs", "Wkts", "Balls", "Ave", "RPO"),
+            ("1877-2026", "11", "8", "1", "2", "3000", "100", "6500", "30.00", "2.76"),
+            "RPO",
+        ),
+    ],
+)
+async def test_query_stats_text_table_includes_sorted_column_for_every_type(
+    query_args: dict[str, object],
+    headers: Sequence[str],
+    row_values: Sequence[str],
+    required_column: str,
+) -> None:
+    query = StatsguruQuery(**query_args)
+    source, _, client = await call_with_source(
+        {results_url(query): sorted_column_page(headers, row_values)}
+    )
+
+    async with client:
+        result = await client.call_tool("query_stats", {"query": query_args})
+
+    assert source.requests == [results_url(query)]
+    header = next(line for line in result.content[0].text.splitlines() if line.startswith("| "))
+    assert required_column in header
+
+
 async def test_query_stats_limit_default_maximum_and_over_limit_error() -> None:
     query = StatsguruQuery(**{"class": 2, "type": "batting"})
     url1 = results_url(query)
@@ -667,6 +864,52 @@ async def test_query_stats_displays_overs_as_statsguru_text() -> None:
     assert source.requests == [results_url(query)]
     assert result.structured_content["rows"][0]["Overs"] == "449.5"
     assert "449.5" in result.content[0].text
+
+
+async def test_query_stats_displays_team_rows_without_player_metadata() -> None:
+    query = StatsguruQuery(**{"class": 3, "type": "team", "orderby": "won"})
+    source, _, client = await call_with_source({results_url(query): team_page()})
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats", {"query": {"class": 3, "type": "team", "orderby": "won"}}
+        )
+
+    assert source.requests == [results_url(query)]
+    assert result.structured_content["columns"] == [
+        "Team",
+        "Span",
+        "Mat",
+        "Won",
+        "Lost",
+        "Tied",
+        "NR",
+        "W/L",
+        "Ave",
+        "RPO",
+        "Inns",
+        "HS",
+        "LS",
+    ]
+    assert result.structured_content["rows"] == [
+        {
+            "Team": "Example XI",
+            "Span": "2020-2026",
+            "Mat": 14,
+            "Won": 9,
+            "Lost": 4,
+            "Tied": 0,
+            "NR": 1,
+            "W/L": "2.250",
+            "Ave": "32.10",
+            "RPO": "7.65",
+            "Inns": 14,
+            "HS": 210,
+            "LS": 80,
+        }
+    ]
+    assert "player_id" not in result.structured_content["rows"][0]
+    assert "| Team" in result.content[0].text
 
 
 async def test_query_stats_too_broad_and_validation_errors_are_clear_tool_errors() -> None:

@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import subprocess
 import sys
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
+from mcp import Client
 from pydantic import ValidationError
+from stat_type_cases import REPRESENTATIVE_STAT_QUERIES, representative_query_payload
 
+from crickey import query_catalog
+from crickey.fetcher import Fetcher, MemoryPageSource
 from crickey.query import (
     PlayerPageSpec,
     Qualification,
@@ -21,6 +28,8 @@ from crickey.query import (
     SymbolicPeriodKind,
     player_search_url,
 )
+from crickey.server import create_server
+from crickey.settings import Settings
 
 _GEN_QUERY_CATALOG_SPEC = importlib.util.spec_from_file_location(
     "gen_query_catalog_for_tests", Path(__file__).parents[1] / "scripts" / "gen_query_catalog.py"
@@ -37,6 +46,197 @@ TYPE_LABELS_FOR_TESTS = {
     "bowling": "bowling",
     "fielding": "fielding",
 }
+FIRST_MATCH_DATES = {
+    1: "15 Mar 1877",
+    2: "05 Jan 1971",
+    3: "17 Feb 2005",
+    6: "13 Jun 2003",
+    11: "15 Mar 1877",
+}
+
+R5_OVERALL_QUAL_FIELDS = {
+    "batting": {
+        "matches",
+        "innings",
+        "notouts",
+        "outs",
+        "runs",
+        "minutes",
+        "balls_faced",
+        "batting_average",
+        "batting_strike_rate",
+        "hundreds",
+        "fifty_plus",
+        "ducks",
+        "fours",
+        "sixes",
+    },
+    "bowling": {
+        "matches",
+        "innings_bowled",
+        "balls",
+        "overs",
+        "maidens",
+        "conceded",
+        "wickets",
+        "bowling_average",
+        "economy_rate",
+        "bowling_strike_rate",
+        "four_plus_wickets",
+        "five_wickets",
+        "ten_wickets",
+    },
+    "fielding": {
+        "matches",
+        "matches_keeper",
+        "matches_fielder",
+        "innings_fielded",
+        "dismissals",
+        "caught",
+        "stumped",
+        "caught_keeper",
+        "caught_fielder",
+        "dismissals_per_inns",
+    },
+    "allround": {
+        "matches",
+        "innings",
+        "notouts",
+        "outs",
+        "runs",
+        "minutes",
+        "balls_faced",
+        "batting_average",
+        "batting_strike_rate",
+        "hundreds",
+        "fifty_plus",
+        "ducks",
+        "fours",
+        "sixes",
+        "innings_bowled",
+        "balls",
+        "maidens",
+        "conceded",
+        "wickets",
+        "bowling_average",
+        "economy_rate",
+        "bowling_strike_rate",
+        "four_plus_wickets",
+        "five_wickets",
+        "ten_wickets",
+        "matches_keeper",
+        "matches_fielder",
+        "innings_fielded",
+        "dismissals",
+        "caught",
+        "stumped",
+        "caught_keeper",
+        "caught_fielder",
+        "dismissals_per_inns",
+        "allround_average",
+    },
+    "fow": {
+        "fow_innings",
+        "fow_notouts",
+        "fow_outs",
+        "fow_runs",
+        "fow_average",
+        "fow_balls_faced",
+        "fow_run_rate",
+        "fow_hundreds",
+        "fow_fifty_plus",
+    },
+    "team": {
+        "matches",
+        "won",
+        "lost",
+        "tied",
+        "drawn",
+        "no_result",
+        "win_loss_ratio",
+        "percentage_won",
+        "percentage_lost",
+        "percentage_drawn",
+        "percentage_tied",
+        "percentage_no_result",
+        "runs",
+        "wickets",
+        "balls",
+        "team_average",
+        "runs_per_over",
+        "team_innings",
+        "team_high_score",
+        "team_low_score",
+    },
+    "aggregate": {
+        "matches",
+        "won",
+        "tied",
+        "drawn",
+        "no_result",
+        "percentage_won",
+        "percentage_lost",
+        "percentage_drawn",
+        "percentage_tied",
+        "percentage_no_result",
+        "runs",
+        "wickets",
+        "balls",
+        "team_average",
+        "runs_per_over",
+    },
+}
+R5_OVERALL_SORT_FIELDS = {
+    "batting": R5_OVERALL_QUAL_FIELDS["batting"] | {"player", "start", "high_score"},
+    "bowling": R5_OVERALL_QUAL_FIELDS["bowling"] | {"player", "start", "bbi", "bbm"},
+    "fielding": R5_OVERALL_QUAL_FIELDS["fielding"] | {"player", "start", "age", "max_dismissals"},
+    "allround": R5_OVERALL_QUAL_FIELDS["allround"]
+    | {"player", "start", "high_score", "bbi", "bbm", "max_dismissals"},
+    "fow": R5_OVERALL_QUAL_FIELDS["fow"] | {"partners", "start", "fow_high_score"},
+    "team": R5_OVERALL_QUAL_FIELDS["team"] | {"team", "start"},
+    "aggregate": R5_OVERALL_QUAL_FIELDS["aggregate"] | {"start"},
+}
+
+
+class FrozenClock:
+    def now(self):
+        from datetime import UTC, datetime
+
+        return datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+
+    def monotonic(self) -> float:
+        return 0.0
+
+    async def sleep(self, seconds: float) -> None:
+        return None
+
+
+def _query_pairs(url: str) -> dict[str, list[str]]:
+    values: dict[str, list[str]] = defaultdict(list)
+    for key, value in parse_qsl(urlsplit(url).query, separator=";"):
+        values[key].append(value)
+    return dict(values)
+
+
+def _first_match_date(class_id: int) -> str:
+    return FIRST_MATCH_DATES[class_id]
+
+
+async def _query_stats_fetch_false(query: dict[str, object]) -> dict[str, object]:
+    fetcher = Fetcher(Settings(), clock=FrozenClock(), page_source=MemoryPageSource({}))
+    client = Client(create_server(Settings(), fetcher=fetcher))
+    async with client:
+        result = await client.call_tool("query_stats", {"query": query, "fetch": False})
+    assert result.is_error is False
+    return result.structured_content
+
+
+async def _query_stats_fetch_false_many(queries: list[dict[str, object]]) -> None:
+    fetcher = Fetcher(Settings(), clock=FrozenClock(), page_source=MemoryPageSource({}))
+    async with Client(create_server(Settings(), fetcher=fetcher)) as client:
+        for query in queries:
+            result = await client.call_tool("query_stats", {"query": query, "fetch": False})
+            assert result.is_error is False, query
 
 
 def _synthetic_advanced_form(stat_type: str, *, result_values: str = "") -> str:
@@ -276,64 +476,156 @@ def test_narrower_period_overrides_default_pinning_and_as_of_is_injectable() -> 
     assert "spanmax1=31+Dec+2021" in narrower.results_url(as_of=date(2026, 10, 4))
 
 
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_every_stat_type_and_class_compiles_representative_query(
+    class_id: int, stat_type: str
+) -> None:
+    case = REPRESENTATIVE_STAT_QUERIES[stat_type]
+    payload = asyncio.run(
+        _query_stats_fetch_false(representative_query_payload(class_id, stat_type))
+    )
+    query = _query_pairs(str(payload["link"]))
+
+    assert query == {
+        "class": [str(class_id)],
+        "type": [stat_type],
+        "template": ["results"],
+        "orderby": [case.orderby],
+        "qualval1": [case.qualification],
+        "qualmin1": [str(case.qualification_minimum)],
+        "size": ["10"],
+        "spanmin1": [_first_match_date(class_id)],
+        "spanmax1": ["04 Oct 2026"],
+        "spanval1": ["span"],
+        **{key: [value] for key, value in case.expected_filter_params.items()},
+    }
+
+
 @pytest.mark.parametrize(
-    ("stat_type", "kwargs", "expected"),
+    ("stat_type", "case_kind", "kwargs", "message"),
     [
         (
             "batting",
-            {"orderby": "runs", "qualifications": (Qualification(field="runs", minimum=1),)},
-            "type=batting",
+            "minimum",
+            {"qualifications": (Qualification(field="wickets", minimum=1),)},
+            "qualification field 'wickets' is not valid",
+        ),
+        ("batting", "sort", {"orderby": "wickets"}, "sort field 'wickets' is not valid"),
+        ("batting", "field", {"wicketsmin1": 1}, "field 'wicketsmin1' is not valid"),
+        (
+            "bowling",
+            "minimum",
+            {"qualifications": (Qualification(field="hundreds", minimum=1),)},
+            "qualification field 'hundreds' is not valid",
         ),
         (
             "bowling",
-            {"orderby": "wickets", "qualifications": (Qualification(field="wickets", minimum=1),)},
-            "type=bowling",
+            "sort",
+            {"orderby": "hundreds"},
+            "sort field 'hundreds' is not valid",
+        ),
+        ("bowling", "field", {"runsmin1": 1}, "field 'runsmin1' is not valid"),
+        (
+            "fielding",
+            "minimum",
+            {"qualifications": (Qualification(field="runs", minimum=1),)},
+            "qualification field 'runs' is not valid",
         ),
         (
             "fielding",
-            {
-                "orderby": "dismissals",
-                "qualifications": (Qualification(field="dismissals", minimum=1),),
-            },
-            "type=fielding",
+            "sort",
+            {"orderby": "high_score"},
+            "sort field 'high_score' is not valid",
         ),
+        ("fielding", "field", {"wicketsmin1": 1}, "field 'wicketsmin1' is not valid"),
         (
             "allround",
-            {
-                "orderby": "allround_average",
-                "qualifications": (Qualification(field="allround_average", minimum=1),),
-            },
-            "type=allround",
+            "minimum",
+            {"qualifications": (Qualification(field="fow_runs", minimum=1),)},
+            "qualification field 'fow_runs' is not valid",
+        ),
+        ("allround", "sort", {"orderby": "fow_runs"}, "sort field 'fow_runs' is not valid"),
+        (
+            "allround",
+            "field",
+            {"partnership_runsmin1": 1},
+            "field 'partnership_runsmin1' is not valid",
         ),
         (
             "fow",
-            {
-                "orderby": "fow_runs",
-                "qualifications": (Qualification(field="fow_runs", minimum=1),),
-            },
-            "type=fow",
+            "minimum",
+            {"qualifications": (Qualification(field="runs", minimum=1),)},
+            "qualification field 'runs' is not valid",
         ),
+        ("fow", "sort", {"orderby": "player"}, "sort field 'player' is not valid"),
+        ("fow", "field", {"captain": 1}, "field 'captain' is not valid"),
         (
             "team",
-            {"orderby": "won", "qualifications": (Qualification(field="won", minimum=1),)},
-            "type=team",
+            "minimum",
+            {"qualifications": (Qualification(field="allround_average", minimum=1),)},
+            "qualification field 'allround_average' is not valid",
         ),
+        ("team", "sort", {"orderby": "player"}, "sort field 'player' is not valid"),
+        ("team", "field", {"agemin1": 20}, "field 'agemin1' is not valid"),
         (
             "aggregate",
-            {"orderby": "runs", "qualifications": (Qualification(field="runs", minimum=1),)},
-            "type=aggregate",
+            "minimum",
+            {"qualifications": (Qualification(field="lost", minimum=1),)},
+            "qualification field 'lost' is not valid",
         ),
+        ("aggregate", "sort", {"orderby": "team"}, "sort field 'team' is not valid"),
+        ("aggregate", "field", {"opposition": 7}, "field 'opposition' is not valid"),
     ],
 )
-def test_every_stat_type_compiles_representative_query(
-    stat_type: str, kwargs: dict[str, object], expected: str
+def test_stat_types_reject_other_types_minimums_sorts_and_fields(
+    stat_type: str, case_kind: str, kwargs: dict[str, object], message: str
 ) -> None:
-    query = StatsguruQuery(**{"class": 3, "type": stat_type, **kwargs})
+    assert case_kind in {"minimum", "sort", "field"}
+    with pytest.raises(ValidationError, match=message):
+        StatsguruQuery(**{"class": 1, "type": stat_type, **kwargs})
 
-    url = query.results_url(as_of=date(2026, 10, 4))
 
-    assert expected in url
-    assert "spanmin1=17+Feb+2005" in url
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_catalog_has_r5_overall_minimum_fields(class_id: int, stat_type: str) -> None:
+    assert (
+        set(query_catalog.QUAL_FIELDS[class_id][stat_type][""]) == R5_OVERALL_QUAL_FIELDS[stat_type]
+    )
+
+
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_catalog_has_r5_overall_sort_fields(class_id: int, stat_type: str) -> None:
+    assert (
+        set(query_catalog.SORT_FIELDS[class_id][stat_type][""]) == R5_OVERALL_SORT_FIELDS[stat_type]
+    )
+
+
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_query_stats_accepts_every_r5_overall_minimum_field(class_id: int, stat_type: str) -> None:
+    asyncio.run(
+        _query_stats_fetch_false_many(
+            [
+                {"class": class_id, "type": stat_type, "qualval1": field, "qualmin1": 1}
+                for field in sorted(R5_OVERALL_QUAL_FIELDS[stat_type])
+            ]
+        )
+    )
+
+
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_query_stats_accepts_every_r5_overall_sort_field(class_id: int, stat_type: str) -> None:
+    asyncio.run(
+        _query_stats_fetch_false_many(
+            [
+                {"class": class_id, "type": stat_type, "orderby": field}
+                for field in sorted(R5_OVERALL_SORT_FIELDS[stat_type])
+            ]
+        )
+    )
 
 
 def test_season_period_compiles_without_dates() -> None:
