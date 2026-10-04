@@ -7,6 +7,7 @@ from decimal import Decimal
 from crickey.fetcher import Freshness, freshness_from_end_date
 from crickey.metrics import Metric
 from crickey.parsers import parse_results_page
+from crickey.parsers.common import StatsguruParseError
 from crickey.query import Qualification, ResolvedPeriod, StatsguruQuery
 
 
@@ -34,10 +35,19 @@ async def build_proof_link(
     formula: str | None = None,
     call=None,
     as_of: date | None = None,
+    page_allowance: int | None = None,
+    fallback_reason: str | None = None,
 ) -> ProofLink:
     as_of = date.today() if as_of is None else as_of
     fallback_formula = formula or _formula_text(thresholds)
     if _can_express(query, thresholds):
+        if page_allowance is not None and page_allowance < 1:
+            return _fallback_link(
+                query,
+                as_of=as_of,
+                formula=fallback_formula,
+                reason="confirmation would exceed the per-call page limit",
+            )
         if not expected_player_ids:
             return _fallback_link(
                 query,
@@ -53,10 +63,49 @@ async def build_proof_link(
         url = proof_query.results_url(as_of=as_of)
         if call is None:
             raise ValueError("a fetch call is required to confirm an expressible proof link")
-        html = await call.fetch(url, freshness=_freshness_for_query(proof_query, as_of))
-        page = parse_results_page(html)
+        try:
+            page = parse_results_page(
+                await call.fetch(url, freshness=_freshness_for_query(proof_query, as_of))
+            )
+            pages = [page]
+            max_pages = getattr(getattr(call, "_fetcher", None), "settings", None)
+            max_pages = getattr(max_pages, "max_pages", page.totals.pages or 1)
+            if page_allowance is not None:
+                max_pages = min(max_pages, page_allowance)
+            page_count = page.totals.pages or 1
+            if page_count > max_pages:
+                return _fallback_link(
+                    query,
+                    as_of=as_of,
+                    formula=fallback_formula,
+                    reason=(
+                        f"confirmation needs {page_count} proof pages, "
+                        f"over the {max_pages}-page limit"
+                    ),
+                    row_count=0 if page.no_records else page.totals.total,
+                )
+            for page_number in range((page.totals.page or 1) + 1, page_count + 1):
+                page_query = proof_query.model_copy(update={"page": page_number})
+                pages.append(
+                    parse_results_page(
+                        await call.fetch(
+                            page_query.results_url(as_of=as_of),
+                            freshness=_freshness_for_query(proof_query, as_of),
+                        )
+                    )
+                )
+        except StatsguruParseError as error:
+            return _fallback_link(
+                query,
+                as_of=as_of,
+                formula=fallback_formula,
+                reason=f"confirmation page could not be parsed: {error}",
+            )
         actual_ids = tuple(
-            int(value) for value in page.table.get("player_id", []) if value is not None
+            int(value)
+            for parsed in pages
+            for value in parsed.table.get("player_id", [])
+            if value is not None
         )
         confirmed = (
             not page.no_records
@@ -69,8 +118,8 @@ async def build_proof_link(
                 query,
                 as_of=as_of,
                 formula=fallback_formula,
-                reason="confirmation did not match Statsguru rows",
-                row_count=page.totals.total,
+                reason="confirmation did not match the expected player IDs",
+                row_count=0 if page.no_records else page.totals.total,
             )
         return ProofLink(
             label=f"Confirmed Statsguru results: {proof_query.label(as_of=as_of)}",
@@ -79,7 +128,7 @@ async def build_proof_link(
             fetched=True,
             row_count=page.totals.total,
         )
-    return _fallback_link(query, as_of=as_of, formula=fallback_formula)
+    return _fallback_link(query, as_of=as_of, formula=fallback_formula, reason=fallback_reason)
 
 
 def _can_express(query: StatsguruQuery, thresholds: tuple[Threshold, ...]) -> bool:
