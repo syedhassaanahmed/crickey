@@ -125,6 +125,7 @@ def test_plain_crickey_accepts_serve_flags(
 ) -> None:
     _clear_crickey_env(monkeypatch)
 
+    assert _settings_from_cli(["--port", "9000"]).port == 9000
     plain_status = main(["--port", "9000"])
     plain_output = capsys.readouterr()
     serve_status = main(["serve", "--port", "9000"])
@@ -137,6 +138,45 @@ def test_plain_crickey_accepts_serve_flags(
         plain_output.err
         == "crickey serve is a placeholder; HTTP transport will be implemented in issue #10.\n"
     )
+
+
+@pytest.mark.parametrize("command", ["serve", "stdio"])
+def test_flag_before_subcommand_is_kept_and_beats_environment(command: str) -> None:
+    args = build_parser().parse_args(["--port", "9000", command])
+
+    assert load_settings(args, {"CRICKEY_PORT": "9001"}).port == 9000
+
+
+def test_flag_after_subcommand_wins_over_flag_before_it() -> None:
+    assert _settings_from_cli(["--port", "9000", "serve", "--port", "9002"]).port == 9002
+
+
+def test_invalid_flag_before_subcommand_stops_startup(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_crickey_env(monkeypatch)
+
+    assert main(["--port", "0", "serve"]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "ERROR: --port='0' is invalid; expected an integer from 1 to 65535.\n"
+
+
+@pytest.mark.parametrize(("raw", "hours"), [("168h", 168), ("604800", 168), ("10080m", 168)])
+def test_duration_at_the_168h_cap_is_accepted(raw: str, hours: int) -> None:
+    assert load_settings(_empty_args(), {"CRICKEY_RECENT_TTL": raw}).recent_ttl == timedelta(
+        hours=hours
+    )
+
+
+@pytest.mark.parametrize("raw", ["604801", "168.01h", "10081m"])
+def test_duration_just_above_the_168h_cap_is_refused(raw: str) -> None:
+    with pytest.raises(SettingsError) as exc_info:
+        load_settings(_empty_args(), {"CRICKEY_RECENT_TTL": raw})
+
+    assert str(exc_info.value).startswith(f"CRICKEY_RECENT_TTL={raw!r} is invalid;")
+    assert str(exc_info.value).endswith("no more than 168h.")
 
 
 def test_every_stdio_flag_overrides_default() -> None:

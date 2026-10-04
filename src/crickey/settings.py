@@ -85,8 +85,12 @@ _SPECS_BY_FIELD = {spec.field_name: spec for spec in _SPECS}
 
 
 def add_settings_flags(parser: argparse.ArgumentParser) -> None:
+    # SUPPRESS stops a subcommand from resetting a flag given before it
+    # (`crickey --port 9000 serve`).
     for spec in _SPECS:
-        parser.add_argument(spec.flag_name, dest=spec.dest, metavar="VALUE")
+        parser.add_argument(
+            spec.flag_name, dest=spec.dest, metavar="VALUE", default=argparse.SUPPRESS
+        )
 
 
 def load_settings(
