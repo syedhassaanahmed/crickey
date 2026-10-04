@@ -143,7 +143,7 @@ Implements D7–D12 and D17.
 
 ## CI pipeline (GitHub Actions)
 - **`ci.yml`** (pull requests and pushes to `main`):
-  - ruff and pytest on `ubuntu-latest` and `windows-latest`, using uv with R15's Python version and public PyPI;
+  - ruff and pytest on `ubuntu-latest` and `windows-latest` (crickey also runs natively on Windows, D20), using uv with R15's Python version and public PyPI;
   - build the image for `linux/amd64` without pushing, then run a smoke test with `--read-only`: start it in its default HTTP mode, check `/health`, list tools and call `query_stats` with `fetch=false` (no network needed) through a Bash client with curl and jq over Streamable HTTP, and check that `stdio` still lists the tools.
 - **`release.yml`** (tags `v*`):
   - rerun the tests;
