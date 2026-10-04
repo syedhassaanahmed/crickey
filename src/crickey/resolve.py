@@ -8,7 +8,6 @@ from enum import StrEnum
 
 from rapidfuzz import fuzz
 
-from crickey import id_tables
 from crickey.fetcher import Fetcher, Freshness
 from crickey.ids import LookupResult, StatsguruIdResolver, lookup_team, lookup_trophy
 from crickey.parsers import (
@@ -26,15 +25,29 @@ _PLAYER_FORM_URL = (
 _SPACE_RE = re.compile(r"\s+")
 _PUNCTUATION_TABLE = str.maketrans({char: " " for char in string.punctuation})
 MAX_PLAYER_CANDIDATES = 5
-COUNTRY_NAMES = {
+COUNTRY_CODES = {
     "afghanistan": "AFG",
+    "argentina": "ARG",
     "australia": "AUS",
+    "austria": "AUT",
+    "bahrain": "BHR",
     "bangladesh": "BAN",
+    "bermuda": "BMUDA",
+    "canada": "CAN",
     "england": "ENG",
+    "germany": "GER",
     "hong kong": "HKG",
     "india": "IND",
+    "indonesia": "INA",
     "ireland": "IRE",
+    "italy": "ITA",
+    "japan": "JPN",
+    "kenya": "KENYA",
+    "kuwait": "KUW",
+    "malaysia": "MAL",
+    "namibia": "NAM",
     "new zealand": "NZ",
+    "nigeria": "NGA",
     "pakistan": "PAK",
     "south africa": "SA",
     "sri lanka": "SL",
@@ -44,10 +57,16 @@ COUNTRY_NAMES = {
     "nepal": "NEP",
     "oman": "OMA",
     "papua new guinea": "PNG",
+    "qatar": "QAT",
+    "saudi arabia": "KSA",
     "scotland": "SCOT",
+    "sierra leone": "SLE",
+    "singapore": "SGP",
+    "spain": "ESP",
     "united arab emirates": "UAE",
     "united states of america": "USA",
 }
+COUNTRY_CODE_VALUES = frozenset(code.casefold() for code in COUNTRY_CODES.values())
 
 
 class ResolveStatus(StrEnum):
@@ -70,6 +89,7 @@ class PlayerResolution:
     query: str
     match: PlayerCandidate | None = None
     candidates: tuple[PlayerCandidate, ...] = ()
+    note: str | None = None
 
     @property
     def needs_clarification(self) -> bool:
@@ -133,7 +153,7 @@ def _player_resolution_from_html(
         for row in rows
         if _has_player_format(row.formats, class_id)
     )
-    candidates = _filter_country(
+    candidates, country_note = _filter_country(
         tuple(candidate for candidate in all_candidates if candidate.formats), country
     )
     candidates = tuple(candidate for candidate in candidates if candidate.formats)
@@ -143,12 +163,13 @@ def _player_resolution_from_html(
         if _normalize(name) in {_normalize(candidate.name), _normalize(candidate.full_name or "")}
     )
     pool = _rank_player_candidates(name, exact or candidates)
-    if len(pool) == 1 and _safe_auto_match(name, pool[0]):
+    if len(pool) == 1 and country_note is None and _safe_auto_match(name, pool[0]):
         return PlayerResolution(ResolveStatus.MATCH, name, match=pool[0])
     return PlayerResolution(
         ResolveStatus.NEEDS_CLARIFICATION,
         name,
         candidates=pool[:MAX_PLAYER_CANDIDATES],
+        note=country_note,
     )
 
 
@@ -204,42 +225,29 @@ def _has_player_format(formats: tuple[PlayerFormat, ...], class_id: int) -> bool
 
 def _filter_country(
     candidates: tuple[PlayerCandidate, ...], country: str | None
-) -> tuple[PlayerCandidate, ...]:
+) -> tuple[tuple[PlayerCandidate, ...], str | None]:
     if country is None:
-        return candidates
+        return candidates, None
     codes = _country_codes(country)
     if not codes:
-        return candidates
+        return candidates, f"country {country!r} could not be applied"
     filtered = tuple(
         candidate
         for candidate in candidates
         if any(_normalize(code) in codes for code in candidate.country_codes)
     )
-    return filtered or candidates
+    if not filtered:
+        return candidates, f"country {country!r} did not match any candidates"
+    return filtered, None
 
 
 def _country_codes(country: str) -> frozenset[str]:
     normalized_country = _normalize(country)
-    if normalized_country in COUNTRY_NAMES:
-        return frozenset({_normalize(COUNTRY_NAMES[normalized_country])})
-    if len(normalized_country) <= 4 and " " not in normalized_country:
+    if normalized_country in COUNTRY_CODES:
+        return frozenset({_normalize(COUNTRY_CODES[normalized_country])})
+    if normalized_country in COUNTRY_CODE_VALUES:
         return frozenset({normalized_country})
-    if not _is_known_team_name(normalized_country):
-        return frozenset()
-    compact = "".join(normalized_country.split())
-    codes = {compact[:3], compact[:4]}
-    words = normalized_country.split()
-    if len(words) > 1:
-        codes.add("".join(word[0] for word in words))
-    return frozenset(code for code in codes if code)
-
-
-def _is_known_team_name(normalized_country: str) -> bool:
-    return any(
-        _normalize(name) == normalized_country
-        for teams in id_tables.TEAMS.values()
-        for name in teams.values()
-    )
+    return frozenset()
 
 
 def _rank_player_candidates(

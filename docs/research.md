@@ -342,6 +342,7 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - T20Is: Player, Span, Mat, Inns, Overs, Mdns, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5 (overs such as "449.5", not balls)
 - **Bowling decimals:** averages and economy rates (2 decimals) and strike rates (1 decimal) are truncated like batting figures. In all 334 cases on three pages where truncating and rounding differ, the page showed the truncated value.
 - **Player cell:** "Name (COUNTRY)", for example "Babar Azam (PAK)". Players who represented several teams list them all, for example "Rashid Khan (AFG/ICC)". T20I lists include players from associate nations (for example QAT and JPN).
+- **Player-search country codes:** saved player-search, results and player pages use country/team codes from Statsguru rows and ground prefixes. Codes that differ from obvious first letters include Austria = AUT, Indonesia = INA, Saudi Arabia = KSA, Sierra Leone = SLE, Scotland = SCOT, Netherlands = NED and Nepal = NEP. Name-to-code mappings should be explicit and cross-checked against the team names in the filter forms.
 - **Sort caption:** for example "Ordered by runs scored (descending)" or "Ordered by wickets taken (descending)".
 - **No results:** the table has one row reading "No records available to match this query".
 - **Freshness note:** each results page says "Statsguru includes the following current or recent <format> matches:", followed by match names, dates and links (`/ci/engine/match/<id>.html`, labelled like "Test # 2635").
@@ -396,6 +397,11 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 **Batters with at least 1 hundred** (the loosest form of golden questions 1 and 2), fetched 3 Oct 2026:
 - ODIs: 520 players, 3 pages of 200. `https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;orderby=hundreds;qualmin1=1;qualval1=hundreds;size=200;template=results;type=batting`
 - Tests: 850 players, 5 pages of 200. The same query with `class=1`, plus `page=2` and so on for later pages. Rank 200 has 7 hundreds and rank 400 has 3, so a minimum of 4 hundreds fits in 2 pages.
+
+**Default-minimum count checks** (size=10 pages, fetched 4 Oct 2026 for issue #7):
+- Hundreds minimums: Tests `hundreds>=5` 292 rows; ODIs `hundreds>=5` 144; T20Is `hundreds>=1` 191; all T20 `hundreds>=3` 121; combined internationals `hundreds>=10` 207.
+- Candidate innings-per-fifty-plus innings minimums were too broad: Tests `innings>=20` 1225 rows; ODIs `innings>=20` 1060; T20Is `innings>=20` 1064; all T20 `innings>=30` 2347; combined internationals `innings>=30` 1965.
+- Candidate balls-per-dismissal outs minimums were too broad: ODIs `outs>=20` 907 rows; T20Is `outs>=15` 1114; all T20 `outs>=25` 2167; combined internationals `outs>=40` 1279.
 
 **Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
 - Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`

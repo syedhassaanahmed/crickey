@@ -68,6 +68,7 @@ def test_metric_direction_default_minimums_and_displayed_ties() -> None:
     assert rank_key(ip50, Decimal("2.40")) < rank_key(ip50, Decimal("2.41"))
     assert rank_key(avg, None) > rank_key(avg, Decimal("1"))
     assert ip50.tied(Decimal("2.414"), Decimal("2.413")) is True
+    assert ip50.display_value(Decimal("2.415")) == Decimal("2.42")
 
 
 def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
@@ -128,18 +129,18 @@ def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
             11: ("hundreds", 10),
         },
         "innings_per_fifty_plus": {
-            1: ("innings", 20),
-            2: ("innings", 20),
-            3: ("innings", 20),
-            6: ("innings", 30),
-            11: ("innings", 30),
+            1: ("hundreds", 5),
+            2: ("hundreds", 5),
+            3: ("hundreds", 1),
+            6: ("hundreds", 3),
+            11: ("hundreds", 10),
         },
         "balls_per_dismissal": {
             1: None,
-            2: ("outs", 20),
-            3: ("outs", 15),
-            6: ("outs", 25),
-            11: ("outs", 40),
+            2: ("hundreds", 5),
+            3: ("hundreds", 1),
+            6: ("hundreds", 3),
+            11: ("hundreds", 10),
         },
     }
     for key in ("strike_rate", "balls_per_dismissal"):
@@ -362,6 +363,51 @@ def test_country_name_filter_maps_scotland_and_unknown_country_falls_back() -> N
             "Matthew Cross",
             "Ben Cross",
         ]
+        assert unknown.note == "country 'Atlantis' could not be applied"
+
+    asyncio.run(run())
+
+
+def test_country_filter_uses_explicit_real_codes_and_never_auto_matches_on_miss() -> None:
+    async def run() -> None:
+        smith_url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=Smith;template=analysis"
+        smith = """
+        <table>
+        <tr><td>John Smith</td><td>AUS</td><td><a href="/ci/engine/player/1.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 70 matches)</td></tr>
+        <tr><td>John Smith</td><td>AUT</td><td><a href="/ci/engine/player/2.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 10 matches)</td></tr>
+        </table>
+        """
+        faisal_url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=Faisal+Khan;template=analysis"
+        faisal = """
+        <table>
+        <tr><td>Faisal Khan</td><td>SA</td><td><a href="/ci/engine/player/3.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 70 matches)</td></tr>
+        <tr><td>Faisal Khan</td><td>KSA</td><td><a href="/ci/engine/player/4.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 10 matches)</td></tr>
+        </table>
+        """
+        kohli_url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=Kohli;template=analysis"
+        kohli = """
+        <table>
+        <tr><td>V Kohli</td><td>IND</td><td><a href="/ci/engine/player/253802.html?class=1;type=allround">Test matches player</a> (2011 - 2026, 120 matches)</td></tr>
+        </table>
+        """
+        resolver = NameResolver(
+            Fetcher(
+                Settings(min_interval=timedelta(seconds=0)),
+                page_source=MemoryPageSource(
+                    {smith_url: smith, faisal_url: faisal, kohli_url: kohli}
+                ),
+            )
+        )
+
+        austria = await resolver.resolve_player("Smith", class_id=3, country="Austria")
+        saudi = await resolver.resolve_player("Faisal Khan", class_id=3, country="Saudi Arabia")
+        germany = await resolver.resolve_player("Kohli", class_id=1, country="Germany")
+
+        assert austria.match is not None and austria.match.player_id == 2
+        assert saudi.match is not None and saudi.match.player_id == 4
+        assert germany.match is None
+        assert [candidate.name for candidate in germany.candidates] == ["V Kohli"]
+        assert germany.note == "country 'Germany' did not match any candidates"
 
     asyncio.run(run())
 
