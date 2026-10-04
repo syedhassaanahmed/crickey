@@ -12,12 +12,12 @@
 
 ## Overview
 This plan says how to build crickey to meet the goal. It refers to decisions and research instead of repeating them:
-- **Decisions:** [decisions.md](decisions.md), referred to as D1–D26.
+- **Decisions:** [decisions.md](decisions.md), referred to by number (D1, D2, …).
 - **Research facts:** [research.md](research.md), referred to by section as R1–R16.
 
 ## Versions
 R15 lists the versions to use (D22).
-- `pyproject.toml` sets `requires-python` to R15's Python minor version and, for each dependency, a lower bound at its R15 version (with D22's exception) and an upper bound below its next major version.
+- `pyproject.toml` sets `requires-python` to R15's Python minor version and, for each dependency, a lower bound at its R15 version (lower where D27 says so) and an upper bound below its next major version.
 - Actions are pinned to the commit SHAs of R15's releases.
 
 ## Architecture
@@ -150,7 +150,7 @@ Implements D7–D12 and D17.
 - **One-time step:** GHCR creates new packages as private, so after the first push the package is switched to public in its settings. The `org.opencontainers.image.source` label links it to the repo.
 
 ## README
-The README covers:
+The README's commands use Bash syntax. It covers:
 - the disclaimer (D6);
 - the image name and tags;
 - the `docker run` command, which starts the HTTP server published on loopback only, and that it must be running before clients connect (run it again after a reboot);

@@ -1,7 +1,7 @@
 # Decisions
 
-Key decisions for crickey, as of 3 October 2026. Each one says what was decided and why. Options considered and dropped are listed at the end, so they aren't reopened without new information.
-- [plan.md](plan.md) has the goal and golden questions, puts these decisions into practice and refers to them as D1–D26.
+Key decisions for crickey. Each one says what was decided and why, and keeps its number for good: a new decision takes the next number and goes at the end, under "Added while building". Options considered and dropped are listed at the end, so they aren't reopened without new information.
+- [plan.md](plan.md) has the goal and golden questions, puts these decisions into practice and refers to them by number (D1, D2, …).
 - [research.md](research.md) has the supporting facts, referred to here as R1–R16.
 
 ## Product and scope
@@ -12,7 +12,7 @@ Key decisions for crickey, as of 3 October 2026. Each one says what was decided 
 5. **Stat types.** Batting, bowling, fielding, all-round, partnerships, team and aggregates. No umpires or referees.
 
 ## Data access
-6. **Personal use at each user's own risk.** Cricinfo's robots.txt disallows results pages (R1) and its terms ban data-extraction tools. Everyone who runs crickey accepts that risk. There's no consent step; the disclaimer is in the README and the image description.
+6. **Personal use at each user's own risk.** Cricinfo's robots.txt disallows results pages (R1) and its terms ban data-extraction tools. Everyone who runs crickey accepts that risk. There's no consent step. Instead, the README and the image description carry a disclaimer: crickey is for personal use at the user's own risk, Cricinfo's terms ban data-extraction tools, and crickey isn't affiliated with Cricinfo, ESPNcricinfo or ESPN.
 7. **Only stats.cricinfo.com is fetched.** www.cricinfo.com, including its player profile pages, blocks scripts (R1) and is never fetched. Nothing tries to get around a block. Answers can still link to it (D16).
 8. **On demand only.** Requests happen only during tool calls: no prefetching, crawling or background refresh.
 9. **15 seconds between requests** by default, matching robots.txt's crawl delay (R1). It can be lowered to 2 seconds, with a warning.
@@ -50,13 +50,15 @@ Key decisions for crickey, as of 3 October 2026. Each one says what was decided 
     - No authentication: binding to localhost plus the SDK's Host and Origin checks (R12) keeps web pages out.
 21. **Stack.** Python with uv and the MCP Python SDK (`mcp[cli]`); httpx, lxml, pydantic, pandas, rapidfuzz and uvicorn, with pytest, respx and ruff for development.
 22. **Latest stable versions.** Use the latest stable releases of Python, uv, the SDK and libraries, the Docker base image and GitHub Actions; R15 lists them. Pre-releases aren't used.
-    - Exception: the `mcp` and `ruff` lower bounds are one release below R15 (2.2.0 and 0.16.9), so crickey also installs from package indexes that don't have the newest release yet. mcp 2.2.0 already supports the 2026-07-28 spec (R15), and without a committed `uv.lock`, uv still picks the newest release available.
 23. **Package index.** Public PyPI by default. No index URL is committed, so each machine can point uv or pip at another index, including for local image builds. `uv.lock` isn't committed.
 
 ## Sharing
 24. **Docker only.** Friends run a public image for amd64 and arm64 from GitHub Container Registry, in HTTP mode (D20). GitHub Actions builds, tests and publishes it for each version tag. The README stays short.
 25. **Public repository, MIT licence.** Tests use synthetic pages; no Cricinfo content is committed.
 26. **Clients.** You use Copilot CLI over HTTP. Friends use any MCP client that can connect to a Streamable HTTP server on localhost. Web chat apps aren't supported, because they need a hosted server (R14).
+
+## Added while building
+27. **Lower bounds for mcp and ruff.** Their lower bounds are one release below R15's versions, at 2.2.0 and 0.16.9, so crickey also installs from package indexes that don't have the newest release yet. mcp 2.2.0 already supports the 2026-07-28 spec (R15), and with no committed `uv.lock` (D23), uv still installs the newest release available (D22).
 
 ## Considered and dropped
 
