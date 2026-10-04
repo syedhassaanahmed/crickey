@@ -268,11 +268,37 @@ def test_builtin_lookup_prefix_tier_resolves_unique_team_prefixes_only() -> None
 def test_name_lookup_exact_case_insensitive_and_fuzzy_matches() -> None:
     exact = lookup_team(2, "  pAKisTan ")
     fuzzy = lookup_team(2, "Pakstan")
+    inside_word_typo = lookup_team(1, "South Afriica")
+    franchise_typo = lookup_team(6, "lahore qalanders")
 
     assert exact.status == LookupStatus.MATCH
     assert exact.match.value == 7
     assert fuzzy.status == LookupStatus.MATCH
     assert fuzzy.match.value == 7
+    assert inside_word_typo.status == LookupStatus.MATCH
+    assert inside_word_typo.match.value == 3
+    assert franchise_typo.status == LookupStatus.MATCH
+    assert franchise_typo.match.value == 5799
+
+
+def test_fuzzy_match_rejects_queries_that_add_whole_words_to_team_names() -> None:
+    for class_id in (3,):
+        for name in (
+            "Australia A",
+            "South Africa A",
+            "Sri Lanka A",
+            "New Zealand A",
+            "West Indies A",
+            "Bangladesh A",
+        ):
+            result = lookup_team(class_id, name)
+            assert result.needs_clarification is True
+            assert result.match is None
+
+    for name in ("Australia A", "South Africa A"):
+        result = lookup_team(1, name)
+        assert result.needs_clarification is True
+        assert result.match is None
 
 
 def test_exact_tier_wins_before_containment_or_fuzzy_candidates() -> None:
@@ -470,6 +496,30 @@ def test_on_demand_cached_ambiguous_containment_does_not_refetch() -> None:
     assert warm.match.value == 701
     assert ambiguous.needs_clarification is True
     assert [candidate.value for candidate in ambiguous.candidates] == [703, 702]
+    assert source.requests == [form_url]
+
+
+def test_on_demand_cached_ambiguous_acronym_does_not_refetch() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    source = MemoryPageSource(
+        {
+            form_url: form_html(
+                ground_label="AUS: Melbourne Cricket Ground",
+                extra_ground_options=('<option value="702">NEP: Mulpani Cricket Ground</option>'),
+            )
+        }
+    )
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    first = run(resolver.lookup_ground(class_id, "MCG"))
+    second = run(resolver.lookup_ground(class_id, "MCG"))
+
+    assert first.needs_clarification is True
+    assert {candidate.value for candidate in first.candidates} == {701, 702}
+    assert second.needs_clarification is True
+    assert {candidate.value for candidate in second.candidates} == {701, 702}
     assert source.requests == [form_url]
 
 

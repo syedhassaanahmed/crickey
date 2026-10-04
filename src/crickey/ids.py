@@ -197,6 +197,7 @@ def resolve_name(
     if (
         ratio_best.score is not None
         and ratio_best.score >= FUZZY_ACCEPT_SCORE
+        and not _query_strictly_contains_candidate_words(normalized_query, ratio_best)
         and (
             ratio_runner_up_score is None
             or ratio_best.score - ratio_runner_up_score >= FUZZY_ACCEPT_MARGIN
@@ -276,7 +277,7 @@ class StatsguruIdResolver:
         if (
             result.status == LookupStatus.MATCH
             or not can_refetch
-            or _candidates_contain_query_words(result)
+            or _ambiguous_result_has_plausible_cached_candidates(result, table)
         ):
             return result
         table, _ = await self._form_table(class_id, field, call, force_refetch=True)
@@ -292,7 +293,7 @@ class StatsguruIdResolver:
         if (
             result.status == LookupStatus.MATCH
             or not can_refetch
-            or _candidates_contain_query_words(result)
+            or _ambiguous_result_has_plausible_cached_candidates(result, table)
         ):
             return result
         table, _ = await self._involve_table(
@@ -467,6 +468,36 @@ def _singularize(word: str) -> str:
     if len(word) > 3 and word.endswith("s"):
         return word[:-1]
     return word
+
+
+def _query_strictly_contains_candidate_words(normalized_query: str, candidate: IdCandidate) -> bool:
+    query_words = set(normalized_query.split())
+    candidate_words = set(_normalize(candidate.name).split())
+    return bool(candidate_words) and query_words > candidate_words
+
+
+def _ambiguous_result_has_plausible_cached_candidates(
+    result: LookupResult, table: Mapping[int, str]
+) -> bool:
+    if result.status == LookupStatus.MATCH or not result.candidates:
+        return False
+    normalized_query = _normalize(result.query)
+    candidates = result.candidates
+    return (
+        all(
+            normalized_query in _normalized_name_variants(candidate.name, result.kind)
+            for candidate in candidates
+        )
+        or all(
+            _initials(candidate.name, result.kind) == normalized_query for candidate in candidates
+        )
+        or all(
+            _without_generic_words(candidate.name, result.class_id)
+            == _without_generic_words(result.query, result.class_id)
+            for candidate in candidates
+        )
+        or _candidates_contain_query_words(result)
+    ) and all(candidate.value in table for candidate in candidates)
 
 
 def _candidates_contain_query_words(result: LookupResult) -> bool:
