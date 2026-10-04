@@ -28,8 +28,7 @@ class TransportError(RuntimeError):
     """Raised when the transport cannot be started."""
 
 
-def bind_host(settings: Settings, requested_host: str | None = None) -> str:
-    del requested_host
+def bind_host(settings: Settings) -> str:
     return CONTAINER_HOST if settings.in_container else NATIVE_HOST
 
 
@@ -58,9 +57,9 @@ def run_stdio(mcp: MCPServer) -> None:
 
 
 def create_uvicorn_server(
-    mcp: MCPServer, settings: Settings, *, host: str | None = None
+    mcp: MCPServer, settings: Settings
 ) -> tuple[uvicorn.Server, socket.socket]:
-    bind = bind_host(settings, host)
+    bind = bind_host(settings)
     sock = _bind_socket(bind, settings.port)
     config = uvicorn.Config(
         streamable_http_app(mcp, host=bind),
@@ -69,15 +68,42 @@ def create_uvicorn_server(
         log_level="warning",
         timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
     )
-    return uvicorn.Server(config), sock
+    server = uvicorn.Server(config)
+    _close_listen_streams_on_shutdown(server, mcp)
+    return server, sock
 
 
-def serve_http(mcp: MCPServer, settings: Settings, *, host: str | None = None) -> None:
-    server, sock = create_uvicorn_server(mcp, settings, host=host)
+def serve_http(mcp: MCPServer, settings: Settings) -> None:
+    server, sock = create_uvicorn_server(mcp, settings)
     try:
-        server.run(sockets=[sock])
+        try:
+            server.run(sockets=[sock])
+        except KeyboardInterrupt:
+            pass
     finally:
         sock.close()
+
+
+def _close_listen_streams_on_shutdown(server: uvicorn.Server, mcp: MCPServer) -> None:
+    original_shutdown = getattr(server, "shutdown", None)
+    if original_shutdown is None:
+        return
+
+    async def shutdown(*args, **kwargs):
+        _close_listen_streams(mcp)
+        return await original_shutdown(*args, **kwargs)
+
+    server.shutdown = shutdown
+
+
+def _close_listen_streams(mcp: MCPServer) -> None:
+    lowlevel = getattr(mcp, "_lowlevel_server", None)
+    handlers = getattr(lowlevel, "_request_handlers", {})
+    entry = handlers.get("subscriptions/listen")
+    handler = getattr(entry, "handler", None)
+    close = getattr(handler, "close", None)
+    if close is not None:
+        close()
 
 
 def _bind_socket(host: str, port: int) -> socket.socket:

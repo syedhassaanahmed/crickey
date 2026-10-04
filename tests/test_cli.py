@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
-import socket
 import sys
 
 import pytest
 
 from crickey import __version__, cli
 from crickey.cli import main
+from crickey.transport import NATIVE_HOST, TransportError, _bind_socket
 
 
 def test_help_lists_subcommands(capsys: pytest.CaptureFixture[str]) -> None:
@@ -52,13 +52,27 @@ def test_stdio_runs_server(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(calls) == 1
 
 
-def test_port_in_use_is_clear(capsys: pytest.CaptureFixture[str]) -> None:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
+def test_port_in_use_is_clear(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FailingServer:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise AssertionError("uvicorn.Server should not be created when bind fails")
+
+    monkeypatch.setattr("crickey.transport.uvicorn.Server", FailingServer)
+    monkeypatch.setattr(
+        "crickey.transport.uvicorn.run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("uvicorn.run should not be called")
+        ),
+    )
+    with _bind_socket(NATIVE_HOST, 0) as sock:
         sock.listen()
         port = sock.getsockname()[1]
 
         assert main(["serve", "--port", str(port)]) == 1
+        with pytest.raises(TransportError, match=f"Port {port} is already in use"):
+            _bind_socket(NATIVE_HOST, port)
 
     error = capsys.readouterr().err
     assert f"Port {port} is already in use" in error
