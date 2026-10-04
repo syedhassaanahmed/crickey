@@ -274,6 +274,7 @@ async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache
         "Tie Player",
         "Level Player",
     }
+    assert [row["player"] for row in cold.structured_content["ties"]] == ["Tie Player"]
     level_details = {row["player"]: row["detail"] for row in cold.structured_content["level"]}
     assert level_details["Tie Player"] == "level on batting average and strike rate"
     assert level_details["Level Player"] == "level on batting average, better on strike rate"

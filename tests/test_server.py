@@ -184,7 +184,7 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert "ODI World Cups" in by_name["player_record"].description
         assert "Which Babar played ODIs?" in by_name["find_player"].description
         assert (
-            "Which ODI batting rows are sorted by hundreds?" in by_name["query_stats"].description
+            "Who has the most ODI wickets against Australia?" in by_name["query_stats"].description
         )
         assert client.instructions == "\n".join(
             [

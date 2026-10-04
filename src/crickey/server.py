@@ -213,7 +213,7 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: Which ODI batting rows are sorted by hundreds? Compile and optionally "
+            "Example: Who has the most ODI wickets against Australia? Compile and optionally "
             "fetch any Statsguru query, returning rows, totals and the pinned link."
         ),
     )
@@ -751,7 +751,11 @@ async def _better_than_player_tool(
             "rows": payload_rows,
             "beaters": [row for row in payload_rows if row["relation"] == "beats"],
             "level": [row for row in payload_rows if row["relation"] == "level"],
-            "ties": [row for row in payload_rows if row["relation"] == "level"],
+            "ties": [
+                row
+                for row in payload_rows
+                if row["relation"] == "level" and "better on " not in row["detail"]
+            ],
             "proof": _jsonable(proof),
             "request_pages": len(pages),
         },
