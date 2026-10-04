@@ -41,7 +41,7 @@ TOOL_NAMES = {
 }
 LAUNCHER = Path(__file__).with_name("e2e_server.py")
 REPO = Path(__file__).resolve().parents[1]
-PYTHON = str(Path(sys.executable).resolve())
+PYTHON = sys.executable
 
 
 @pytest.fixture
@@ -143,6 +143,20 @@ def _wait_for_port_closed(port: int) -> None:
     raise AssertionError(f"port {port} stayed open after shutdown")
 
 
+def _kill_process_tree(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        return
+    process.kill()
+
+
 class HttpServer:
     def __init__(self, scenario: str, runtime: RuntimeDirs) -> None:
         self.scenario = scenario
@@ -152,26 +166,35 @@ class HttpServer:
         self._stderr_handle = None
 
     def start(self) -> None:
-        self._stderr_handle = self.runtime.audit_stderr.open("wb")
-        self.process = subprocess.Popen(
-            [
-                PYTHON,
-                "-B",
-                str(LAUNCHER),
-                "http",
-                "--port",
-                str(self.port),
-                "--scenario",
-                self.scenario,
-                "--audit",
-                "--audit-stderr",
-            ],
-            cwd=self.runtime.cwd,
-            env=self.runtime.env(),
-            stdout=subprocess.DEVNULL,
-            stderr=self._stderr_handle,
-        )
-        _wait_for_health(self.port, self.process, self.runtime.audit_stderr)
+        try:
+            self._stderr_handle = self.runtime.audit_stderr.open("wb")
+            self.process = subprocess.Popen(
+                [
+                    PYTHON,
+                    "-B",
+                    str(LAUNCHER),
+                    "http",
+                    "--port",
+                    str(self.port),
+                    "--scenario",
+                    self.scenario,
+                    "--audit",
+                    "--audit-stderr",
+                ],
+                cwd=self.runtime.cwd,
+                env=self.runtime.env(),
+                stdout=subprocess.DEVNULL,
+                stderr=self._stderr_handle,
+            )
+            _wait_for_health(self.port, self.process, self.runtime.audit_stderr)
+        except Exception:
+            if self.process is not None:
+                _kill_process_tree(self.process)
+                self.process.wait(timeout=8)
+                _wait_for_port_closed(self.port)
+            if self._stderr_handle is not None:
+                self._stderr_handle.close()
+            raise
 
     def stop(self) -> dict[str, object]:
         assert self.process is not None
@@ -186,7 +209,7 @@ class HttpServer:
                 self.process.wait(timeout=8)
         finally:
             if self.process.poll() is None:
-                self.process.kill()
+                _kill_process_tree(self.process)
                 self.process.wait(timeout=8)
             if self._stderr_handle is not None:
                 self._stderr_handle.close()
@@ -204,6 +227,34 @@ def shared_http_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Htt
         audit = server.stop()
         assert audit["events"] == []
         runtime.assert_empty()
+
+
+def test_http_start_failure_cleans_process_and_port(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def never_healthy(port: int, process: subprocess.Popen[bytes], _stderr_path: Path) -> None:
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError("server exited before mutant health failure")
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=0.25):
+                    raise RuntimeError("mutant health check never succeeded")
+            except OSError:
+                time.sleep(0.05)
+        raise RuntimeError("server did not listen before mutant health failure")
+
+    monkeypatch.setattr(sys.modules[__name__], "_wait_for_health", never_healthy)
+    server = HttpServer("happy", RuntimeDirs(tmp_path / "failed-start-runtime"))
+
+    with pytest.raises(RuntimeError, match="mutant health check never succeeded"):
+        server.start()
+
+    assert server.process is not None
+    assert server.process.poll() is not None
+    assert server._stderr_handle is not None
+    assert server._stderr_handle.closed
+    _wait_for_port_closed(server.port)
 
 
 async def _http_audit(port: int) -> dict[str, object]:
@@ -438,7 +489,7 @@ async def test_e2e_block_pause_short_circuits_uncached_fetches_and_allows_cache(
     assert blocked.is_error is True
     assert "blocked" in blocked.content[0].text
     assert paused.is_error is True
-    assert "paused until" in paused.content[0].text
+    assert "paused until 12:06 (UTC+00:00)" in paused.content[0].text
     assert cached.structured_content["status"] == "match"
     assert len(audit["requests"]) == 2
     assert audit["requests"][0].endswith(
@@ -472,8 +523,7 @@ async def test_e2e_retry_after_budget_paths_over_http(tmp_path: Path) -> None:
     assert success.structured_content["rows"][0]["player"] == "Retry Winner"
     assert success_audit["sleeps"] == [30.0]
     assert past.is_error is True
-    assert "try again after " in past.content[0].text
-    assert "(UTC+00:00)" in past.content[0].text
+    assert "try again after 14:48 (UTC+00:00)" in past.content[0].text
     assert past_audit["sleeps"] == []
     assert len(past_audit["requests"]) == 1
     assert audit_at_exit["events"] == []

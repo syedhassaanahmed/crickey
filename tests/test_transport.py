@@ -16,7 +16,7 @@ import anyio
 import pytest
 import uvicorn
 from helpers import FakeClock, free_port
-from helpers import test_settings as settings
+from helpers import make_settings as settings
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 from starlette.testclient import TestClient

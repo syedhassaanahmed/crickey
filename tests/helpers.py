@@ -26,7 +26,7 @@ class FakeClock:
         await asyncio.sleep(0)
 
 
-def test_settings(**overrides: object) -> Settings:
+def make_settings(**overrides: object) -> Settings:
     values = {
         "min_interval": timedelta(seconds=0),
         "max_retries": 0,
