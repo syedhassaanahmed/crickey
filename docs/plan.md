@@ -104,7 +104,7 @@ The proof-link builder implements D16, and the answer renderer D17.
 Implements D7–D12 and D17.
 - **Client:** httpx, with the User-Agent from D12.
 - **State per process, in memory:** the rate limiter, retry state, block pause and unavailable URLs.
-- **Cache:** compressed, in memory, keyed by standard URL, with D17's freshness rules and size cap. Player search and form pages are lookups: they're kept for the life of the process and refetched once when a lookup misses.
+- **Cache:** compressed, in memory, keyed by standard URL, with D17's freshness rules and size cap; storage uses `cachetools.TLRUCache` (D28). Player search and form pages are lookups: they're kept for the life of the process and refetched once when a lookup misses.
 - **Retries (D11):** after D11's waits, each further retry waits twice as long as the one before. A tool call stops retrying when the next attempt wouldn't fit in its time budget, which stays below the client timeout (300 s in the README's setup). `Retry-After` sets a "not before" time; if that's past the budget, the call fails at once with "try again after HH:MM".
 - **Unavailable URLs:** a URL that returns 400 or 404 isn't requested again by the same process.
 - **Time messages:** "try again after" and "paused until" use the process's local time with its UTC offset and are rounded up to the next minute.

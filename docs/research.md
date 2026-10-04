@@ -580,7 +580,8 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | polars | 1.44.2 | 2026-09-09 | |
 | duckdb | 1.5.6 | 2026-09-28 | |
 | rapidfuzz | 3.14.6 | 2026-08-30 | Python 3.11+ |
-| hishel | 1.4.0 | 2026-09-16 | |
+| cachetools | 7.2.0 | | TLRUCache: LRU with a per-entry expiry function (ttu), size from getsizeof, injectable timer |
+| hishel | 1.4.0 | 2026-09-16 | RFC 9111 HTTP cache; SQLite storage |
 | respx | 0.23.1 | 2026-04-08 | |
 | pytest | 9.1.1 | 2026-06-19 | |
 | uvicorn | 0.54.0 | | |

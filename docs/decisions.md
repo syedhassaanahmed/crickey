@@ -48,7 +48,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
     - One long-running process per person serves all their clients, so the cache, request spacing and block pause carry across sessions.
     - stdio is kept only for debugging, because each stdio session starts a fresh process that forgets all three.
     - No authentication: binding to localhost plus the SDK's Host and Origin checks (R12) keeps web pages out.
-21. **Stack.** Python with uv and the MCP Python SDK (`mcp[cli]`); httpx, lxml, pydantic, pandas, rapidfuzz and uvicorn, with pytest, respx and ruff for development.
+21. **Stack.** Python with uv and the MCP Python SDK (`mcp[cli]`); httpx, cachetools, lxml, pydantic, pandas, rapidfuzz and uvicorn, with pytest, respx and ruff for development.
 22. **Latest stable versions.** Use the latest stable releases of Python, uv, the SDK and libraries, the Docker base image and GitHub Actions; R15 lists them. Pre-releases aren't used.
 23. **Package index.** Public PyPI by default. No index URL is committed, so each machine can point uv or pip at another index, including for local image builds. `uv.lock` isn't committed.
 
@@ -59,6 +59,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 
 ## Added while building
 27. **Lower bounds for mcp and ruff.** Their lower bounds are one release below R15's versions, at 2.2.0 and 0.16.9, so crickey also installs from package indexes that don't have the newest release yet. mcp 2.2.0 already supports the 2026-07-28 spec (R15), and with no committed `uv.lock` (D23), uv still installs the newest release available (D22).
+28. **Page cache storage from cachetools.** The page cache uses `cachetools.TLRUCache` for its storage. TLRUCache provides LRU eviction, per-entry expiry, a byte-size cap and an injectable timer, while D17's freshness rules stay crickey's own.
 
 ## Considered and dropped
 
@@ -85,3 +86,4 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 | uvx, PyPI, MCP Bundles, a Copilot plugin, one-click install links, MCP Registry or directory listings (R14) | Docker only. |
 | A private container image | Public, so friends don't need to log in. |
 | An MCP Apps UI | Not needed for v1. |
+| A full HTTP cache library (hishel), and libraries for the fetcher's retries and spacing (tenacity, aiolimiter, pyrate-limiter, httpx-retries) | HTTP caches decide freshness from HTTP headers instead of the query's date range (D17), sit below the rate limiter, and hishel stores to SQLite (D19). The fetcher's shared lock, per-call budgets, process-wide `Retry-After` and block pause (D11) are crickey-specific, and these libraries keep their own clocks. |
