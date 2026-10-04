@@ -310,8 +310,8 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         current_url = url
         for _ in range(5):
             await self._space_request()
-            self._fetcher._last_request_at = self._fetcher.clock.monotonic()
             response = await self._get(current_url)
+            self._fetcher._last_request_at = self._fetcher.clock.monotonic()
             if response.status_code not in {301, 302, 303, 307, 308}:
                 return response
             location = response.headers.get("location") or response.headers.get("Location")
@@ -333,20 +333,24 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         return await self._fetcher._source.get(url, {"User-Agent": USER_AGENT})
 
     async def _acquire_request_lock(self) -> None:
-        remaining = self._deadline - self._fetcher.clock.monotonic()
+        queued_at = self._fetcher.clock.monotonic()
+        remaining = self._deadline - queued_at
         if remaining <= 0:
             raise FetchTimeoutError("Not enough time left to wait for another Statsguru request.")
         if self._fetcher._request_lock.locked():
-            await self._report_wait(remaining, "waiting for another Statsguru request")
-        try:
-            await asyncio.wait_for(self._fetcher._request_lock.acquire(), timeout=remaining)
-        except TimeoutError as error:
-            raise FetchTimeoutError(
-                "Not enough time left to wait for another Statsguru request."
-            ) from error
+            while self._fetcher._request_lock.locked():
+                remaining = self._deadline - self._fetcher.clock.monotonic()
+                if remaining <= 0:
+                    raise FetchTimeoutError(
+                        "Not enough time left to wait for another Statsguru request."
+                    )
+                await self._fetcher.clock.sleep(min(0.1, remaining))
         if self._fetcher.clock.monotonic() >= self._deadline:
-            self._fetcher._request_lock.release()
             raise FetchTimeoutError("Not enough time left to wait for another Statsguru request.")
+        await self._fetcher._request_lock.acquire()
+        queued_for = round(self._fetcher.clock.monotonic() - queued_at, 10)
+        if queued_for > 0:
+            await self._report_wait(queued_for, "waiting for another Statsguru request")
 
     async def _honour_not_before(self) -> None:
         wait = self._not_before_wait()
