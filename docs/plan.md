@@ -83,6 +83,7 @@ Server instructions tell the agent to:
   - which direction is better, and its default minimum, which is stated in answers.
 
   Examples: innings per hundred = innings ÷ hundreds; balls per dismissal = balls faced ÷ dismissals.
+- **Default minimums:** see the metric registry; the code is the single source for the proposed values.
 - **Ratios:** Statsguru's displayed averages and strike rates are used as they are (D15); the registry's formulas compute only the metrics Statsguru doesn't show.
 - **Period resolver:**
   - "X's career span" is X's first and last match start dates in that format, from X's innings list (R6).
