@@ -61,6 +61,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 27. **Lower bounds for mcp and ruff.** Their lower bounds are one release below R15's versions, at 2.2.0 and 0.16.9, so crickey also installs from package indexes that don't have the newest release yet. mcp 2.2.0 already supports the 2026-07-28 spec (R15), and with no committed `uv.lock` (D23), uv still installs the newest release available (D22).
 28. **Page cache storage from cachetools.** The page cache stores pages in `cachetools.TLRUCache` (R15) instead of its own LRU code; D17's freshness rules stay crickey's own.
 29. **Rate comparisons use a runs floor when needed.** When a batting answer compares average or strike rate and the user does not give a minimum, the tool uses a runs minimum rather than an innings or balls-faced minimum. That matches the golden-question sample in R10 and avoids broad rate tables that exceed D10 before the comparison can be made.
+30. **Dependabot tracks Python dependencies with the uv ecosystem.** crickey is a uv project and does not commit `uv.lock` (D23); Dependabot's uv updater supports `pyproject.toml` without a lockfile (R15), so it can update the manifest directly while staying aligned with the local and CI install path.
 
 ## Considered and dropped
 
