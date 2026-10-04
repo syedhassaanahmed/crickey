@@ -123,7 +123,7 @@ def resolve_name(
         )
 
     acronym = tuple(
-        candidate for candidate in rows if _initials(candidate.name) == normalized_query
+        candidate for candidate in rows if _initials(candidate.name, kind) == normalized_query
     )
     if len(acronym) == 1:
         return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=acronym[0])
@@ -289,7 +289,11 @@ class StatsguruIdResolver:
             class_id, field, search_field, name, call, force_refetch=False
         )
         result = resolve_name(class_id, field, name, table)
-        if result.status == LookupStatus.MATCH or not can_refetch:
+        if (
+            result.status == LookupStatus.MATCH
+            or not can_refetch
+            or _candidates_contain_query_words(result)
+        ):
             return result
         table, _ = await self._involve_table(
             class_id, field, search_field, name, call, force_refetch=True
@@ -391,7 +395,9 @@ def _strip_trailing_year(value: str) -> str:
     return re.sub(r",?\s+\d{4}(?:/\d{2,4})?\s*$", "", value).strip()
 
 
-def _initials(value: str) -> str:
+def _initials(value: str, kind: str) -> str:
+    if kind == "ground":
+        value = _without_label_prefix(value)
     return "".join(word[0] for word in _normalize(value).split() if word not in _ACRONYM_SKIP_WORDS)
 
 
@@ -436,17 +442,25 @@ def _single_word_prefix_matches(
 def _rank_by_wratio(
     normalized_query: str, rows: tuple[IdCandidate, ...]
 ) -> tuple[IdCandidate, ...]:
-    return tuple(
-        sorted(
-            (
-                _with_score(
-                    candidate, float(fuzz.WRatio(normalized_query, _normalize(candidate.name)))
-                )
-                for candidate in rows
+    scored = (
+        (
+            _with_score(
+                candidate, float(fuzz.WRatio(normalized_query, _normalize(candidate.name)))
             ),
-            key=lambda candidate: (-(candidate.score or 0.0), candidate.value),
+            float(fuzz.ratio(normalized_query, _normalize(candidate.name))),
+        )
+        for candidate in rows
+    )
+    return tuple(
+        candidate
+        for candidate, _ratio in sorted(
+            scored, key=lambda item: (-(item[0].score or 0.0), -item[1], item[0].value)
         )[:MAX_CANDIDATES]
     )
+
+
+def _without_label_prefix(value: str) -> str:
+    return value.split(":", 1)[1].strip() if ":" in value else value
 
 
 def _singularize(word: str) -> str:

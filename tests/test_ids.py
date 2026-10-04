@@ -232,7 +232,7 @@ def test_builtin_lookup_returns_candidates_for_collisions_and_unsafe_fuzzy_match
     premier_league = lookup_trophy(6, "Premier League")
     australasia = lookup_continent(1, "Australasia")
 
-    assert [candidate.value for candidate in big_bash.candidates] == [124, 158]
+    assert [candidate.value for candidate in big_bash.candidates] == [158, 124]
     assert {candidate.value for candidate in team_sa.candidates} == {3, 154, 571}
     assert premier_league.needs_clarification is True
     assert premier_league.match is None
@@ -241,7 +241,10 @@ def test_builtin_lookup_returns_candidates_for_collisions_and_unsafe_fuzzy_match
     assert lookup_trophy(3, "World T20").candidates[0].value == 89
     assert lookup_trophy(3, "ICC World T20").candidates[0].value == 89
     assert lookup_trophy(11, "Asia Cup").status == LookupStatus.NEEDS_CLARIFICATION
+    assert 951 in {candidate.value for candidate in lookup_trophy(11, "Asia Cup").candidates}
     assert lookup_team(2, "India A").match is None
+    assert 5799 in {candidate.value for candidate in lookup_team(6, "Lahore").candidates}
+    assert 7224 in {candidate.value for candidate in lookup_team(6, "Dhaka").candidates}
 
 
 def test_builtin_lookup_prefix_tier_resolves_unique_team_prefixes_only() -> None:
@@ -254,7 +257,7 @@ def test_builtin_lookup_prefix_tier_resolves_unique_team_prefixes_only() -> None
     sou = lookup_team(6, "Sou")
 
     assert ind.match is None
-    assert [candidate.value for candidate in ind.candidates] == [4, 6]
+    assert [candidate.value for candidate in ind.candidates] == [6, 4]
     assert len(sou.candidates) == 5
     assert [candidate.score for candidate in sou.candidates] == sorted(
         (candidate.score for candidate in sou.candidates), reverse=True
@@ -466,7 +469,42 @@ def test_on_demand_cached_ambiguous_containment_does_not_refetch() -> None:
 
     assert warm.match.value == 701
     assert ambiguous.needs_clarification is True
-    assert [candidate.value for candidate in ambiguous.candidates] == [702, 703]
+    assert [candidate.value for candidate in ambiguous.candidates] == [703, 702]
+    assert source.requests == [form_url]
+
+
+def test_on_demand_involve_cached_ambiguous_containment_does_not_refetch() -> None:
+    class_id = 3
+    player_url = INVOLVE_URL.format(class_id=class_id, search_field="search_player", query="babar")
+    page = form_html(involve_field="player_involve").replace(
+        "</form>",
+        '<input type="checkbox" name="player_involve" value="12345" checked>'
+        ' found using "babar": Babar Hayat (HKG)</form>',
+    )
+    source = MemoryPageSource({player_url: page})
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    first = run(resolver.lookup_player_involve(class_id, "babar"))
+    second = run(resolver.lookup_player_involve(class_id, "babar"))
+
+    assert first.needs_clarification is True
+    assert {candidate.value for candidate in first.candidates} == {56880, 12345}
+    assert second.needs_clarification is True
+    assert {candidate.value for candidate in second.candidates} == {56880, 12345}
+    assert source.requests == [player_url]
+
+
+def test_on_demand_ground_acronym_ignores_country_prefix() -> None:
+    class_id = 3
+    form_url = FORM_URL.format(class_id=class_id)
+    source = MemoryPageSource({form_url: form_html(ground_label="AUS: Melbourne Cricket Ground")})
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    result = run(resolver.lookup_ground(class_id, "MCG"))
+
+    assert result.match.value == 701
     assert source.requests == [form_url]
 
 
