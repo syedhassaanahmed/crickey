@@ -270,6 +270,7 @@ def test_name_lookup_exact_case_insensitive_and_fuzzy_matches() -> None:
     fuzzy = lookup_team(2, "Pakstan")
     inside_word_typo = lookup_team(1, "South Afriica")
     franchise_typo = lookup_team(6, "lahore qalanders")
+    split_word_typo = lookup_team(1, "Bangla desh")
 
     assert exact.status == LookupStatus.MATCH
     assert exact.match.value == 7
@@ -279,6 +280,8 @@ def test_name_lookup_exact_case_insensitive_and_fuzzy_matches() -> None:
     assert inside_word_typo.match.value == 3
     assert franchise_typo.status == LookupStatus.MATCH
     assert franchise_typo.match.value == 5799
+    assert split_word_typo.status == LookupStatus.MATCH
+    assert split_word_typo.match.value == 25
 
 
 def test_fuzzy_match_rejects_queries_that_add_whole_words_to_team_names() -> None:
@@ -299,6 +302,23 @@ def test_fuzzy_match_rejects_queries_that_add_whole_words_to_team_names() -> Non
         result = lookup_team(1, name)
         assert result.needs_clarification is True
         assert result.match is None
+
+
+def test_fuzzy_match_rejects_swapped_womens_names() -> None:
+    unsafe_matches = (
+        (lookup_trophy, 3, "ICC Women's T20 World Cup", 89),
+        (lookup_trophy, 6, "ICC Women's T20 World Cup", 89),
+        (lookup_trophy, 11, "ICC Women's T20 World Cup", 89),
+        (lookup_trophy, 11, "Women's T20 Asia Cup", 951),
+        (lookup_trophy, 6, "The Hundred Women's Competition", 826),
+        (lookup_team, 6, "Welsh Fire Women", 6677),
+    )
+
+    for lookup, class_id, name, value in unsafe_matches:
+        result = lookup(class_id, name)
+        assert result.needs_clarification is True
+        assert result.match is None
+        assert value in {candidate.value for candidate in result.candidates}
 
 
 def test_exact_tier_wins_before_containment_or_fuzzy_candidates() -> None:

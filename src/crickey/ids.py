@@ -9,6 +9,7 @@ from typing import Protocol
 from urllib.parse import quote_plus
 
 from rapidfuzz import fuzz
+from rapidfuzz.distance import OSA
 
 from crickey import id_tables
 from crickey.fetcher import Fetcher, Freshness
@@ -197,7 +198,7 @@ def resolve_name(
     if (
         ratio_best.score is not None
         and ratio_best.score >= FUZZY_ACCEPT_SCORE
-        and not _query_strictly_contains_candidate_words(normalized_query, ratio_best)
+        and _query_words_fit_candidate_typos(normalized_query, ratio_best)
         and (
             ratio_runner_up_score is None
             or ratio_best.score - ratio_runner_up_score >= FUZZY_ACCEPT_MARGIN
@@ -470,10 +471,34 @@ def _singularize(word: str) -> str:
     return word
 
 
-def _query_strictly_contains_candidate_words(normalized_query: str, candidate: IdCandidate) -> bool:
-    query_words = set(normalized_query.split())
-    candidate_words = set(_normalize(candidate.name).split())
-    return bool(candidate_words) and query_words > candidate_words
+def _query_words_fit_candidate_typos(normalized_query: str, candidate: IdCandidate) -> bool:
+    query_words = normalized_query.split()
+    candidate_words = _normalize(candidate.name).split()
+    return _consume_matching_words(query_words, candidate_words)
+
+
+def _consume_matching_words(query_words: list[str], name_words: list[str]) -> bool:
+    if not query_words:
+        return True
+    query_word = query_words[0]
+    for index, name_word in enumerate(name_words):
+        remaining_name_words = name_words[:index] + name_words[index + 1 :]
+        if query_word == name_word and _consume_matching_words(
+            query_words[1:], remaining_name_words
+        ):
+            return True
+        max_distance = 2 if len(name_word) >= 8 else 1
+        if OSA.distance(query_word, name_word) <= max_distance and _consume_matching_words(
+            query_words[1:], remaining_name_words
+        ):
+            return True
+        if len(query_words) >= 2 and query_word != name_word and query_words[1] != name_word:
+            split_query_word = query_word + query_words[1]
+            if OSA.distance(
+                split_query_word, name_word
+            ) <= max_distance and _consume_matching_words(query_words[2:], remaining_name_words):
+                return True
+    return False
 
 
 def _ambiguous_result_has_plausible_cached_candidates(
