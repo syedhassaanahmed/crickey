@@ -4,11 +4,15 @@ import argparse
 import atexit
 import json
 import os
+import signal
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
 AUDIT_EVENTS: list[dict[str, Any]] = []
+_REPORT = None
 
 
 def _record(event: str, args: tuple[Any, ...]) -> None:
@@ -23,6 +27,10 @@ def _record(event: str, args: tuple[Any, ...]) -> None:
             write = write or bool(flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT))
         if write:
             AUDIT_EVENTS.append({"event": event, "path": path, "mode": mode, "flags": flags})
+        return
+    if event == "sqlite3.connect":
+        if args and str(args[0]) != ":memory:":
+            AUDIT_EVENTS.append({"event": event, "database": str(args[0])})
         return
     if event in {
         "os.mkdir",
@@ -46,8 +54,8 @@ sys.addaudithook(_record)
 
 
 def _write_audit_to_stderr() -> None:
-    if "--audit-stderr" in sys.argv:
-        print("CRICKEY_E2E_AUDIT " + json.dumps({"events": AUDIT_EVENTS}), file=sys.stderr)
+    if "--audit-stderr" in sys.argv and _REPORT is not None:
+        print("CRICKEY_E2E_AUDIT " + json.dumps(_REPORT()), file=sys.stderr, flush=True)
 
 
 atexit.register(_write_audit_to_stderr)
@@ -57,47 +65,87 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+class E2EPageSource:
+    def __init__(self, pages: dict[str, Any]) -> None:
+        self.pages = {
+            url: list(value) if isinstance(value, list) else value for url, value in pages.items()
+        }
+        self.requests: list[str] = []
+
+    async def get(self, url: str, headers) -> Any:
+        from crickey.fetcher import FetchResponse
+
+        self.requests.append(url)
+        value = self.pages[url]
+        if isinstance(value, list):
+            page = value.pop(0)
+            if not value:
+                self.pages[url] = page
+        else:
+            page = value
+        if isinstance(page, FetchResponse):
+            return page
+        return FetchResponse(url=url, status_code=200, headers={}, text=page)
+
+
+class _RuntimeState:
+    def __init__(self, source, clock, fetcher, scenario: str) -> None:
+        self.source = source
+        self.clock = clock
+        self.fetcher = fetcher
+        self.scenario = scenario
+
+    def report(self) -> dict[str, Any]:
+        return {
+            "events": AUDIT_EVENTS,
+            "requests": self.source.requests,
+            "sleeps": self.clock.sleeps,
+            "scenario": self.scenario,
+        }
+
+    def clear(self) -> dict[str, Any]:
+        self.source.requests.clear()
+        self.clock.sleeps.clear()
+        self.fetcher._last_request_at = None
+        return self.report()
+
+
 def _build_server(scenario: str, port: int, audit: bool):
     sys.path.insert(0, str(_repo_root() / "src"))
-    from e2e_pages import E2EClock, pages_for
+    from e2e_pages import pages_for
+    from helpers import FakeClock
     from starlette.responses import JSONResponse
 
-    from crickey.fetcher import Fetcher, MemoryPageSource
+    from crickey.fetcher import Fetcher
     from crickey.server import create_server
     from crickey.settings import Settings
 
-    clock = E2EClock()
-    source = MemoryPageSource(pages_for(scenario))
-    settings = Settings(
-        min_interval=__import__("datetime").timedelta(seconds=0),
-        max_retries=0,
-        block_pauses=(__import__("datetime").timedelta(seconds=10),),
-        max_pages=1 if scenario == "broad" else 4,
-        cache_max_mb=1,
-        recent_ttl=__import__("datetime").timedelta(seconds=30),
-        port=port,
-        in_container=False,
-    )
-    fetcher = Fetcher(settings, clock=clock, page_source=source)
+    clock = FakeClock()
+    source = E2EPageSource(pages_for(scenario))
+    settings = Settings(port=port)
+    fetcher = Fetcher(settings, clock=clock, page_source=source, jitter=lambda base: 0)
     mcp = create_server(settings, fetcher=fetcher)
+    state = _RuntimeState(source, clock, fetcher, scenario)
 
-    def report() -> dict[str, Any]:
-        return {
-            "events": AUDIT_EVENTS,
-            "requests": source.requests,
-            "sleeps": clock.sleeps,
-            "scenario": scenario,
-        }
-
-    if audit:
-
-        @mcp.tool(description="Return e2e audit data.")
-        async def e2e_audit_report() -> dict[str, Any]:
-            return report()
+    global _REPORT
+    _REPORT = state.report
 
     @mcp.custom_route("/__e2e_audit", methods=["GET"], include_in_schema=False)
     async def audit_report(_request):
-        return JSONResponse(report())
+        return JSONResponse(state.report())
+
+    @mcp.custom_route("/__e2e_clear", methods=["POST"], include_in_schema=False)
+    async def clear_report(_request):
+        return JSONResponse(state.clear())
+
+    @mcp.custom_route("/__e2e_shutdown", methods=["POST"], include_in_schema=False)
+    async def shutdown(_request):
+        def stop() -> None:
+            time.sleep(0.1)
+            signal.raise_signal(signal.SIGINT)
+
+        threading.Thread(target=stop, daemon=True).start()
+        return JSONResponse({"status": "stopping"})
 
     return mcp, settings
 
