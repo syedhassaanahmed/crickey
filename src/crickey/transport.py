@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import socket
-from contextlib import closing
+import sys
 from typing import Final
 
 import uvicorn
@@ -15,6 +15,7 @@ from crickey.settings import Settings
 MCP_PATH: Final = "/mcp"
 NATIVE_HOST: Final = "127.0.0.1"
 CONTAINER_HOST: Final = "0.0.0.0"
+GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: Final = 5.0
 _ALLOWED_HOSTS: Final = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
 _ALLOWED_ORIGINS: Final = [
     "http://127.0.0.1:*",
@@ -28,11 +29,8 @@ class TransportError(RuntimeError):
 
 
 def bind_host(settings: Settings, requested_host: str | None = None) -> str:
-    expected = CONTAINER_HOST if settings.in_container else NATIVE_HOST
-    if requested_host is not None and requested_host != expected:
-        mode = "container" if settings.in_container else "native"
-        raise TransportError(f"crickey {mode} mode must bind to {expected}, not {requested_host}.")
-    return expected
+    del requested_host
+    return CONTAINER_HOST if settings.in_container else NATIVE_HOST
 
 
 def transport_security_settings() -> TransportSecuritySettings:
@@ -59,22 +57,42 @@ def run_stdio(mcp: MCPServer) -> None:
     mcp.run()
 
 
-def serve_http(mcp: MCPServer, settings: Settings, *, host: str | None = None) -> None:
+def create_uvicorn_server(
+    mcp: MCPServer, settings: Settings, *, host: str | None = None
+) -> tuple[uvicorn.Server, socket.socket]:
     bind = bind_host(settings, host)
-    _ensure_port_available(bind, settings.port)
-    uvicorn.run(
+    sock = _bind_socket(bind, settings.port)
+    config = uvicorn.Config(
         streamable_http_app(mcp, host=bind),
         host=bind,
         port=settings.port,
         log_level="warning",
+        timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
     )
+    return uvicorn.Server(config), sock
 
 
-def _ensure_port_available(host: str, port: int) -> None:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-        try:
-            sock.bind((host, port))
-        except OSError as error:
-            raise TransportError(
-                f"Port {port} is already in use; choose another port with --port or CRICKEY_PORT."
-            ) from error
+def serve_http(mcp: MCPServer, settings: Settings, *, host: str | None = None) -> None:
+    server, sock = create_uvicorn_server(mcp, settings, host=host)
+    try:
+        server.run(sockets=[sock])
+    finally:
+        sock.close()
+
+
+def _bind_socket(host: str, port: int) -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if sys.platform == "win32":
+            exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+            if exclusive is not None:
+                sock.setsockopt(socket.SOL_SOCKET, exclusive, 1)
+        else:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((host, port))
+    except OSError as error:
+        sock.close()
+        raise TransportError(
+            f"Port {port} is already in use; choose another port with --port or CRICKEY_PORT."
+        ) from error
+    return sock

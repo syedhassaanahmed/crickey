@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 import sys
 import threading
@@ -19,7 +20,15 @@ from starlette.testclient import TestClient
 from crickey.fetcher import Fetcher, MemoryPageSource
 from crickey.server import create_server
 from crickey.settings import Settings
-from crickey.transport import TransportError, bind_host, streamable_http_app
+from crickey.transport import (
+    CONTAINER_HOST,
+    GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+    NATIVE_HOST,
+    bind_host,
+    create_uvicorn_server,
+    serve_http,
+    streamable_http_app,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -77,9 +86,7 @@ def player_search_page(name: str, player_id: int) -> str:
     """
 
 
-def modern_headers(
-    *, host: str = "127.0.0.1:8765", origin: str | None = "http://127.0.0.1:8765"
-) -> dict[str, str]:
+def modern_headers(*, host: str, origin: str | None) -> dict[str, str]:
     headers = {
         "host": host,
         "accept": "application/json, text/event-stream",
@@ -107,31 +114,48 @@ def discover_body() -> dict[str, object]:
 
 
 @contextmanager
-def transport_test_client() -> Iterator[TestClient]:
-    app = streamable_http_app(create_server(settings()), host="127.0.0.1")
+def transport_test_client(host: str) -> Iterator[TestClient]:
+    app = streamable_http_app(create_server(settings()), host=host)
     with TestClient(app) as client:
         yield client
 
 
-def test_wrong_host_bad_origin_allowed_pair_and_no_cors() -> None:
-    with transport_test_client() as client:
-        wrong_host = client.post(
-            "/mcp", json=discover_body(), headers=modern_headers(host="example.test:8765")
-        )
-        bad_origin = client.post(
-            "/mcp", json=discover_body(), headers=modern_headers(origin="http://example.test:8765")
-        )
-        allowed = client.post("/mcp", json=discover_body(), headers=modern_headers())
+@pytest.mark.parametrize("app_host", [NATIVE_HOST, CONTAINER_HOST])
+def test_host_origin_allowlist_for_native_and_container_modes(app_host: str) -> None:
+    allowed_pairs = [
+        ("127.0.0.1:8765", "http://127.0.0.1:8765"),
+        ("localhost:8765", "http://localhost:8765"),
+        ("[::1]:8765", "http://[::1]:8765"),
+    ]
+    with transport_test_client(app_host) as client:
+        for host, origin in allowed_pairs:
+            response = client.post(
+                "/mcp", json=discover_body(), headers=modern_headers(host=host, origin=origin)
+            )
+            assert response.status_code == 200
+            assert response.json()["result"]["supportedVersions"] == ["2026-07-28"]
+            assert "access-control-allow-origin" not in {key.lower() for key in response.headers}
 
-    assert wrong_host.status_code == 421
-    assert bad_origin.status_code == 403
-    assert allowed.status_code == 200
-    assert allowed.json()["result"]["supportedVersions"] == ["2026-07-28"]
-    assert "access-control-allow-origin" not in {key.lower() for key in allowed.headers}
+        assert (
+            client.post(
+                "/mcp",
+                json=discover_body(),
+                headers=modern_headers(host="example.test:8765", origin="http://127.0.0.1:8765"),
+            ).status_code
+            == 421
+        )
+        assert (
+            client.post(
+                "/mcp",
+                json=discover_body(),
+                headers=modern_headers(host="127.0.0.1:8765", origin="http://example.test:8765"),
+            ).status_code
+            == 403
+        )
 
 
 def test_health_returns_exact_ok() -> None:
-    with transport_test_client() as client:
+    with transport_test_client(NATIVE_HOST) as client:
         response = client.get("/health")
 
     assert response.status_code == 200
@@ -140,41 +164,48 @@ def test_health_returns_exact_ok() -> None:
 
 
 def test_bind_host_native_and_container_rules() -> None:
-    assert bind_host(settings()) == "127.0.0.1"
-    assert bind_host(settings(in_container=True)) == "0.0.0.0"
-    with pytest.raises(TransportError, match="native mode must bind to 127.0.0.1"):
-        bind_host(settings(), requested_host="0.0.0.0")
+    assert bind_host(settings()) == NATIVE_HOST
+    assert bind_host(settings(), requested_host=CONTAINER_HOST) == NATIVE_HOST
+    assert bind_host(settings(in_container=True)) == CONTAINER_HOST
 
 
 def free_port() -> int:
     with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
-        sock.bind(("127.0.0.1", 0))
+        sock.bind((NATIVE_HOST, 0))
         return sock.getsockname()[1]
 
 
 @contextmanager
-def running_server(app, port: int) -> Iterator[None]:
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="on")
+def running_server(app, port: int) -> Iterator[uvicorn.Server]:
+    config = uvicorn.Config(
+        app,
+        host=NATIVE_HOST,
+        port=port,
+        log_level="warning",
+        lifespan="on",
+        timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+    )
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    wait_for_server(port)
+    try:
+        yield server
+    finally:
+        server.should_exit = True
+        thread.join(timeout=8)
+        assert not thread.is_alive()
+
+
+def wait_for_server(port: int) -> None:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.1)
-            if sock.connect_ex(("127.0.0.1", port)) == 0:
-                break
+            if sock.connect_ex((NATIVE_HOST, port)) == 0:
+                return
         time.sleep(0.05)
-    else:
-        server.should_exit = True
-        thread.join(timeout=5)
-        raise RuntimeError("uvicorn test server did not start")
-    try:
-        yield
-    finally:
-        server.should_exit = True
-        thread.join(timeout=5)
-        assert not thread.is_alive()
+    raise RuntimeError("uvicorn test server did not start")
 
 
 async def test_http_sse_carries_progress_notifications() -> None:
@@ -187,7 +218,7 @@ async def test_http_sse_carries_progress_notifications() -> None:
         }
     )
     fetcher = Fetcher(settings_, clock=clock, page_source=source)
-    app = streamable_http_app(create_server(settings_, fetcher=fetcher), host="127.0.0.1")
+    app = streamable_http_app(create_server(settings_, fetcher=fetcher), host=NATIVE_HOST)
     port = free_port()
     progress: list[tuple[float, float | None, str | None]] = []
 
@@ -208,6 +239,64 @@ async def test_http_sse_carries_progress_notifications() -> None:
     assert clock.sleeps == [2.0]
 
 
+async def test_server_stops_with_listen_stream_open() -> None:
+    settings_ = settings(port=free_port())
+    server, sock = create_uvicorn_server(create_server(settings_), settings_)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+    wait_for_server(settings_.port)
+    try:
+        async with Client(f"http://127.0.0.1:{settings_.port}/mcp") as client:
+            async with client.listen(tools_list_changed=True):
+                server.should_exit = True
+                await asyncio.to_thread(thread.join, 8)
+                assert not thread.is_alive()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=8)
+        if thread.is_alive():
+            pytest.fail("server did not stop with a subscriptions/listen stream open")
+
+
+def test_serve_http_binds_once_and_hands_socket_to_uvicorn(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[tuple[str, int, str, int, float]] = []
+
+    class FakeServer:
+        def __init__(self, config: uvicorn.Config) -> None:
+            self.config = config
+
+        def run(self, sockets: list[socket.socket]) -> None:
+            assert len(sockets) == 1
+            bound_host, bound_port = sockets[0].getsockname()[:2]
+            seen.append(
+                (
+                    self.config.host,
+                    self.config.port,
+                    bound_host,
+                    bound_port,
+                    self.config.timeout_graceful_shutdown,
+                )
+            )
+
+    monkeypatch.setattr("crickey.transport.uvicorn.Server", FakeServer)
+
+    native = settings(port=free_port())
+    serve_http(create_server(native), native, host=CONTAINER_HOST)
+    container = settings(port=free_port(), in_container=True)
+    serve_http(create_server(container), container)
+
+    assert seen == [
+        (NATIVE_HOST, native.port, NATIVE_HOST, native.port, GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS),
+        (
+            CONTAINER_HOST,
+            container.port,
+            "0.0.0.0",
+            container.port,
+            GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+        ),
+    ]
+
+
 async def test_stdio_subprocess_lists_tools_and_stdout_is_protocol() -> None:
     command = sys.executable
     args = ["-c", "from crickey.cli import main; raise SystemExit(main(['stdio']))"]
@@ -217,3 +306,56 @@ async def test_stdio_subprocess_lists_tools_and_stdout_is_protocol() -> None:
         tools = (await client.list_tools()).tools
 
     assert [tool.name for tool in tools] == ["find_player", "query_stats"]
+
+
+async def test_stdio_stdout_lines_are_jsonrpc() -> None:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "from crickey.cli import main; raise SystemExit(main(['stdio']))",
+        cwd=Path.cwd(),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    requests = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "server/discover",
+            "params": {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                }
+            },
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                }
+            },
+        },
+    ]
+    try:
+        for request in requests:
+            process.stdin.write(json.dumps(request).encode() + b"\n")
+            await process.stdin.drain()
+            raw = await asyncio.wait_for(process.stdout.readline(), timeout=5)
+            parsed = json.loads(raw)
+            assert parsed["jsonrpc"] == "2.0"
+            assert parsed["id"] == request["id"]
+    finally:
+        process.stdin.close()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except TimeoutError:
+            process.kill()
+            await process.wait()

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import socket
+import sys
 
 import pytest
 
@@ -62,6 +64,21 @@ def test_port_in_use_is_clear(capsys: pytest.CaptureFixture[str]) -> None:
     assert f"Port {port} is already in use" in error
     assert "--port or CRICKEY_PORT" in error
     assert "Traceback" not in error
+
+
+def test_cli_errors_do_not_propagate_to_root_logger(capsys: pytest.CaptureFixture[str]) -> None:
+    root = logging.getLogger()
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("ROOT: %(message)s"))
+    root.addHandler(handler)
+    try:
+        assert main(["--port", "0"]) == 2
+    finally:
+        root.removeHandler(handler)
+
+    error = capsys.readouterr().err
+    assert error.count("--port='0' is invalid") == 1
+    assert "ROOT:" not in error
 
 
 def test_package_version_is_exposed() -> None:

@@ -10,6 +10,7 @@ from crickey.settings import SettingsError, add_settings_flags, load_settings
 from crickey.transport import TransportError, run_stdio, serve_http
 
 LOGGER = logging.getLogger("crickey")
+LOGGER.propagate = False
 
 
 def _serve(args: argparse.Namespace) -> int:
