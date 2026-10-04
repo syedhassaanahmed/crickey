@@ -7,9 +7,10 @@ from datetime import timedelta
 
 import pytest
 
-from crickey import cli
 from crickey.cli import build_parser, main
 from crickey.settings import Settings, SettingsError, load_settings
+
+pytestmark = pytest.mark.usefixtures("stub_cli_transports")
 
 ENV_NAMES = (
     "CRICKEY_MIN_INTERVAL",
@@ -21,27 +22,6 @@ ENV_NAMES = (
     "CRICKEY_PORT",
     "CRICKEY_IN_CONTAINER",
 )
-
-
-@pytest.fixture(autouse=True)
-def stub_cli_transports(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, Settings]]:
-    calls: list[tuple[str, Settings]] = []
-
-    def fake_create_server(settings: Settings) -> Settings:
-        calls.append(("create_server", settings))
-        return settings
-
-    def fake_serve_http(server: Settings, settings: Settings) -> None:
-        assert server is settings
-        calls.append(("serve_http", settings))
-
-    def fake_run_stdio(server: Settings) -> None:
-        calls.append(("run_stdio", server))
-
-    monkeypatch.setattr(cli, "create_server", fake_create_server)
-    monkeypatch.setattr(cli, "serve_http", fake_serve_http)
-    monkeypatch.setattr(cli, "run_stdio", fake_run_stdio)
-    return calls
 
 
 def _settings_from_cli(argv: list[str]) -> Settings:

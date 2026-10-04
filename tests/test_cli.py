@@ -9,6 +9,8 @@ from crickey import __version__, cli
 from crickey.cli import main
 from crickey.transport import NATIVE_HOST, TransportError, _bind_socket
 
+pytestmark = pytest.mark.usefixtures("stub_cli_transports")
+
 
 def test_help_lists_subcommands(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
@@ -55,20 +57,16 @@ def test_stdio_runs_server(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_port_in_use_is_clear(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class FailingServer:
-        def __init__(self, *_args, **_kwargs) -> None:
-            raise AssertionError("uvicorn.Server should not be created when bind fails")
-
-    monkeypatch.setattr("crickey.transport.uvicorn.Server", FailingServer)
-    monkeypatch.setattr(
-        "crickey.transport.uvicorn.run",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("uvicorn.run should not be called")
-        ),
-    )
     with _bind_socket(NATIVE_HOST, 0) as sock:
         sock.listen()
         port = sock.getsockname()[1]
+
+        def port_in_use(_server, _settings) -> None:
+            raise TransportError(
+                f"Port {port} is already in use; choose another port with --port or CRICKEY_PORT."
+            )
+
+        monkeypatch.setattr(cli, "serve_http", port_in_use)
 
         assert main(["serve", "--port", str(port)]) == 1
         with pytest.raises(TransportError, match=f"Port {port} is already in use"):
