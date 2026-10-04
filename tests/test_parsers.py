@@ -35,6 +35,7 @@ RESULTS_HTML = """
 <tr class="data2"><td>Synthetic XI v Example XI at Testville, 3rd Test, Sep 9-12, 2026 [<a href="/ci/engine/match/1496584.html">Test # 2635</a>]</td></tr>
 <tr class="data2"><td>Example XI v Synthetic XI at Sample Ground, 2nd Test, Dec 31-Jan 4, 2027 [<a href="/ci/engine/match/1496583.html">Test # 2634 - Live</a>]</td></tr>
 <tr class="data2"><td>Month XI v Year XI at Edgecase, 1st Test, Dec 30, 2026-Jan 3, 2027 [<a href="/ci/engine/match/1496582.html">Test # 2633</a>]</td></tr>
+<tr class="data2"><td>Example ODI XI v Synthetic ODI XI at New Sample, 3rd ODI, Oct 3, 2026 [<a href="/ci/engine/match/1496581.html">ODI # 5024</a>]</td></tr>
 </table>
 </body></html>
 """
@@ -49,6 +50,28 @@ def test_results_table_parses_rows_player_metadata_totals_and_recent_matches() -
     assert parsed.totals.showing_from == 201
     assert parsed.totals.showing_to == 400
     assert parsed.totals.total == 850
+    assert parsed.headers == (
+        "Player",
+        "player_name",
+        "player_id",
+        "player_team_codes",
+        "Span",
+        "Mat",
+        "Inns",
+        "NO",
+        "Runs",
+        "Runs_not_out",
+        "HS",
+        "HS_not_out",
+        "Ave",
+        "BF",
+        "SR",
+        "100",
+        "50",
+        "0",
+        "exact_batting_average",
+        "exact_batting_strike_rate",
+    )
     assert len(parsed.table) == 3
     first = parsed.table.iloc[0]
     assert first["player_name"] == "Babar Azam"
@@ -80,6 +103,12 @@ def test_results_table_parses_rows_player_metadata_totals_and_recent_matches() -
     assert parsed.current_or_recent_matches[1].is_live is True
     assert parsed.current_or_recent_matches[2].start_date == date(2026, 12, 30)
     assert parsed.current_or_recent_matches[2].end_date == date(2027, 1, 3)
+    single_date = parsed.current_or_recent_matches[3]
+    assert single_date.name == "Example ODI XI v Synthetic ODI XI at New Sample, 3rd ODI"
+    assert single_date.label == "ODI # 5024"
+    assert single_date.match_id == 1496581
+    assert single_date.start_date == date(2026, 10, 3)
+    assert single_date.end_date == date(2026, 10, 3)
 
 
 def test_no_records_table_is_empty_and_flagged() -> None:
@@ -125,6 +154,17 @@ def test_missing_results_structure_raises_clear_error() -> None:
     """
     with pytest.raises(StatsguruParseError, match="current or recent matches heading is missing"):
         parse_results_page(reworded_recent)
+
+    bad_recent_date = """
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr><th>Player</th><th>Runs</th></tr>
+    <tr class="data1"><td><a href="/ci/content/player/1.html">A</a> (AAA)</td><td>1</td></tr>
+    </table><table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
+    <table class="engineTable"><tr class="data2"><td><b>Statsguru includes the following current or recent Tests:</b></td></tr>
+    <tr class="data2"><td>A v B at C, 1st Test, 2026 September 9 [<a href="/ci/engine/match/1.html">Test # 1</a>]</td></tr></table>
+    """
+    with pytest.raises(StatsguruParseError, match="date is not recognised"):
+        parse_results_page(bad_recent_date)
 
 
 PLAYER_HTML = """
