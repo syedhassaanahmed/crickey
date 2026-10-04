@@ -269,7 +269,7 @@ Each advanced form contains one `qualval1` list and one `orderby` list per view 
 The sort list for each view contains all its minimum fields plus the extras shown.
 
 **Field meanings:**
-- **Batting:** matches = matches played; innings = innings batted; notouts = not outs; outs = batting dismissals; runs = runs scored; minutes = minutes batted; balls_faced = balls faced; batting_average; batting_strike_rate; hundreds = hundreds scored; fifty_plus = scores of fifty or more; ducks = ducks scored; fours, sixes = boundaries; high_score = highest innings score; batted_score = runs in the innings (innings view); batting_score1, batting_score2 = runs in the 1st and 2nd innings of a match.
+- **Batting:** matches = matches played; innings = innings batted; notouts = not outs; outs = batting dismissals; runs = runs scored; minutes = minutes batted; balls_faced = balls faced; batting_average; batting_strike_rate; hundreds = hundreds scored; fifty_plus = fifties only (scores of 50-99); ducks = ducks scored; fours, sixes = boundaries; high_score = highest innings score; batted_score = runs in the innings (innings view); batting_score1, batting_score2 = runs in the 1st and 2nd innings of a match.
 - **Context:** player = player name; start = start date; age = age at the start of the match; batting_position = batting order position; dismissal = method of dismissal; innings_number = innings number in the match; year = year of match start; season = match season.
 - **Partnerships (`fow_*`):** fow_wicket = fall-of-wicket number; fow_score = partnership runs; fow_in, fow_out = team score at the partnership's start and end; fow_innings = number of partnerships; fow_notouts = unbroken partnerships; fow_outs = broken partnerships; fow_runs = total partnership runs; fow_high_score = highest partnership; fow_average = average partnership per dismissal; fow_hundreds = century partnerships; fow_fifty_plus = partnerships of fifty or more; partner = partner name.
 - **Dismissals (`dis_*`):** dis_matches = matches against each other; dis_dismissals = total dismissals; dis_bowled, dis_caught_fielder, dis_caught_keeper, dis_stumped, dis_lbw, dis_hit_wicket, dis_run_out, dis_other, dis_not_out = counts by type; dis_average = average score upon dismissal; dis_ducks = ducks; dis_matches_per_dismissal = matches per dismissal; dis_runs = batter's runs in the innings; dis_innings_number = innings number in the match; dis_how_out = method of dismissal; dis_bowler, dis_fielder = bowler or fielder who took the dismissal; dis_span = playing span against each other.
@@ -335,6 +335,7 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - ODIs: Player, Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0
   - T20Is: the ODI columns plus 4s and 6s
   - Tests: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
+- The `50` batting column counts fifties only (scores of 50-99), not hundreds plus fifties. For example, Tendulkar's ODI row shows 49 hundreds and 96 fifties.
 - **Bowling columns (overall view):**
   - Tests: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, BBM, Ave, Econ, SR, 5, 10
   - ODIs: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5

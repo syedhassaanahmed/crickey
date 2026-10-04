@@ -63,7 +63,9 @@ def freshness_line(matches: tuple[RecentMatch, ...], *, today: date) -> str:
     newest = max(matches, key=lambda match: match.end_date or match.start_date or date.min)
     newest_date = newest.end_date or newest.start_date
     warning = ""
-    if newest.is_live or (newest.end_date is not None and newest.end_date >= today):
+    if any(match.is_live for match in matches) or (
+        newest.end_date is not None and newest.end_date >= today
+    ):
         warning = " Warning: a listed match may still be in progress."
     date_text = _format_date(newest_date) if newest_date else "unknown date"
     return (

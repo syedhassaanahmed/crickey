@@ -167,7 +167,7 @@ BATTING_METRICS: dict[str, Metric] = {
         "fifty_plus",
         "fifty_plus",
         BetterDirection.HIGHER,
-        _mins("fifties", {1: 10, 2: 10, 3: 5, 6: 10, 11: 20}),
+        _mins("fifty_plus", {1: 10, 2: 10, 3: 5, 6: 10, 11: 20}),
     ),
     "innings_per_hundred": Metric(
         "innings_per_hundred",
@@ -189,7 +189,7 @@ BATTING_METRICS: dict[str, Metric] = {
         None,
         None,
         BetterDirection.LOWER,
-        _mins("fifty-plus scores", {1: 10, 2: 10, 3: 5, 6: 10, 11: 20}),
+        _mins("innings", {1: 20, 2: 20, 3: 20, 6: 30, 11: 30}),
         numerator_column="Inns",
         denominator_column="fifty-plus scores",
         formula_label="innings ÷ (hundreds + fifties)",

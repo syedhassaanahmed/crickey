@@ -62,6 +62,8 @@ def test_metric_direction_default_minimums_and_displayed_ties() -> None:
     assert avg.tied(Decimal("38.94"), Decimal("38.94")) is True
     assert avg.tied(Decimal("38.94"), Decimal("38.93")) is False
     assert avg.tied(None, None) is False
+    assert avg.compare(None, Decimal("1")) == -1
+    assert avg.compare(Decimal("1"), None) == 1
     assert rank_key(sr, Decimal("128.02")) < rank_key(sr, Decimal("128.01"))
     assert rank_key(ip50, Decimal("2.40")) < rank_key(ip50, Decimal("2.41"))
     assert rank_key(avg, None) > rank_key(avg, Decimal("1"))
@@ -112,11 +114,11 @@ def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
             11: ("hundreds", 10),
         },
         "fifties": {
-            1: ("fifties", 10),
-            2: ("fifties", 10),
-            3: ("fifties", 5),
-            6: ("fifties", 10),
-            11: ("fifties", 20),
+            1: ("fifty_plus", 10),
+            2: ("fifty_plus", 10),
+            3: ("fifty_plus", 5),
+            6: ("fifty_plus", 10),
+            11: ("fifty_plus", 20),
         },
         "innings_per_hundred": {
             1: ("hundreds", 5),
@@ -126,11 +128,11 @@ def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
             11: ("hundreds", 10),
         },
         "innings_per_fifty_plus": {
-            1: ("fifty-plus scores", 10),
-            2: ("fifty-plus scores", 10),
-            3: ("fifty-plus scores", 5),
-            6: ("fifty-plus scores", 10),
-            11: ("fifty-plus scores", 20),
+            1: ("innings", 20),
+            2: ("innings", 20),
+            3: ("innings", 20),
+            6: ("innings", 30),
+            11: ("innings", 30),
         },
         "balls_per_dismissal": {
             1: None,
@@ -148,6 +150,24 @@ def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
             assert f"metric {key!r} is not supported for class 1" in str(error)
         else:
             raise AssertionError(f"{key} should be unsupported for Tests")
+
+
+def test_every_default_minimum_compiles_as_statsguru_qualification() -> None:
+    for metric in BATTING_METRICS.values():
+        for class_id in metric.supported_classes:
+            minimum = metric.default_minimum(class_id)
+            url = StatsguruQuery(
+                **{
+                    "class": class_id,
+                    "type": "batting",
+                    "qualifications": (
+                        Qualification(field=minimum.field, minimum=minimum.minimum),
+                    ),
+                }
+            ).results_url(as_of=date(2026, 10, 4))
+
+            assert f"qualval1={minimum.field}" in url
+            assert "template=results" in url
 
 
 def test_equal_displayed_values_from_synthetic_results_page_are_reported_as_ties() -> None:
@@ -255,6 +275,7 @@ def test_player_resolution_uses_passed_call_and_lookup_freshness_and_full_name_m
     async def run() -> None:
         html = """
         <table>
+        <tr><td>Other Babar</td><td>PAK</td><td><a href="/ci/engine/player/1.html?class=3;type=allround">Twenty20 Internationals player</a> (2016 - 2026, 1 match)</td></tr>
         <tr><td>Babar Azam (Mohammad Babar Azam)</td><td>PAK</td><td><a href="/ci/engine/player/348144.html?class=3;type=allround">Twenty20 Internationals player</a> (2016 - 2026, 145 matches)</td></tr>
         </table>
         """
@@ -276,8 +297,86 @@ def test_player_resolution_uses_passed_call_and_lookup_freshness_and_full_name_m
     asyncio.run(run())
 
 
+def test_player_resolution_does_not_auto_match_unrelated_single_candidate_after_filtering() -> None:
+    async def run() -> None:
+        s_kohli_url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=S+Kohli;template=analysis"
+        s_kohli = """
+        <table>
+        <tr><td>S Kohli</td><td>IND</td><td><a href="/ci/engine/player/1.html?class=9;type=allround">Women's One-Day Internationals player</a> (2020 - 2021, 1 match)</td></tr>
+        <tr><td>PS Kohli (Parth Kohli)</td><td>IND</td><td><a href="/ci/engine/player/2.html?class=6;type=allround">Twenty20 matches player</a> (2020 - 2021, 10 matches)</td></tr>
+        </table>
+        """
+        kohli_url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=kohli;template=analysis"
+        kohli = """
+        <table>
+        <tr><td>V Kohli</td><td>IND</td><td><a href="/ci/engine/player/253802.html?class=1;type=allround">Test matches player</a> (2011 - 2026, 120 matches)</td></tr>
+        <tr><td>Pawan Kohli</td><td>IND</td><td><a href="/ci/engine/player/3.html?class=1;type=allround">Test matches player</a> (2020 - 2021, 1 match)</td></tr>
+        <tr><td>Taruwar Kohli</td><td>IND</td><td><a href="/ci/engine/player/4.html?class=1;type=allround">Test matches player</a> (2020 - 2021, 1 match)</td></tr>
+        </table>
+        """
+        resolver = NameResolver(
+            Fetcher(
+                Settings(min_interval=timedelta(seconds=0)),
+                page_source=MemoryPageSource({s_kohli_url: s_kohli, kohli_url: kohli}),
+            )
+        )
+
+        s_result = await resolver.resolve_player("S Kohli", class_id=6)
+        kohli_result = await resolver.resolve_player("kohli", class_id=1)
+
+        assert s_result.needs_clarification is True
+        assert s_result.match is None
+        assert [candidate.name for candidate in s_result.candidates] == ["PS Kohli"]
+        assert kohli_result.needs_clarification is True
+        assert kohli_result.match is None
+        assert [candidate.name for candidate in kohli_result.candidates] == [
+            "V Kohli",
+            "Pawan Kohli",
+            "Taruwar Kohli",
+        ]
+
+    asyncio.run(run())
+
+
+def test_country_name_filter_maps_scotland_and_unknown_country_falls_back() -> None:
+    async def run() -> None:
+        url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=Cross;template=analysis"
+        html = """
+        <table>
+        <tr><td>Matthew Cross</td><td>SCOT</td><td><a href="/ci/engine/player/1.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 70 matches)</td></tr>
+        <tr><td>Ben Cross</td><td>ENG</td><td><a href="/ci/engine/player/2.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 10 matches)</td></tr>
+        </table>
+        """
+        resolver = NameResolver(
+            Fetcher(
+                Settings(min_interval=timedelta(seconds=0)),
+                page_source=MemoryPageSource({url: html}),
+            )
+        )
+
+        scotland = await resolver.resolve_player("Cross", class_id=3, country="Scotland")
+        unknown = await resolver.resolve_player("Cross", class_id=3, country="Atlantis")
+
+        assert scotland.match is not None and scotland.match.name == "Matthew Cross"
+        assert [candidate.name for candidate in unknown.candidates] == [
+            "Matthew Cross",
+            "Ben Cross",
+        ]
+
+    asyncio.run(run())
+
+
 def test_team_ground_and_trophy_resolution() -> None:
     async def run() -> None:
+        class RecordingCall:
+            def __init__(self, html: str) -> None:
+                self.html = html
+                self.calls: list[tuple[str, Freshness, bool]] = []
+
+            async def fetch(self, url: str, *, freshness, force_refetch: bool = False) -> str:
+                self.calls.append((url, freshness, force_refetch))
+                return self.html
+
         form_url = "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;filter=advanced;type=batting"
         form = """
         <form name="gurumenu">
@@ -288,11 +387,13 @@ def test_team_ground_and_trophy_resolution() -> None:
         resolver = NameResolver(
             Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
         )
+        call = RecordingCall(form)
 
         assert resolver.resolve_team("India", class_id=1).match.value == 6
         assert resolver.resolve_trophy("Ashes", class_id=1).match.value == 1
-        ground = await resolver.resolve_ground("Lord's", class_id=1)
+        ground = await resolver.resolve_ground("Lord's", class_id=1, call=call)
         assert ground.match is not None and ground.match.value == 132
+        assert call.calls == [(form_url, Freshness.LOOKUP, False)]
 
     asyncio.run(run())
 
@@ -304,21 +405,23 @@ def test_career_span_and_first_last_year_periods_from_player_form() -> None:
         <form name="gurumenu"><input type="hidden" name="spanmin0" value="07 Sep 2016"><input type="hidden" name="spanmax0" value="29 Feb 2024"></form>
         """
         source = MemoryPageSource({form_url: form})
-        resolver = PeriodResolver(
-            Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
-        )
+        fetcher = Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
+        resolver = PeriodResolver(fetcher)
 
         career = await resolver.career_span(348144, class_id=3)
-        first = await resolver.resolve_symbolic(
-            348144,
-            class_id=3,
-            period=SymbolicPeriod(kind=SymbolicPeriodKind.FIRST_YEARS, years=2),
-        )
-        last = await resolver.resolve_symbolic(
-            348144,
-            class_id=3,
-            period=SymbolicPeriod(kind=SymbolicPeriodKind.LAST_YEARS, years=1),
-        )
+        async with fetcher.call(budget=5) as call:
+            first = await resolver.resolve_symbolic(
+                348144,
+                class_id=3,
+                period=SymbolicPeriod(kind=SymbolicPeriodKind.FIRST_YEARS, years=2),
+                call=call,
+            )
+            last = await resolver.resolve_symbolic(
+                348144,
+                class_id=3,
+                period=SymbolicPeriod(kind=SymbolicPeriodKind.LAST_YEARS, years=1),
+                call=call,
+            )
 
         assert career == ResolvedPeriod(start=date(2016, 9, 7), end=date(2024, 2, 29))
         assert first == ResolvedPeriod(start=date(2016, 9, 7), end=date(2018, 9, 7))
@@ -370,6 +473,40 @@ def test_career_span_falls_back_to_innings_list_with_passed_call_and_freshness()
     asyncio.run(run())
 
 
+def test_resolve_symbolic_uses_passed_call() -> None:
+    class RecordingCall:
+        def __init__(self, html: str) -> None:
+            self.html = html
+            self.calls: list[tuple[str, Freshness]] = []
+
+        async def fetch(self, url: str, *, freshness, force_refetch: bool = False) -> str:
+            assert force_refetch is False
+            self.calls.append((url, freshness))
+            return self.html
+
+    async def run() -> None:
+        form_url = "https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;type=batting"
+        form = """
+        <form name="gurumenu"><input type="hidden" name="spanmin0" value="07 Sep 2016"><input type="hidden" name="spanmax0" value="29 Feb 2024"></form>
+        """
+        resolver = PeriodResolver(
+            Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=MemoryPageSource({}))
+        )
+        call = RecordingCall(form)
+
+        period = await resolver.resolve_symbolic(
+            348144,
+            class_id=3,
+            period=SymbolicPeriod(kind=SymbolicPeriodKind.LAST_YEARS, years=1),
+            call=call,
+        )
+
+        assert period == ResolvedPeriod(start=date(2023, 2, 28), end=date(2024, 2, 29))
+        assert call.calls == [(form_url, Freshness.LOOKUP)]
+
+    asyncio.run(run())
+
+
 def test_proof_link_adds_qualval2_and_qualval3_and_fetches_once_to_confirm() -> None:
     async def run() -> None:
         query = StatsguruQuery(
@@ -414,6 +551,8 @@ def test_proof_link_adds_qualval2_and_qualval3_and_fetches_once_to_confirm() -> 
         assert proof.fetched is True
         assert proof.row_count == 2
         assert proof.label.startswith("Confirmed Statsguru results: T20I batting")
+        assert "at least 38.94 average" in proof.label
+        assert "at least 128.02 strike rate" in proof.label
         assert source.requests == [expected_url]
 
     asyncio.run(run())
@@ -491,6 +630,52 @@ def test_proof_confirmation_mismatch_no_expected_ids_and_no_records_fall_back() 
     asyncio.run(run())
 
 
+def test_proof_confirmation_requires_matching_total_row_count() -> None:
+    async def run() -> None:
+        query = StatsguruQuery(
+            **{
+                "class": 3,
+                "type": "batting",
+                "period": ResolvedPeriod(start=date(2016, 9, 7), end=date(2026, 2, 24)),
+                "qualifications": (Qualification(field="runs", minimum=1000),),
+                "size": 200,
+            }
+        )
+        proof_url = (
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?"
+            "class=3;qualmin1=1000;qualmin2=38.94;qualval1=runs;"
+            "qualval2=batting_average;size=200;spanmax1=24+Feb+2026;"
+            "spanmin1=07+Sep+2016;spanval1=span;template=results;type=batting"
+        )
+        input_url = (
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?"
+            "class=3;qualmin1=1000;qualval1=runs;size=200;spanmax1=24+Feb+2026;"
+            "spanmin1=07+Sep+2016;spanval1=span;template=results;type=batting"
+        )
+        html = """
+        <table class="engineTable"><caption>Overall figures</caption>
+        <tr><th>Player</th><th>Ave</th></tr>
+        <tr class="data1"><td><a href="/ci/content/player/348144.html">Babar Azam</a> (PAK)</td><td>38.94</td></tr>
+        </table><table><tr><td>Page <b>1</b> of <b>2</b></td><td>Showing <b>1</b> - <b>1</b> of <b>2</b></td></tr></table>
+        """
+        source = MemoryPageSource({proof_url: html})
+        fetcher = Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
+        async with fetcher.call(budget=5) as call:
+            proof = await build_proof_link(
+                query,
+                thresholds=(Threshold(batting_metric("average"), Decimal("38.94")),),
+                expected_player_ids=(348144,),
+                call=call,
+                as_of=date(2026, 10, 4),
+            )
+
+        assert proof.confirmed is False
+        assert proof.row_count == 2
+        assert proof.url == input_url
+
+    asyncio.run(run())
+
+
 def test_proof_falls_back_when_not_expressible_or_too_many_qualifications_without_fetch() -> None:
     async def run() -> None:
         query = StatsguruQuery(
@@ -516,6 +701,7 @@ def test_proof_falls_back_when_not_expressible_or_too_many_qualifications_withou
                     Threshold(batting_metric("average"), Decimal("40")),
                     Threshold(batting_metric("innings_per_hundred"), Decimal("7")),
                 ),
+                expected_player_ids=(1,),
                 call=call,
                 as_of=date(2026, 10, 4),
             )
@@ -532,6 +718,7 @@ def test_proof_falls_back_when_not_expressible_or_too_many_qualifications_withou
                     Threshold(batting_metric("average"), Decimal("40")),
                     Threshold(batting_metric("strike_rate"), Decimal("90")),
                 ),
+                expected_player_ids=(1,),
                 call=call,
                 as_of=date(2026, 10, 4),
             )
@@ -583,6 +770,17 @@ def test_proof_requires_call_and_uses_query_freshness() -> None:
 
         assert proof.confirmed is True
         assert call.freshness is Freshness.SETTLED
+        open_query = StatsguruQuery(**{"class": 3, "type": "batting"})
+        open_call = RecordingCall(html)
+        open_proof = await build_proof_link(
+            open_query,
+            thresholds=(Threshold(batting_metric("average"), Decimal("38.94")),),
+            expected_player_ids=(348144,),
+            call=open_call,
+            as_of=date(2026, 10, 4),
+        )
+        assert open_proof.confirmed is True
+        assert open_call.freshness is Freshness.RECENT
         try:
             await build_proof_link(
                 query,
@@ -721,9 +919,17 @@ def test_freshness_line_without_live_warning() -> None:
     warning = freshness_line(
         (
             RecentMatch(
+                "Live v Match, 1st Test",
+                date(2026, 9, 1),
+                date(2026, 9, 3),
+                2,
+                "Test # 1 - Live",
+                True,
+            ),
+            RecentMatch(
                 "A v B, 2nd Test",
                 date(2026, 10, 1),
-                date(2026, 10, 4),
+                date(2026, 10, 3),
                 3,
                 "Test # 2",
                 False,

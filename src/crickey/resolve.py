@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import re
+import string
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 
 from rapidfuzz import fuzz
 
+from crickey import id_tables
 from crickey.fetcher import Fetcher, Freshness
 from crickey.ids import LookupResult, StatsguruIdResolver, lookup_team, lookup_trophy
 from crickey.parsers import (
@@ -22,6 +24,7 @@ _PLAYER_FORM_URL = (
     "https://stats.cricinfo.com/ci/engine/player/{player_id}.html?class={class_id};type=batting"
 )
 _SPACE_RE = re.compile(r"\s+")
+_PUNCTUATION_TABLE = str.maketrans({char: " " for char in string.punctuation})
 MAX_PLAYER_CANDIDATES = 5
 COUNTRY_NAMES = {
     "afghanistan": "AFG",
@@ -37,6 +40,13 @@ COUNTRY_NAMES = {
     "sri lanka": "SL",
     "west indies": "WI",
     "zimbabwe": "ZIM",
+    "netherlands": "NED",
+    "nepal": "NEP",
+    "oman": "OMA",
+    "papua new guinea": "PNG",
+    "scotland": "SCOT",
+    "united arab emirates": "UAE",
+    "united states of america": "USA",
 }
 
 
@@ -112,7 +122,7 @@ def _player_resolution_from_html(
         rows = parse_player_search(html)
     except StatsguruParseError:
         return PlayerResolution(ResolveStatus.NEEDS_CLARIFICATION, name)
-    candidates = tuple(
+    all_candidates = tuple(
         PlayerCandidate(
             row.player_id,
             row.display_name,
@@ -122,7 +132,9 @@ def _player_resolution_from_html(
         )
         for row in rows
         if _has_player_format(row.formats, class_id)
-        and _country_matches(row.country_codes, country)
+    )
+    candidates = _filter_country(
+        tuple(candidate for candidate in all_candidates if candidate.formats), country
     )
     candidates = tuple(candidate for candidate in candidates if candidate.formats)
     exact = tuple(
@@ -131,7 +143,7 @@ def _player_resolution_from_html(
         if _normalize(name) in {_normalize(candidate.name), _normalize(candidate.full_name or "")}
     )
     pool = _rank_player_candidates(name, exact or candidates)
-    if len(pool) == 1:
+    if len(pool) == 1 and _safe_auto_match(name, pool[0]):
         return PlayerResolution(ResolveStatus.MATCH, name, match=pool[0])
     return PlayerResolution(
         ResolveStatus.NEEDS_CLARIFICATION,
@@ -190,12 +202,44 @@ def _has_player_format(formats: tuple[PlayerFormat, ...], class_id: int) -> bool
     return any(fmt.class_id == class_id and fmt.role == "player" for fmt in formats)
 
 
-def _country_matches(countries: tuple[str, ...], country: str | None) -> bool:
+def _filter_country(
+    candidates: tuple[PlayerCandidate, ...], country: str | None
+) -> tuple[PlayerCandidate, ...]:
     if country is None:
-        return True
+        return candidates
+    codes = _country_codes(country)
+    if not codes:
+        return candidates
+    filtered = tuple(
+        candidate
+        for candidate in candidates
+        if any(_normalize(code) in codes for code in candidate.country_codes)
+    )
+    return filtered or candidates
+
+
+def _country_codes(country: str) -> frozenset[str]:
     normalized_country = _normalize(country)
-    wanted = COUNTRY_NAMES.get(normalized_country, country).casefold()
-    return any(_normalize(code) == wanted for code in countries)
+    if normalized_country in COUNTRY_NAMES:
+        return frozenset({_normalize(COUNTRY_NAMES[normalized_country])})
+    if len(normalized_country) <= 4 and " " not in normalized_country:
+        return frozenset({normalized_country})
+    if not _is_known_team_name(normalized_country):
+        return frozenset()
+    compact = "".join(normalized_country.split())
+    codes = {compact[:3], compact[:4]}
+    words = normalized_country.split()
+    if len(words) > 1:
+        codes.add("".join(word[0] for word in words))
+    return frozenset(code for code in codes if code)
+
+
+def _is_known_team_name(normalized_country: str) -> bool:
+    return any(
+        _normalize(name) == normalized_country
+        for teams in id_tables.TEAMS.values()
+        for name in teams.values()
+    )
 
 
 def _rank_player_candidates(
@@ -221,8 +265,18 @@ def _rank_player_candidates(
     return tuple(sorted(candidates, key=key))
 
 
+def _safe_auto_match(query: str, candidate: PlayerCandidate) -> bool:
+    query_words = _normalize(query).split()
+    if not query_words:
+        return False
+    names = (_normalize(candidate.name), _normalize(candidate.full_name or ""))
+    if any(name == " ".join(query_words) for name in names):
+        return True
+    return any(all(word in name.split() for word in query_words) for name in names)
+
+
 def _normalize(value: str) -> str:
-    return _SPACE_RE.sub(" ", value.casefold()).strip()
+    return _SPACE_RE.sub(" ", value.casefold().translate(_PUNCTUATION_TABLE)).strip()
 
 
 def _parse_form_date(value: str) -> date:

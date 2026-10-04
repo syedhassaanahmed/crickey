@@ -85,6 +85,7 @@ Server instructions tell the agent to:
   Examples: innings per hundred = innings ÷ hundreds; balls per dismissal = balls faced ÷ dismissals.
 - **Default minimums:** see the metric registry; the code is the single source for the proposed values.
 - **Ratios:** Statsguru's displayed averages and strike rates are used as they are (D15); the registry's formulas compute only the metrics Statsguru doesn't show.
+- **Derived displays:** derived metrics are shown to 2 decimals with round-half-up rounding; ties are decided on that shown value.
 - **Period resolver:**
   - "X's career span" is X's first and last match start dates in that format, from the player's form page `spanmin0`/`spanmax0` first, with the innings list as the fallback (R6).
   - "The last Y years of X's career" runs from Y years before X's last match to that match.
