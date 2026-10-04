@@ -127,6 +127,76 @@ def test_docker_environment_preserves_docker_variables(monkeypatch: pytest.Monke
     }
 
 
+def test_stdio_uses_docker_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    expected_env = {"DOCKER_HOST": "npipe:////./pipe/docker_engine"}
+    seen: dict[str, object] = {}
+
+    class FakeParams:
+        def __init__(self, *, command: str, args: list[str], env: dict[str, str]) -> None:
+            seen["command"] = command
+            seen["args"] = args
+            seen["env"] = env
+
+    class FakeClient:
+        def __init__(self, params: FakeParams, *, read_timeout_seconds: int) -> None:
+            seen["params"] = params
+            seen["timeout"] = read_timeout_seconds
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def list_tools(self):
+            class ToolList:
+                tools = [
+                    type("Tool", (), {"name": name})() for name in smoke_test_image.EXPECTED_TOOLS
+                ]
+
+            return ToolList()
+
+    monkeypatch.setattr(smoke_test_image, "docker_environment", lambda: expected_env)
+    monkeypatch.setattr(smoke_test_image, "StdioServerParameters", FakeParams)
+    monkeypatch.setattr(smoke_test_image, "Client", FakeClient)
+
+    asyncio.run(smoke_test_image.check_stdio_tools("crickey:dev"))
+
+    assert seen == {
+        "command": "docker",
+        "args": ["run", "-i", "--rm", "--read-only", "crickey:dev", "stdio"],
+        "env": expected_env,
+        "params": seen["params"],
+        "timeout": 10,
+    }
+
+
+def test_http_container_flow_uses_create_then_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        stdout = "cid\n" if args[:2] == ["docker", "create"] else "cid\n"
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(smoke_test_image, "run", fake_run)
+
+    container_id = smoke_test_image.create_http_container("crickey:dev", 9876)
+    smoke_test_image.start_container(container_id)
+
+    assert calls == [
+        [
+            "docker",
+            "create",
+            "--read-only",
+            "-p",
+            "127.0.0.1:9876:8765",
+            "crickey:dev",
+        ],
+        ["docker", "start", "cid"],
+    ]
+
+
 def test_docker_output_includes_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(
