@@ -208,31 +208,171 @@ def test_waiting_for_request_lock_obeys_budget() -> None:
 
     events, request_count, elapsed = asyncio.run(scenario())
 
-    assert events == []
+    assert events == [(0.0, "waiting for another Statsguru request")]
     assert request_count == 0
     assert elapsed == pytest.approx(0.3)
 
 
-def test_request_lock_progress_reports_actual_queued_time() -> None:
-    async def scenario() -> tuple[list[tuple[float, str]], int]:
+def test_request_lock_progress_reports_queue_start_and_periodic_waits() -> None:
+    async def scenario() -> tuple[list[tuple[float, str]], int, float]:
         clock = FakeClock()
         events: list[tuple[float, str]] = []
         source = SequenceSource([ok()])
         fetcher = Fetcher(settings(), clock=clock, page_source=source)
         await fetcher._request_lock.acquire()
-        task = asyncio.create_task(
-            fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10, progress=capture(events))
+        try:
+            with pytest.raises(FetchTimeoutError, match="wait for another Statsguru request"):
+                await fetcher.fetch(
+                    URL, freshness=Freshness.RECENT, budget=25, progress=capture(events)
+                )
+        finally:
+            fetcher._request_lock.release()
+        return events, len(source.requests), clock.monotonic()
+
+    events, request_count, elapsed = asyncio.run(scenario())
+
+    assert events == [
+        (0.0, "waiting for another Statsguru request"),
+        (10.0, "waiting for another Statsguru request"),
+        (10.0, "waiting for another Statsguru request"),
+    ]
+    assert request_count == 0
+    assert elapsed == pytest.approx(25.0)
+
+
+def test_request_lock_progress_is_not_reported_when_lock_is_free() -> None:
+    clock = FakeClock()
+    events: list[tuple[float, str]] = []
+    source = SequenceSource([ok()])
+    fetcher = Fetcher(settings(), clock=clock, page_source=source)
+
+    assert (
+        run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10, progress=capture(events)))
+        == STATS_PAGE
+    )
+
+    assert events == []
+
+
+def test_raising_progress_callback_does_not_break_fetch_or_lock() -> None:
+    clock = FakeClock()
+    source = SequenceSource([ok(), ok(OTHER_URL)])
+    fetcher = Fetcher(settings(min_interval=timedelta(seconds=2)), clock=clock, page_source=source)
+
+    def progress(seconds: float, reason: str) -> None:
+        raise RuntimeError(f"client disconnected during {reason} after {seconds}")
+
+    assert run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10)) == STATS_PAGE
+    assert (
+        run(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=10, progress=progress))
+        == STATS_PAGE
+    )
+
+    assert [request[0] for request in source.requests] == [URL, OTHER_URL]
+
+
+def test_cancelled_async_progress_callback_releases_lock_for_later_fetch() -> None:
+    async def scenario() -> tuple[list[str], bool]:
+        clock = FakeClock()
+        source = SequenceSource([ok(), ok(OTHER_URL)])
+        fetcher = Fetcher(
+            settings(min_interval=timedelta(seconds=2)), clock=clock, page_source=source
         )
-        for _ in range(20):
-            await asyncio.sleep(0)
-        fetcher._request_lock.release()
-        assert await task == STATS_PAGE
-        return events, len(source.requests)
+        assert await fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10) == STATS_PAGE
+        progress_entered = asyncio.Event()
 
-    events, request_count = asyncio.run(scenario())
+        async def progress(seconds: float, reason: str) -> None:
+            progress_entered.set()
+            await asyncio.sleep(3600)
 
-    assert events == [(2.0, "waiting for another Statsguru request")]
-    assert request_count == 1
+        task = asyncio.create_task(
+            fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=10, progress=progress)
+        )
+        await progress_entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        source.responses.append(ok(THIRD_URL))
+        result = await fetcher.fetch(THIRD_URL, freshness=Freshness.RECENT, budget=10)
+        return [request[0] for request in source.requests], result == STATS_PAGE
+
+    urls, later_succeeded = asyncio.run(asyncio.wait_for(scenario(), timeout=1))
+
+    assert urls == [URL, THIRD_URL]
+    assert later_succeeded
+
+
+def test_cancelled_spacing_sleep_releases_lock_for_later_fetch() -> None:
+    async def scenario() -> tuple[list[str], bool]:
+        clock = FakeClock()
+        source = SequenceSource([ok(), ok(OTHER_URL)])
+        fetcher = Fetcher(
+            settings(min_interval=timedelta(seconds=100)), clock=clock, page_source=source
+        )
+        assert await fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10) == STATS_PAGE
+        sleep_entered = asyncio.Event()
+        original_sleep = clock.sleep
+
+        async def blocking_sleep(seconds: float) -> None:
+            sleep_entered.set()
+            await asyncio.sleep(3600)
+
+        clock.sleep = blocking_sleep  # type: ignore[method-assign]
+        task = asyncio.create_task(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=200))
+        await sleep_entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        clock.sleep = original_sleep  # type: ignore[method-assign]
+        clock.monotonic_time = 100
+        source.responses.append(ok(THIRD_URL))
+        result = await fetcher.fetch(THIRD_URL, freshness=Freshness.RECENT, budget=10)
+        return [request[0] for request in source.requests], result == STATS_PAGE
+
+    urls, later_succeeded = asyncio.run(asyncio.wait_for(scenario(), timeout=1))
+
+    assert urls == [URL, THIRD_URL]
+    assert later_succeeded
+
+
+def test_cancelled_request_counts_for_spacing_and_releases_lock() -> None:
+    class CancellableSource(SequenceSource):
+        def __init__(self, clock: FakeClock) -> None:
+            super().__init__([ok(), ok(OTHER_URL)])
+            self.clock = clock
+            self.entered = asyncio.Event()
+            self.request_times: list[float] = []
+
+        async def get(self, url: str, headers: Mapping[str, str]) -> FetchResponse:
+            self.requests.append((url, headers))
+            self.request_times.append(self.clock.monotonic())
+            if len(self.requests) == 1:
+                self.entered.set()
+                await asyncio.sleep(3600)
+            response = self.responses.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+    async def scenario() -> tuple[list[float], list[str]]:
+        clock = FakeClock()
+        source = CancellableSource(clock)
+        fetcher = Fetcher(
+            settings(min_interval=timedelta(seconds=15)), clock=clock, page_source=source
+        )
+        task = asyncio.create_task(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=200))
+        await source.entered.wait()
+        clock.monotonic_time = 2
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert await fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=200) == STATS_PAGE
+        return source.request_times, [request[0] for request in source.requests]
+
+    request_times, urls = asyncio.run(asyncio.wait_for(scenario(), timeout=1))
+
+    assert request_times == [0.0, 15.0]
+    assert urls == [URL, OTHER_URL]
 
 
 def test_not_before_set_while_queued_is_rechecked_inside_lock() -> None:
@@ -659,6 +799,22 @@ def test_transport_errors_are_retryable() -> None:
     assert run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=100)) == STATS_PAGE
 
     assert len(source.requests) == 2
+
+
+def test_sent_request_that_fails_transport_still_counts_for_spacing() -> None:
+    clock = FakeClock()
+    source = YieldingSequenceSource([httpx.RemoteProtocolError("bad close"), ok()], clock)
+    fetcher = Fetcher(
+        settings(min_interval=timedelta(seconds=15)),
+        clock=clock,
+        page_source=source,
+        jitter=lambda base: -1.5,
+    )
+
+    assert run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=100)) == STATS_PAGE
+
+    assert source.request_times == [0.0, 15.0]
+    assert clock.sleeps == [13.5, 1.5]
 
 
 def test_malformed_retry_after_uses_backoff_and_logs(caplog: pytest.LogCaptureFixture) -> None:

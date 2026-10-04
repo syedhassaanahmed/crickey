@@ -30,6 +30,7 @@ USER_AGENT = "curl/8.21.0"
 _PAGE_COUNT_RE = re.compile(r"Page\s+\d+\s+of\s+(?P<count>\d+)", re.IGNORECASE)
 _REQUEST_TIMEOUT_MARGIN = 0.5
 _MIN_REQUEST_TIMEOUT = 1.0
+_LOCK_WAIT_PROGRESS_INTERVAL = 10.0
 _STATS_MARKERS = ("engineTable", "Statsguru", "/ci/engine/")
 _CHALLENGE_MARKERS = (
     "captcha",
@@ -311,7 +312,6 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         for _ in range(5):
             await self._space_request()
             response = await self._get(current_url)
-            self._fetcher._last_request_at = self._fetcher.clock.monotonic()
             if response.status_code not in {301, 302, 303, 307, 308}:
                 return response
             location = response.headers.get("location") or response.headers.get("Location")
@@ -326,6 +326,7 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         timeout = remaining - _REQUEST_TIMEOUT_MARGIN
         if timeout < _MIN_REQUEST_TIMEOUT:
             raise FetchTimeoutError("Not enough time left to request Statsguru.")
+        self._fetcher._last_request_at = self._fetcher.clock.monotonic()
         if isinstance(self._fetcher._source, _HttpPageSource):
             return await self._fetcher._source.get_with_timeout(
                 url, {"User-Agent": USER_AGENT}, timeout=timeout
@@ -333,24 +334,32 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         return await self._fetcher._source.get(url, {"User-Agent": USER_AGENT})
 
     async def _acquire_request_lock(self) -> None:
-        queued_at = self._fetcher.clock.monotonic()
-        remaining = self._deadline - queued_at
+        remaining = self._deadline - self._fetcher.clock.monotonic()
         if remaining <= 0:
             raise FetchTimeoutError("Not enough time left to wait for another Statsguru request.")
         if self._fetcher._request_lock.locked():
+            await self._report_wait(0.0, "waiting for another Statsguru request")
+            next_progress = self._fetcher.clock.monotonic() + _LOCK_WAIT_PROGRESS_INTERVAL
             while self._fetcher._request_lock.locked():
-                remaining = self._deadline - self._fetcher.clock.monotonic()
+                now = self._fetcher.clock.monotonic()
+                remaining = self._deadline - now
                 if remaining <= 0:
                     raise FetchTimeoutError(
                         "Not enough time left to wait for another Statsguru request."
                     )
-                await self._fetcher.clock.sleep(min(0.1, remaining))
+                sleep_for = min(0.1, remaining, max(0.0, next_progress - now))
+                await self._fetcher.clock.sleep(sleep_for)
+                if (
+                    self._fetcher._request_lock.locked()
+                    and self._fetcher.clock.monotonic() >= next_progress
+                ):
+                    await self._report_wait(
+                        _LOCK_WAIT_PROGRESS_INTERVAL, "waiting for another Statsguru request"
+                    )
+                    next_progress += _LOCK_WAIT_PROGRESS_INTERVAL
         if self._fetcher.clock.monotonic() >= self._deadline:
             raise FetchTimeoutError("Not enough time left to wait for another Statsguru request.")
         await self._fetcher._request_lock.acquire()
-        queued_for = round(self._fetcher.clock.monotonic() - queued_at, 10)
-        if queued_for > 0:
-            await self._report_wait(queued_for, "waiting for another Statsguru request")
 
     async def _honour_not_before(self) -> None:
         wait = self._not_before_wait()
@@ -451,9 +460,12 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
 
     async def _report_wait(self, seconds: float, reason: str) -> None:
         if self._progress is not None:
-            result = self._progress(seconds, reason)
-            if result is not None:
-                await result
+            try:
+                result = self._progress(seconds, reason)
+                if result is not None:
+                    await result
+            except Exception:
+                LOGGER.warning("Progress callback failed while %s.", reason, exc_info=True)
 
     def _fits(self, seconds: float) -> bool:
         return self._fetcher.clock.monotonic() + seconds <= self._deadline
