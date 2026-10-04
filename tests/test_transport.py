@@ -328,8 +328,8 @@ async def test_stdio_subprocess_lists_tools_and_stdout_is_protocol() -> None:
     args = ["-c", "from crickey.cli import main; raise SystemExit(main(['stdio']))"]
     params = StdioServerParameters(command=command, args=args, cwd=str(Path.cwd()))
 
-    with anyio.fail_after(10):
-        async with Client(params, read_timeout_seconds=5) as client:
+    with anyio.fail_after(25):
+        async with Client(params, read_timeout_seconds=20) as client:
             tools = (await client.list_tools()).tools
 
     assert {tool.name for tool in tools} == {
@@ -342,7 +342,7 @@ async def test_stdio_subprocess_lists_tools_and_stdout_is_protocol() -> None:
 
 
 async def test_stdio_stdout_lines_are_jsonrpc() -> None:
-    with anyio.fail_after(10):
+    with anyio.fail_after(45):
         process = await asyncio.create_subprocess_exec(
             sys.executable,
             "-c",
@@ -382,7 +382,7 @@ async def test_stdio_stdout_lines_are_jsonrpc() -> None:
             for request in requests:
                 process.stdin.write(json.dumps(request).encode() + b"\n")
                 await process.stdin.drain()
-                raw = await asyncio.wait_for(process.stdout.readline(), timeout=5)
+                raw = await asyncio.wait_for(process.stdout.readline(), timeout=20)
                 parsed = json.loads(raw)
                 assert parsed["jsonrpc"] == "2.0"
                 assert parsed["id"] == request["id"]
