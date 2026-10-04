@@ -12,7 +12,7 @@ from crickey.parsers.common import (
 )
 from crickey.parsers.convert import parse_span
 
-_DETAIL_RE = re.compile(r"\((?P<span>.*?)(?:,\s*(?P<count>\d+)\s+matches?)?\)")
+_DETAIL_RE = re.compile(r"\((?P<span>.*?)(?:,\s*(?P<count>\d+)\s+match(?:es)?)?\)")
 _FULL_NAME_RE = re.compile(r"^(?P<display>.*?)\s*\((?P<full>[^()]*)\)\s*$")
 
 
@@ -20,6 +20,7 @@ _FULL_NAME_RE = re.compile(r"^(?P<display>.*?)\s*\((?P<full>[^()]*)\)\s*$")
 class PlayerFormat:
     class_id: int
     label: str
+    role: str
     span: object
     match_count: int | None
 
@@ -51,11 +52,15 @@ def parse_player_search(page: str) -> tuple[PlayerSearchResult, ...]:
         countries = tuple(
             part.strip() for part in element_text(cells[1]).split("/") if part.strip()
         )
-        formats = tuple(
-            _parse_format(link)
-            for link in cells[2].xpath('.//a[contains(@href, "/ci/engine/player/")]')
+        format_links = cells[2].xpath(
+            './/a[contains(@href, "/ci/engine/player/") and contains(@href, "class=")]'
         )
+        if not format_links:
+            continue
+        formats = tuple(_parse_format(link) for link in format_links)
         results.append(PlayerSearchResult(player_id, display, full, countries, formats))
+    if not results:
+        raise StatsguruParseError("player search result rows with format links are missing")
     return tuple(results)
 
 
@@ -73,6 +78,7 @@ def _parse_format(link) -> PlayerFormat:
     except (KeyError, ValueError) as error:
         raise StatsguruParseError("player search format link is missing class") from error
     label = element_text(link)
+    role = label.rsplit(" ", 1)[-1]
     detail = link.tail or ""
     match = _DETAIL_RE.search(detail)
     span = None
@@ -81,4 +87,4 @@ def _parse_format(link) -> PlayerFormat:
         span = parse_span(match.group("span"))
         if match.group("count") is not None:
             count = int(match.group("count"))
-    return PlayerFormat(class_id=class_id, label=label, span=span, match_count=count)
+    return PlayerFormat(class_id=class_id, label=label, role=role, span=span, match_count=count)

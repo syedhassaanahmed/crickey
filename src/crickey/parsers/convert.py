@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 from typing import Any
 
-_MISSING = {"", "-"}
+_MISSING = {"", "-", "DNB", "TDNB"}
 _DATE_FORMATS = ("%d %b %Y", "%b %d, %Y")
 _INT_RE = re.compile(r"[+-]?\d[\d,]*")
 _DECIMAL_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
@@ -122,7 +122,7 @@ def convert_cell(header: str, value: str) -> Any:
     if header == "Overs":
         return parse_overs(text)
     if text.endswith("*") and text[:-1].replace(",", "").isdigit():
-        return parse_score(text)
+        return int(text[:-1].replace(",", ""))
     if _INT_RE.fullmatch(text):
         return int(text.replace(",", ""))
     if _DECIMAL_RE.fullmatch(text):

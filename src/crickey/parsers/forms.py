@@ -44,6 +44,10 @@ class FilterForm:
 
 def parse_filter_form(page: str) -> FilterForm:
     doc = document_from_html(page)
+    forms = doc.xpath('//form[@name="gurumenu"]')
+    if not forms:
+        raise StatsguruParseError("Statsguru filter form named gurumenu is missing")
+    form = forms[0]
     controls: list[FormControl] = []
     hidden: dict[str, str] = {}
     selects: dict[str, tuple[FormOption, ...]] = {}
@@ -52,12 +56,13 @@ def parse_filter_form(page: str) -> FilterForm:
     minimum_lists: dict[tuple[str, str], tuple[FormOption, ...]] = {}
     sort_lists: dict[tuple[str, str], tuple[FormOption, ...]] = {}
 
-    for select in doc.xpath("//select[@name]"):
+    for select in form.xpath(".//select[@name]"):
         name = select.get("name", "")
+        select_id = select.get("id", "")
+        key = select_id or name
         options = _options(select)
         controls.append(FormControl(name=name, kind="select", options=options))
-        selects[name] = options
-        select_id = select.get("id", "")
+        selects[key] = options
         if match := _SPECIAL_SELECT_RE.match(select_id):
             key = (match.group("stat_type"), match.group("view"))
             if match.group("kind") == "havingselect":
@@ -65,7 +70,7 @@ def parse_filter_form(page: str) -> FilterForm:
             else:
                 sort_lists[key] = options
 
-    for input_element in doc.xpath("//input[@name]"):
+    for input_element in form.xpath(".//input[@name]"):
         name = input_element.get("name", "")
         kind = (input_element.get("type") or "text").lower()
         value = input_element.get("value", "")
@@ -108,7 +113,7 @@ def _options(select) -> tuple[FormOption, ...]:
 def _input_label(input_element) -> str:
     label_id = input_element.get("id")
     if label_id:
-        explicit = input_element.xpath(f'//label[@for="{label_id}"]')
+        explicit = input_element.xpath(f'ancestor::form[1]//label[@for="{label_id}"]')
         if explicit:
             return element_text(explicit[0])
     text = (input_element.tail or "").strip()

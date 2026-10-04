@@ -14,6 +14,7 @@ from crickey.parsers.common import (
     first_int_from_path,
 )
 from crickey.parsers.convert import (
+    clean_text,
     convert_cell,
     exact_batting_average,
     exact_strike_rate,
@@ -44,10 +45,15 @@ class PageTotals:
 @dataclass(frozen=True)
 class RecentMatch:
     name: str
-    date: date | None
+    start_date: date | None
+    end_date: date | None
     match_id: int
     label: str
     is_live: bool
+
+    @property
+    def date(self) -> date | None:
+        return self.start_date
 
 
 @dataclass(frozen=True)
@@ -80,7 +86,7 @@ def parse_results_page(page: str) -> ResultsPage:
     return ResultsPage(
         table=data,
         headers=tuple(data.columns),
-        totals=_parse_totals(doc),
+        totals=_parse_totals(doc, require=not no_records),
         current_or_recent_matches=parse_current_or_recent_matches(page),
         no_records=no_records,
     )
@@ -90,6 +96,12 @@ def parse_current_or_recent_matches(page: str) -> tuple[RecentMatch, ...]:
     doc = document_from_html(page)
     tables = doc.xpath('//b[contains(normalize-space(.), "current or recent")]/ancestor::table[1]')
     if not tables:
+        data2_match_tables = doc.xpath(
+            '//table[.//tr[contains(concat(" ", normalize-space(@class), " "), " data2 ")]'
+            ' and .//a[contains(@href, "/ci/engine/match/")]]'
+        )
+        if data2_match_tables:
+            raise StatsguruParseError("current or recent matches heading is missing")
         return ()
     matches: list[RecentMatch] = []
     for row in tables[0].xpath(
@@ -105,10 +117,15 @@ def parse_current_or_recent_matches(page: str) -> tuple[RecentMatch, ...]:
         label = element_text(link[0])
         text = element_text(row)
         before = text.split("[", 1)[0].strip()
-        name, parsed_date = _split_recent_name_date(before)
+        name, start_date, end_date = _split_recent_name_dates(before)
         matches.append(
             RecentMatch(
-                name=name, date=parsed_date, match_id=match_id, label=label, is_live="Live" in label
+                name=name,
+                start_date=start_date,
+                end_date=end_date,
+                match_id=match_id,
+                label=label,
+                is_live="Live" in label,
             )
         )
     return tuple(matches)
@@ -174,6 +191,10 @@ def _rows_to_frame(
         for header, index in zip(headers, keep_indexes, strict=True):
             text = element_text(cells[index])
             record[header] = convert_cell(header, text)
+            if _is_not_out_score(text):
+                record[f"{header}_not_out"] = True
+            elif header in {"Runs", "HS"}:
+                record[f"{header}_not_out"] = False
             if header == "Player":
                 player = parse_player_cell(cells[index])
                 record["player_name"] = player.name
@@ -205,7 +226,7 @@ def parse_player_cell(cell: HtmlElement) -> PlayerCell:
     return PlayerCell(name=name, player_id=player_id, team_codes=teams)
 
 
-def _parse_totals(doc: HtmlElement) -> PageTotals:
+def _parse_totals(doc: HtmlElement, *, require: bool = False) -> PageTotals:
     page = pages = showing_from = showing_to = total = None
     text = " ".join(
         element_text(td) for td in doc.xpath('//td[contains(., "Page") or contains(., "Showing")]')
@@ -217,18 +238,88 @@ def _parse_totals(doc: HtmlElement) -> PageTotals:
         showing_from = int(match.group(1))
         showing_to = int(match.group(2))
         total = int(match.group(3))
+    if require and (page is None or pages is None or total is None):
+        raise StatsguruParseError("results page paging totals are missing")
     return PageTotals(page, pages, showing_from, showing_to, total)
 
 
-def _split_recent_name_date(value: str) -> tuple[str, date | None]:
-    parts = [part.strip() for part in value.rsplit(",", 2)]
-    if len(parts) >= 3:
-        date_text = f"{parts[-2]}, {parts[-1]}"
-        try:
-            return ",".join(parts[:-2]).strip(), parse_date(date_text)
-        except ValueError:
-            return value, None
-    return value, None
+def _split_recent_name_dates(value: str) -> tuple[str, date | None, date | None]:
+    patterns = (
+        (
+            re.compile(
+                r"^(?P<name>.+), (?P<smon>[A-Z][a-z]{2}) (?P<sday>\d{1,2}), "
+                r"(?P<syear>\d{4})-(?P<emon>[A-Z][a-z]{2}) (?P<eday>\d{1,2}), "
+                r"(?P<eyear>\d{4})$"
+            ),
+            _dates_full_year_range,
+        ),
+        (
+            re.compile(
+                r"^(?P<name>.+), (?P<smon>[A-Z][a-z]{2}) (?P<sday>\d{1,2})-"
+                r"(?P<emon>[A-Z][a-z]{2}) (?P<eday>\d{1,2}), (?P<year>\d{4})$"
+            ),
+            _dates_month_range,
+        ),
+        (
+            re.compile(
+                r"^(?P<name>.+), (?P<smon>[A-Z][a-z]{2}) (?P<sday>\d{1,2})-"
+                r"(?P<eday>\d{1,2}), (?P<year>\d{4})$"
+            ),
+            _dates_same_month_range,
+        ),
+        (
+            re.compile(r"^(?P<name>.+), (?P<mon>[A-Z][a-z]{2}) (?P<day>\d{1,2}), (?P<year>\d{4})$"),
+            _dates_single,
+        ),
+    )
+    for pattern, parser in patterns:
+        if match := pattern.match(value):
+            start, end = parser(match)
+            return clean_text(match.group("name")), start, end
+    raise StatsguruParseError(f"current or recent match date is not recognised: {value!r}")
+
+
+def _month_number(month: str) -> int:
+    return parse_date(f"1 {month} 2000").month
+
+
+def _make_date(day: str, month: str, year: str | int) -> date:
+    return parse_date(f"{int(day)} {month} {int(year)}")
+
+
+def _dates_full_year_range(match: re.Match[str]) -> tuple[date, date]:
+    return (
+        _make_date(match.group("sday"), match.group("smon"), match.group("syear")),
+        _make_date(match.group("eday"), match.group("emon"), match.group("eyear")),
+    )
+
+
+def _dates_month_range(match: re.Match[str]) -> tuple[date, date]:
+    end_year = int(match.group("year"))
+    start_year = end_year
+    if _month_number(match.group("smon")) > _month_number(match.group("emon")):
+        start_year -= 1
+    return (
+        _make_date(match.group("sday"), match.group("smon"), start_year),
+        _make_date(match.group("eday"), match.group("emon"), end_year),
+    )
+
+
+def _dates_same_month_range(match: re.Match[str]) -> tuple[date, date]:
+    return (
+        _make_date(match.group("sday"), match.group("smon"), match.group("year")),
+        _make_date(match.group("eday"), match.group("smon"), match.group("year")),
+    )
+
+
+def _dates_single(match: re.Match[str]) -> tuple[date, date]:
+    parsed = _make_date(match.group("day"), match.group("mon"), match.group("year"))
+    return parsed, parsed
+
+
+def _is_not_out_score(value: str) -> bool:
+    text = element_text(value) if isinstance(value, HtmlElement) else clean_text(value)
+    return text.endswith("*") and text[:-1].replace(",", "").isdigit()
 
 
 def _add_exact_batting_columns(data: pd.DataFrame) -> None:
