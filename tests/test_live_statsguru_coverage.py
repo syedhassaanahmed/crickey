@@ -1,23 +1,24 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
+from stat_type_cases import REPRESENTATIVE_STAT_QUERIES, representative_query_payload
 
 from crickey.fetcher import Fetcher, Freshness
 from crickey.parsers import parse_results_page
+from crickey.query import StatsguruQuery
 from crickey.settings import Settings
 
-LIVE_STAT_TYPE_URLS = {
-    "batting": "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=runs;size=10;template=results;type=batting",
-    "bowling": "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=wickets;size=10;template=results;type=bowling",
-    "fielding": "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=dismissals;size=10;template=results;type=fielding",
-    "allround": "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=allround_average;size=10;template=results;type=allround",
-    "fow": "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=fow_runs;size=10;template=results;type=fow",
-    "team": "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=won;size=10;template=results;type=team",
-    "aggregate": "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=runs;size=10;template=results;type=aggregate",
-}
+
+def _live_urls() -> dict[str, str]:
+    return {
+        stat_type: StatsguruQuery(**representative_query_payload(1, stat_type)).results_url(
+            as_of=date(2026, 10, 4)
+        )
+        for stat_type in REPRESENTATIVE_STAT_QUERIES
+    }
 
 
 @pytest.mark.live
@@ -31,7 +32,7 @@ def test_live_statsguru_results_parse_for_every_stat_type() -> None:
         columns: dict[str, tuple[str, ...]] = {}
         try:
             await asyncio.sleep(15)
-            for stat_type, url in LIVE_STAT_TYPE_URLS.items():
+            for stat_type, url in _live_urls().items():
                 html = await fetcher.fetch(url, freshness=Freshness.RECENT, budget=90)
                 parsed = parse_results_page(html)
                 assert parsed.no_records is False, stat_type

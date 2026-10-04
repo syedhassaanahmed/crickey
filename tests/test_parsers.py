@@ -186,13 +186,49 @@ def test_class6_results_parse_data2_rows_and_note_teams() -> None:
     assert third["HS_not_out"] is True
 
 
-def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 1) -> str:
-    header_html = "".join(f"<th>{header}</th>" for header in headers)
+def _headlinks(headers: tuple[str, ...], orderbys: tuple[str, ...], stat_type: str) -> str:
+    cells = []
+    for index, (header, orderby) in enumerate(zip(headers, orderbys, strict=True)):
+        attrs = []
+        if index < 2 or (stat_type == "aggregate" and index == 0):
+            attrs.append('class="left"')
+        if header in {"HS", "High"}:
+            attrs = ['class="padAst"']
+        if header:
+            attrs.append("nowrap")
+            attr = f" {' '.join(attrs)}" if attrs else ""
+            href = f"/ci/engine/stats/index.html?class=1;orderby={orderby};size=10;template=results;type={stat_type}"
+            cells.append(
+                f'<th{attr}><a href="{href}" title="sort by {orderby}" class="black-link">{header}</a></th>'
+            )
+        else:
+            cells.append("<th></th>")
+    return f'<thead><tr class="headlinks">{"".join(cells)}</tr></thead>'
+
+
+def _pad_dd() -> str:
+    return (
+        '<td class="padDD"><a href="javascript:void(0)" '
+        "onmouseover=\"menuLayers.show('engine-dd1', event); return true\" "
+        'onmouseout="menuLayers.hide()"><img src="http://i.imgci.com/espncricinfo/guruInvestigate.gif" '
+        'width="11" height="11" border="0" alt="investigate this query"></a></td>'
+    )
+
+
+def _synthetic_results_page(
+    stat_type: str,
+    headers: tuple[str, ...],
+    orderbys: tuple[str, ...],
+    row_cells: tuple[str, ...],
+    *,
+    total: int = 1,
+) -> str:
+    row_html = "".join(row_cells + (_pad_dd(),))
     return f"""
     <html><body>
     <table class="engineTable"><caption>Overall figures</caption>
-    <tr>{header_html}</tr>
-    {row}
+    {_headlinks(headers + ("",), orderbys + ("",), stat_type)}
+    <tbody><tr class="data1">{row_html}</tr></tbody>
     </table>
     <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>{total}</b></td></tr></table>
     </body></html>
@@ -205,8 +241,34 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
         (
             "batting",
             _synthetic_results_page(
-                ("Player", "Span", "Mat", "Runs", "HS"),
-                '<tr class="data1"><td><a href="/ci/content/player/1.html">Alpha Batter</a> (AAA)</td><td>2020-2026</td><td>5</td><td>250</td><td>101*</td></tr>',
+                "batting",
+                ("Player", "Span", "Mat", "Inns", "NO", "Runs", "HS", "Ave", "100", "50", "0"),
+                (
+                    "player",
+                    "start",
+                    "matches",
+                    "innings",
+                    "notouts",
+                    "runs",
+                    "high_score",
+                    "batting_average",
+                    "hundreds",
+                    "fifty_plus",
+                    "ducks",
+                ),
+                (
+                    '<td class="left" nowrap><a href="/ci/content/player/1.html" class="data-link">Alpha Batter</a> (AAA)</td>',
+                    '<td class="left" nowrap>2020-2026</td>',
+                    "<td>5</td>",
+                    "<td>4</td>",
+                    "<td>1</td>",
+                    "<td><b>250</b></td>",
+                    '<td class="padAst">101*</td>',
+                    "<td>83.33</td>",
+                    "<td>1</td>",
+                    "<td>2</td>",
+                    "<td>0</td>",
+                ),
             ),
             (
                 "Player",
@@ -215,10 +277,16 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "player_team_codes",
                 "Span",
                 "Mat",
+                "Inns",
+                "NO",
                 "Runs",
                 "Runs_not_out",
                 "HS",
                 "HS_not_out",
+                "Ave",
+                "100",
+                "50",
+                "0",
             ),
             {
                 "Player": "Alpha Batter (AAA)",
@@ -227,16 +295,69 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "player_team_codes": ("AAA",),
                 "Span": Span("2020", "2026"),
                 "Mat": 5,
+                "Inns": 4,
+                "NO": 1,
                 "Runs": 250,
                 "HS": 101,
                 "HS_not_out": True,
+                "Ave": Decimal("83.33"),
+                "100": 1,
+                "50": 2,
+                "0": 0,
             },
         ),
         (
             "bowling",
             _synthetic_results_page(
-                ("Player", "Span", "Mat", "Overs", "Runs", "Wkts", "BBI", "Ave", "Econ"),
-                '<tr class="data1"><td><a href="/ci/content/player/2.html">Beta Bowler</a> (BBB)</td><td>2021-2026</td><td>6</td><td>24.5</td><td>150</td><td>9</td><td>4/22</td><td>16.66</td><td>6.04</td></tr>',
+                "bowling",
+                (
+                    "Player",
+                    "Span",
+                    "Mat",
+                    "Inns",
+                    "Overs",
+                    "Mdns",
+                    "Runs",
+                    "Wkts",
+                    "BBI",
+                    "Ave",
+                    "Econ",
+                    "SR",
+                    "4",
+                    "5",
+                ),
+                (
+                    "player",
+                    "start",
+                    "matches",
+                    "innings_bowled",
+                    "overs",
+                    "maidens",
+                    "conceded",
+                    "wickets",
+                    "bbi",
+                    "bowling_average",
+                    "economy_rate",
+                    "bowling_strike_rate",
+                    "four_plus_wickets",
+                    "five_wickets",
+                ),
+                (
+                    '<td class="left" nowrap><a href="/ci/content/player/2.html" class="data-link">Beta Bowler</a> (BBB)</td>',
+                    '<td class="left" nowrap>2021-2026</td>',
+                    "<td>6</td>",
+                    "<td>6</td>",
+                    "<td>24.5</td>",
+                    "<td>2</td>",
+                    "<td>150</td>",
+                    "<td><b>9</b></td>",
+                    "<td>4/22</td>",
+                    "<td>16.66</td>",
+                    "<td>6.04</td>",
+                    "<td>16.5</td>",
+                    "<td>1</td>",
+                    "<td>0</td>",
+                ),
             ),
             (
                 "Player",
@@ -245,13 +366,18 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "player_team_codes",
                 "Span",
                 "Mat",
+                "Inns",
                 "Overs",
+                "Mdns",
                 "Runs",
                 "Runs_not_out",
                 "Wkts",
                 "BBI",
                 "Ave",
                 "Econ",
+                "SR",
+                "4",
+                "5",
             ),
             {
                 "Player": "Beta Bowler (BBB)",
@@ -259,18 +385,48 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "player_id": 2,
                 "player_team_codes": ("BBB",),
                 "Overs": Overs(24, 5),
+                "Mdns": 2,
                 "Runs": 150,
                 "Wkts": 9,
                 "BBI": "4/22",
                 "Ave": Decimal("16.66"),
                 "Econ": Decimal("6.04"),
+                "SR": Decimal("16.5"),
+                "4": 1,
+                "5": 0,
             },
         ),
         (
             "fielding",
             _synthetic_results_page(
-                ("Player", "Span", "Mat", "Inns", "Dis", "Ct", "St", "MD", "D/I"),
-                '<tr class="data1"><td><a href="/ci/content/player/3.html">Gamma Keeper</a> (CCC)</td><td>2019-2026</td><td>7</td><td>10</td><td>18</td><td>15</td><td>3</td><td>5 (4ct 1st)</td><td>1.800</td></tr>',
+                "fielding",
+                ("Player", "Span", "Mat", "Inns", "Dis", "Ct", "St", "Ct Wk", "Ct Fi", "MD", "D/I"),
+                (
+                    "player",
+                    "start",
+                    "matches",
+                    "innings_fielded",
+                    "dismissals",
+                    "caught",
+                    "stumped",
+                    "caught_keeper",
+                    "caught_fielder",
+                    "max_dismissals",
+                    "dismissals_per_inns",
+                ),
+                (
+                    '<td class="left" nowrap><a href="/ci/content/player/3.html" class="data-link">Gamma Keeper</a> (CCC)</td>',
+                    '<td class="left" nowrap>2019-2026</td>',
+                    "<td>7</td>",
+                    "<td>10</td>",
+                    "<td><b>18</b></td>",
+                    "<td>15</td>",
+                    "<td>3</td>",
+                    "<td>12</td>",
+                    "<td>3</td>",
+                    "<td nowrap>5 (4ct 1st)</td>",
+                    "<td>1.800</td>",
+                ),
             ),
             (
                 "Player",
@@ -283,6 +439,8 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "Dis",
                 "Ct",
                 "St",
+                "Ct Wk",
+                "Ct Fi",
                 "MD",
                 "D/I",
             ),
@@ -294,6 +452,8 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "Dis": 18,
                 "Ct": 15,
                 "St": 3,
+                "Ct Wk": 12,
+                "Ct Fi": 3,
                 "MD": "5 (4ct 1st)",
                 "D/I": Decimal("1.800"),
             },
@@ -301,6 +461,7 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
         (
             "allround",
             _synthetic_results_page(
+                "allround",
                 (
                     "Player",
                     "Span",
@@ -308,14 +469,47 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                     "Runs",
                     "HS",
                     "Bat Av",
+                    "100",
                     "Wkts",
                     "BBI",
                     "Bowl Av",
+                    "5",
                     "Ct",
                     "St",
                     "Ave Diff",
                 ),
-                '<tr class="data1"><td><a href="/ci/content/player/4.html">Delta Allrounder</a> (DDD)</td><td>2018-2026</td><td>8</td><td>400</td><td>99</td><td>40.00</td><td>20</td><td>5/30</td><td>22.50</td><td>12</td><td>0</td><td>17.50</td></tr>',
+                (
+                    "player",
+                    "start",
+                    "matches",
+                    "runs",
+                    "high_score",
+                    "batting_average",
+                    "hundreds",
+                    "wickets",
+                    "bbi",
+                    "bowling_average",
+                    "five_wickets",
+                    "caught",
+                    "stumped",
+                    "allround_average",
+                ),
+                (
+                    '<td class="left" nowrap><a href="/ci/content/player/4.html" class="data-link">Delta Allrounder</a> (DDD)</td>',
+                    '<td class="left" nowrap>2018-2026</td>',
+                    "<td>8</td>",
+                    "<td>400</td>",
+                    '<td class="padAst">99</td>',
+                    "<td>40.00</td>",
+                    "<td>1</td>",
+                    "<td>20</td>",
+                    "<td>5/30</td>",
+                    "<td>22.50</td>",
+                    "<td>2</td>",
+                    "<td>12</td>",
+                    "<td>0</td>",
+                    "<td><b>17.50</b></td>",
+                ),
             ),
             (
                 "Player",
@@ -329,9 +523,11 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "HS",
                 "HS_not_out",
                 "Bat Av",
+                "100",
                 "Wkts",
                 "BBI",
                 "Bowl Av",
+                "5",
                 "Ct",
                 "St",
                 "Ave Diff",
@@ -342,31 +538,58 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "player_id": 4,
                 "player_team_codes": ("DDD",),
                 "Bat Av": Decimal("40.00"),
+                "100": 1,
                 "Wkts": 20,
                 "Bowl Av": Decimal("22.50"),
+                "5": 2,
                 "Ave Diff": Decimal("17.50"),
             },
         ),
         (
             "fow",
             _synthetic_results_page(
-                ("Partners", "Span", "Inns", "NO", "Runs", "High", "Ave"),
-                '<tr class="data1"><td><a href="/ci/content/player/5.html">Epsilon Opener</a> &amp; <a href="/ci/content/player/6.html">Zeta Opener</a> (EEE)</td><td>2022-2026</td><td>9</td><td>1</td><td>700</td><td>199</td><td>87.50</td></tr>',
+                "fow",
+                ("Partners", "Span", "Inns", "NO", "Runs", "High", "Ave", "100", "50"),
+                (
+                    "partners",
+                    "start",
+                    "fow_innings",
+                    "fow_notouts",
+                    "fow_runs",
+                    "fow_high_score",
+                    "fow_average",
+                    "fow_hundreds",
+                    "fow_fifty_plus",
+                ),
+                (
+                    '<td class="left"><span style="white-space: nowrap"><a href="/ci/content/player/5.html" class="data-link">Epsilon Opener</a></span>, <span style="white-space: nowrap"><a href="/ci/content/player/6.html" class="data-link">Zeta Opener</a></span> (EEE)</td>',
+                    '<td class="left" nowrap>2022-2026</td>',
+                    "<td>9</td>",
+                    "<td>1</td>",
+                    "<td><b>700</b></td>",
+                    '<td class="padAst">199</td>',
+                    "<td>87.50</td>",
+                    "<td>2</td>",
+                    "<td>3</td>",
+                ),
             ),
-            ("Partners", "Span", "Inns", "NO", "Runs", "Runs_not_out", "High", "Ave"),
+            ("Partners", "Span", "Inns", "NO", "Runs", "Runs_not_out", "High", "Ave", "100", "50"),
             {
-                "Partners": "Epsilon Opener & Zeta Opener (EEE)",
+                "Partners": "Epsilon Opener, Zeta Opener (EEE)",
                 "Span": Span("2022", "2026"),
                 "Inns": 9,
                 "NO": 1,
                 "Runs": 700,
                 "High": 199,
                 "Ave": Decimal("87.50"),
+                "100": 2,
+                "50": 3,
             },
         ),
         (
             "team",
             _synthetic_results_page(
+                "team",
                 (
                     "Team",
                     "Span",
@@ -382,7 +605,36 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                     "HS",
                     "LS",
                 ),
-                '<tr class="data1"><td>Sample Team</td><td>2020-2026</td><td>10</td><td>6</td><td>3</td><td>0</td><td>1</td><td>2.000</td><td>31.25</td><td>8.10</td><td>10</td><td>250</td><td>90</td></tr>',
+                (
+                    "team",
+                    "start",
+                    "matches",
+                    "won",
+                    "lost",
+                    "tied",
+                    "no_result",
+                    "win_loss_ratio",
+                    "team_average",
+                    "runs_per_over",
+                    "team_innings",
+                    "team_high_score",
+                    "team_low_score",
+                ),
+                (
+                    '<td class="left" nowrap><a href="/ci/content/team/99.html" class="data-link">Example XI</a></td>',
+                    '<td class="left" nowrap>2020-2026</td>',
+                    "<td>10</td>",
+                    "<td><b>6</b></td>",
+                    "<td>3</td>",
+                    "<td>0</td>",
+                    "<td>1</td>",
+                    "<td>2.000</td>",
+                    "<td>31.25</td>",
+                    "<td>8.10</td>",
+                    "<td>10</td>",
+                    "<td>250</td>",
+                    "<td>90</td>",
+                ),
             ),
             (
                 "Team",
@@ -401,7 +653,7 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "LS",
             ),
             {
-                "Team": "Sample Team",
+                "Team": "Example XI",
                 "Span": Span("2020", "2026"),
                 "Mat": 10,
                 "Won": 6,
@@ -417,23 +669,34 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
         (
             "aggregate",
             _synthetic_results_page(
+                "aggregate",
+                ("Span", "Mat", "Won", "Tied", "Draw", "Runs", "Wkts", "Balls", "Ave", "RPO"),
                 (
-                    "Team",
-                    "Span",
-                    "Mat",
-                    "Won",
-                    "Tied",
-                    "Draw",
-                    "Runs",
-                    "Wkts",
-                    "Balls",
-                    "Ave",
-                    "RPO",
+                    "start",
+                    "matches",
+                    "won",
+                    "tied",
+                    "drawn",
+                    "runs",
+                    "wickets",
+                    "balls",
+                    "team_average",
+                    "runs_per_over",
                 ),
-                '<tr class="data1"><td>All Teams</td><td>1877-2026</td><td>11</td><td>8</td><td>1</td><td>2</td><td>3000</td><td>100</td><td>6500</td><td>30.00</td><td>2.76</td></tr>',
+                (
+                    '<td class="left" nowrap>1877-2026</td>',
+                    "<td>11</td>",
+                    "<td>8</td>",
+                    "<td>1</td>",
+                    "<td>2</td>",
+                    "<td><b>3000</b></td>",
+                    "<td>100</td>",
+                    "<td>6500</td>",
+                    "<td>30.00</td>",
+                    "<td>2.76</td>",
+                ),
             ),
             (
-                "Team",
                 "Span",
                 "Mat",
                 "Won",
@@ -447,7 +710,6 @@ def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 
                 "RPO",
             ),
             {
-                "Team": "All Teams",
                 "Span": Span("1877", "2026"),
                 "Mat": 11,
                 "Won": 8,

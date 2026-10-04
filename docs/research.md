@@ -343,10 +343,10 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - Tests: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, BBM, Ave, Econ, SR, 5, 10
   - ODIs: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5
   - T20Is: Player, Span, Mat, Inns, Overs, Mdns, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5 (overs such as "449.5", not balls)
-- **Fielding columns (Tests overall view):** Player, Span, Mat, Inns, Dis, Ct, St, Ct Wk, Ct Fi, MD, D/I. `MD` is the best match dismissals summary, for example "6 (6ct 0st)".
+- **Fielding columns (Tests overall view):** Player, Span, Mat, Inns, Dis, Ct, St, Ct Wk, Ct Fi, MD, D/I. `MD` is max dismissals in an innings, for example "6 (6ct 0st)".
 - **All-round columns (Tests overall view):** Player, Span, Mat, Runs, HS, Bat Av, 100, Wkts, BBI, Bowl Av, 5, Ct, St, Ave Diff.
 - **Partnership columns (Tests overall view):** Partners, Span, Inns, NO, Runs, High, Ave, 100, 50. Partnership rows use a `Partners` cell, not `Player`, and name both players plus the team, for example "R Dravid, SR Tendulkar (IND)".
-- **Team columns (T20I overall view with player-involve filter):** Team, Span, Mat, Won, Lost, Tied, NR, W/L, Ave, RPO, Inns, HS, LS. Team rows use team names, not player links.
+- **Team columns (T20I overall view with player-involve filter):** Team, Span, Mat, Won, Lost, Tied, NR, W/L, Ave, RPO, Inns, HS, LS. Team cells link to `/ci/content/team/<id>.html` and use team names, not player links.
 - **Aggregate columns (Tests overall view):** Span, Mat, Won, Tied, Draw, Runs, Wkts, Balls, Ave, RPO. The overall aggregate row has no player or team cell.
 - **Bowling decimals:** averages and economy rates (2 decimals) and strike rates (1 decimal) are truncated like batting figures. In all 334 cases on three pages where truncating and rounding differ, the page showed the truncated value.
 - **Player cell:** "Name (COUNTRY)", for example "Babar Azam (PAK)". Players who represented several teams list them all, for example "Rashid Khan (AFG/ICC)". T20I lists include players from associate nations (for example QAT and JPN).

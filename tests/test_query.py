@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import subprocess
 import sys
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
+from mcp import Client
 from pydantic import ValidationError
+from stat_type_cases import REPRESENTATIVE_STAT_QUERIES, representative_query_payload
 
+from crickey import id_tables
+from crickey.fetcher import Fetcher, MemoryPageSource
 from crickey.query import (
     PlayerPageSpec,
     Qualification,
@@ -21,6 +28,8 @@ from crickey.query import (
     SymbolicPeriodKind,
     player_search_url,
 )
+from crickey.server import create_server
+from crickey.settings import Settings
 
 _GEN_QUERY_CATALOG_SPEC = importlib.util.spec_from_file_location(
     "gen_query_catalog_for_tests", Path(__file__).parents[1] / "scripts" / "gen_query_catalog.py"
@@ -37,20 +46,39 @@ TYPE_LABELS_FOR_TESTS = {
     "bowling": "bowling",
     "fielding": "fielding",
 }
-REPRESENTATIVE_STAT_QUERIES = {
-    "batting": ({"runsmin1": 1}, "runs", "runs", "runsval1=runs"),
-    "bowling": ({"wicketsmin1": 1}, "wickets", "wickets", "wicketsval1=wickets"),
-    "fielding": ({"caughtmin1": 1}, "dismissals", "dismissals", "caughtval1=caught"),
-    "allround": ({"wicketsmin1": 1}, "allround_average", "allround_average", "wicketsval1=wickets"),
-    "fow": (
-        {"partnership_runsmin1": 1},
-        "fow_runs",
-        "fow_runs",
-        "partnership_runsval1=partnership_runs",
-    ),
-    "team": ({"runsmin1": 1}, "won", "won", "runsval1=runs"),
-    "aggregate": ({}, "runs", "runs", "type=aggregate"),
-}
+
+
+class FrozenClock:
+    def now(self):
+        from datetime import UTC, datetime
+
+        return datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+
+    def monotonic(self) -> float:
+        return 0.0
+
+    async def sleep(self, seconds: float) -> None:
+        return None
+
+
+def _query_pairs(url: str) -> dict[str, list[str]]:
+    values: dict[str, list[str]] = defaultdict(list)
+    for key, value in parse_qsl(urlsplit(url).query, separator=";"):
+        values[key].append(value)
+    return dict(values)
+
+
+def _first_match_date(class_id: int) -> str:
+    return id_tables.FIRST_MATCH_DATES[class_id]
+
+
+async def _query_stats_fetch_false(query: dict[str, object]) -> dict[str, object]:
+    fetcher = Fetcher(Settings(), clock=FrozenClock(), page_source=MemoryPageSource({}))
+    client = Client(create_server(Settings(), fetcher=fetcher))
+    async with client:
+        result = await client.call_tool("query_stats", {"query": query, "fetch": False})
+    assert result.is_error is False
+    return result.structured_content
 
 
 def _synthetic_advanced_form(stat_type: str, *, result_values: str = "") -> str:
@@ -295,26 +323,64 @@ def test_narrower_period_overrides_default_pinning_and_as_of_is_injectable() -> 
 def test_every_stat_type_and_class_compiles_representative_query(
     class_id: int, stat_type: str
 ) -> None:
-    filters, qualification, orderby, expected_filter = REPRESENTATIVE_STAT_QUERIES[stat_type]
-    query = StatsguruQuery(
-        **{
-            "class": class_id,
-            "type": stat_type,
-            **filters,
-            "qualifications": (Qualification(field=qualification, minimum=1),),
-            "orderby": orderby,
-            "size": 10,
-        }
+    case = REPRESENTATIVE_STAT_QUERIES[stat_type]
+    payload = asyncio.run(
+        _query_stats_fetch_false(representative_query_payload(class_id, stat_type))
     )
+    query = _query_pairs(str(payload["link"]))
 
-    url = query.results_url(as_of=date(2026, 10, 4))
+    assert query == {
+        "class": [str(class_id)],
+        "type": [stat_type],
+        "template": ["results"],
+        "orderby": [case.orderby],
+        "qualval1": [case.qualification],
+        "qualmin1": [str(case.qualification_minimum)],
+        "size": ["10"],
+        "spanmin1": [_first_match_date(class_id)],
+        "spanmax1": ["04 Oct 2026"],
+        "spanval1": ["span"],
+        **{key: [value] for key, value in case.expected_filter_params.items()},
+    }
 
-    assert f"class={class_id}" in url
-    assert f"type={stat_type}" in url
-    assert f"qualval1={qualification}" in url
-    assert f"orderby={orderby}" in url
-    assert expected_filter in url
-    assert "size=10" in url
+
+@pytest.mark.parametrize(
+    ("stat_type", "kwargs", "message"),
+    [
+        (
+            "batting",
+            {"qualifications": (Qualification(field="wickets", minimum=1),)},
+            "qualification field 'wickets' is not valid",
+        ),
+        (
+            "bowling",
+            {"orderby": "hundreds"},
+            "sort field 'hundreds' is not valid",
+        ),
+        (
+            "fielding",
+            {"qualifications": (Qualification(field="runs", minimum=1),)},
+            "qualification field 'runs' is not valid",
+        ),
+        ("allround", {"orderby": "fow_runs"}, "sort field 'fow_runs' is not valid"),
+        ("fow", {"orderby": "player"}, "sort field 'player' is not valid"),
+        (
+            "team",
+            {"qualifications": (Qualification(field="allround_average", minimum=1),)},
+            "qualification field 'allround_average' is not valid",
+        ),
+        (
+            "aggregate",
+            {"qualifications": (Qualification(field="lost", minimum=1),)},
+            "qualification field 'lost' is not valid",
+        ),
+    ],
+)
+def test_stat_types_reject_other_types_minimums_and_sorts(
+    stat_type: str, kwargs: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        StatsguruQuery(**{"class": 1, "type": stat_type, **kwargs})
 
 
 def test_season_period_compiles_without_dates() -> None:
