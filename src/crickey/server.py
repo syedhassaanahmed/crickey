@@ -631,14 +631,14 @@ async def _better_than_player_tool(
                 metric.display_value(metric.value_from_row(target, class_id=class_id))
                 for metric in metrics
             )
-            comparison_rows: list[tuple[dict[str, Any], str, str]] = []
+            comparison_rows: list[tuple[dict[str, Any], str, list[int]]] = []
             for row in all_rows:
                 comparisons = [
                     metric.compare(metric.value_from_row(row, class_id=class_id), target_value)
                     for metric, target_value in zip(metrics, target_values, strict=True)
                 ]
                 if _row_id(row) == resolution.match.player_id:
-                    comparison_rows.append((row, "target", "target"))
+                    comparison_rows.append((row, "target", []))
                     continue
                 beats = (
                     all(value > 0 for value in comparisons)
@@ -647,9 +647,9 @@ async def _better_than_player_tool(
                 )
                 level = match_mode == "all" and all(value >= 0 for value in comparisons)
                 if beats:
-                    comparison_rows.append((row, "beats", _comparison_detail(metrics, comparisons)))
+                    comparison_rows.append((row, "beats", comparisons))
                 elif level:
-                    comparison_rows.append((row, "level", _comparison_detail(metrics, comparisons)))
+                    comparison_rows.append((row, "level", comparisons))
             comparison_rows = sorted(
                 comparison_rows,
                 key=lambda item: tuple(
@@ -671,7 +671,7 @@ async def _better_than_player_tool(
                 thresholds=proof_thresholds,
                 expected_player_ids=tuple(
                     _row_id(row)
-                    for row, _relation, _detail in comparison_rows
+                    for row, _relation, _comparisons in comparison_rows
                     if _row_id(row) is not None
                 ),
                 call=call,
@@ -695,9 +695,15 @@ async def _better_than_player_tool(
         ) from error
 
     payload_rows = [
-        _comparison_row_payload(row, metrics, class_id, resolution.match.player_id, relation)
-        | {"detail": detail}
-        for row, relation, detail in comparison_rows
+        _comparison_row_payload(
+            row,
+            metrics,
+            class_id,
+            resolution.match.player_id,
+            relation,
+            comparisons,
+        )
+        for row, relation, comparisons in comparison_rows
     ]
     as_of = _today(fetcher)
     metric_labels = tuple(metric.label for metric in metrics)
@@ -752,9 +758,7 @@ async def _better_than_player_tool(
             "beaters": [row for row in payload_rows if row["relation"] == "beats"],
             "level": [row for row in payload_rows if row["relation"] == "level"],
             "ties": [
-                row
-                for row in payload_rows
-                if row["relation"] == "level" and "better on " not in row["detail"]
+                row for row in payload_rows if row["relation"] == "level" and not row["better_on"]
             ],
             "proof": _jsonable(proof),
             "request_pages": len(pages),
@@ -1279,30 +1283,47 @@ def _comparison_row_payload(
     class_id: int,
     target_id: int,
     relation: str,
+    comparisons: list[int],
 ) -> dict[str, Any]:
     values = {
         metric.key: metric.display_value(metric.value_from_row(row, class_id=class_id))
         for metric in metrics
     }
+    if _row_id(row) == target_id:
+        better_on: list[str] = []
+        level_on: list[str] = []
+    else:
+        better_on = [
+            metric.key
+            for metric, comparison in zip(metrics, comparisons, strict=True)
+            if comparison > 0
+        ]
+        level_on = [
+            metric.key
+            for metric, comparison in zip(metrics, comparisons, strict=True)
+            if comparison == 0
+        ]
     return {
         "player": row.get("player_name") or row.get("Player"),
         "player_id": _row_id(row),
         "relation": "target" if _row_id(row) == target_id else relation,
+        "better_on": [] if _row_id(row) == target_id else better_on,
+        "level_on": [] if _row_id(row) == target_id else level_on,
+        "detail": "target"
+        if _row_id(row) == target_id
+        else _comparison_detail(metrics, better_on, level_on),
         "values": values,
     }
 
 
 def _comparison_detail(
     metrics: tuple[Metric, ...],
-    comparisons: list[int],
+    better_on: list[str],
+    level_on: list[str],
 ) -> str:
-    better: list[str] = []
-    level: list[str] = []
-    for metric, comparison in zip(metrics, comparisons, strict=True):
-        if comparison > 0:
-            better.append(metric.label)
-        elif comparison == 0:
-            level.append(metric.label)
+    labels = {metric.key: metric.label for metric in metrics}
+    better = [labels[key] for key in better_on]
+    level = [labels[key] for key in level_on]
     pieces = []
     if level:
         pieces.append("level on " + _metric_list(level))

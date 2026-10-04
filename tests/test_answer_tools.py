@@ -278,6 +278,11 @@ async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache
     level_details = {row["player"]: row["detail"] for row in cold.structured_content["level"]}
     assert level_details["Tie Player"] == "level on batting average and strike rate"
     assert level_details["Level Player"] == "level on batting average, better on strike rate"
+    level_structured = {row["player"]: row for row in cold.structured_content["level"]}
+    assert level_structured["Tie Player"]["better_on"] == []
+    assert level_structured["Tie Player"]["level_on"] == ["average", "strike_rate"]
+    assert level_structured["Level Player"]["better_on"] == ["strike_rate"]
+    assert level_structured["Level Player"]["level_on"] == ["average"]
     assert "level with Babar Azam" in cold.structured_content["answer_markdown"]
     assert cold.structured_content["proof"]["confirmed"] is True
     assert "qualval2=batting_average" in cold.structured_content["proof"]["url"]
