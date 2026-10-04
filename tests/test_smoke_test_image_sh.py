@@ -76,16 +76,8 @@ case "$cmd" in
     exit 0
     ;;
   inspect)
-    fmt=""
-    while (($#)); do
-      if [[ $1 == -f ]]; then
-        fmt=$2
-        shift 2
-      else
-        shift
-      fi
-    done
-    if [[ "$fmt" == '{{.State.Running}}' ]]; then
+    args="$*"
+    if [[ "$args" == *State.Running* ]]; then
       if [[ "$scenario" == startup_crash ]]; then
         echo false
       elif [[ -f "$state_dir/running" ]]; then
@@ -93,7 +85,7 @@ case "$cmd" in
       else
         echo false
       fi
-    elif [[ "$fmt" == '{{.State.ExitCode}}' ]]; then
+    elif [[ "$args" == *State.ExitCode* ]]; then
       if [[ "$scenario" == startup_crash ]]; then
         echo 2
       elif [[ -f "$state_dir/exit_code" ]]; then
