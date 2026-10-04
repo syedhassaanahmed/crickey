@@ -6,17 +6,19 @@ crickey is an MCP server that answers cricket statistics questions from Cricinfo
 
 ## Start it
 
-Docker image: `ghcr.io/syedhassaanahmed/crickey`, tagged as a version (`0.1.0`), a minor version (`0.1`) and `latest`. Use `0.1` to get patch releases when you `docker pull`.
+Docker image: `ghcr.io/syedhassaanahmed/crickey`, tagged as a version (`0.1.0`), a minor version (`0.1`) and `latest`. Use `0.1` for patch releases.
+
+```sh
+docker pull ghcr.io/syedhassaanahmed/crickey:0.1
+```
+
+Stop the container and run it again to use the pulled image.
 
 ```sh
 docker run -d --rm --read-only --name crickey -p 127.0.0.1:8765:8765 ghcr.io/syedhassaanahmed/crickey:0.1
 ```
 
-Keep that container running before MCP clients connect; after a reboot, run it again. Check it:
-
-```sh
-curl http://127.0.0.1:8765/health
-```
+Keep that container running before MCP clients connect; after a reboot, run it again. Check it: open http://127.0.0.1:8765/health in a browser; it shows `{"status":"ok"}`.
 
 Stop it:
 
@@ -32,7 +34,7 @@ docker run -d --rm --read-only --name crickey -p 127.0.0.1:8765:8765 -e CRICKEY_
 
 ## Connect a client
 
-Use this URL: `http://127.0.0.1:8765/mcp`.
+Use this URL: `http://127.0.0.1:8765/mcp`. If your client has a tool timeout, set it to 5 minutes.
 
 ```json
 {

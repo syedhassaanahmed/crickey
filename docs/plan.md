@@ -156,9 +156,9 @@ Implements D7–D12 and D17.
 - **One-time step:** GHCR creates new packages as private, so after the first push the package is switched to public in its settings. The `org.opencontainers.image.source` label links it to the repo.
 
 ## README
-The README's commands work in Bash and PowerShell. It covers:
+The README's shell commands work in Bash and PowerShell, and its browser health check also works from Windows PowerShell 5.1. It covers:
 - the disclaimer (D6);
-- the image name and tags, using `0.1` in commands so patch releases arrive with `docker pull`;
+- the image name and tags, using `0.1` in commands and showing `docker pull` plus restart for patch releases;
 - the `docker run` command, which starts the HTTP server published on loopback only, and that it must be running before clients connect (run it again after a reboot);
 - one generic JSON snippet with the URL `http://127.0.0.1:8765/mcp`, and the Copilot CLI one-liner (`copilot mcp add --transport http --timeout 300000 crickey http://127.0.0.1:8765/mcp`);
 - the environment variables;
