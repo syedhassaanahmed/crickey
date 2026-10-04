@@ -21,7 +21,7 @@ RUN --mount=type=secret,id=uv_index_url,env=UV_DEFAULT_INDEX,required=false \
 FROM python:3.14.8-slim-trixie AS final
 
 LABEL org.opencontainers.image.source="https://github.com/syedhassaanahmed/crickey" \
-      org.opencontainers.image.description="crickey is for personal use at the user's own risk; Cricinfo's terms ban data-extraction tools, and crickey isn't affiliated with Cricinfo, ESPNcricinfo or ESPN." \
+      org.opencontainers.image.description="crickey is an MCP server that answers cricket statistics questions from Cricinfo Statsguru." \
       org.opencontainers.image.licenses="MIT"
 
 ENV CRICKEY_IN_CONTAINER=1 \

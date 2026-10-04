@@ -133,7 +133,7 @@ Implements D7–D12 and D17.
   - The build stage uses uv to install crickey and its dependencies into a virtual environment and precompiles bytecode. The package index follows D23; local builds can override it through a BuildKit secret named `uv_index_url`.
   - The final stage is R15's slim Python base image with only that environment, running as a non-root user.
   - `ENTRYPOINT ["crickey"]`, default command `serve`, `CRICKEY_IN_CONTAINER=1` and `PYTHONDONTWRITEBYTECODE=1`. No `VOLUME`.
-  - OCI labels for the source repo, a description with the disclaimer (D6) and the licence (D25).
+  - OCI labels for the source repo, a short description of what crickey is (D6) and the licence (D25).
   - A `.dockerignore` keeps tests, caches and research data out.
 - **Read-only:** it runs with `--read-only`, which D19 makes possible.
 - **Usage:**
@@ -144,7 +144,7 @@ Implements D7–D12 and D17.
 ## CI pipeline (GitHub Actions)
 - **`ci.yml`** (pull requests and pushes to `main`):
   - ruff and pytest on `ubuntu-latest` and `windows-latest`, using uv with R15's Python version and public PyPI;
-  - build the image for `linux/amd64` without pushing, then run a smoke test with `--read-only`: start it in its default HTTP mode, check `/health`, list tools and call `query_stats` with `fetch=false` (no network needed) through `mcp.Client` over HTTP, and check that `stdio` still lists the tools.
+  - build the image for `linux/amd64` without pushing, then run a smoke test with `--read-only`: start it in its default HTTP mode, check `/health`, list tools and call `query_stats` with `fetch=false` (no network needed) through a Bash client with curl and jq over Streamable HTTP, and check that `stdio` still lists the tools.
 - **`release.yml`** (tags `v*`):
   - rerun the tests;
   - set up QEMU and Buildx, and log in to GHCR with `GITHUB_TOKEN` (`packages: write`);
