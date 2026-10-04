@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 
+from rapidfuzz import fuzz
+
 from crickey.fetcher import Fetcher, Freshness
 from crickey.ids import LookupResult, StatsguruIdResolver, lookup_team, lookup_trophy
 from crickey.parsers import (
@@ -20,6 +22,22 @@ _PLAYER_FORM_URL = (
     "https://stats.cricinfo.com/ci/engine/player/{player_id}.html?class={class_id};type=batting"
 )
 _SPACE_RE = re.compile(r"\s+")
+MAX_PLAYER_CANDIDATES = 5
+COUNTRY_NAMES = {
+    "afghanistan": "AFG",
+    "australia": "AUS",
+    "bangladesh": "BAN",
+    "england": "ENG",
+    "hong kong": "HKG",
+    "india": "IND",
+    "ireland": "IRE",
+    "new zealand": "NZ",
+    "pakistan": "PAK",
+    "south africa": "SA",
+    "sri lanka": "SL",
+    "west indies": "WI",
+    "zimbabwe": "ZIM",
+}
 
 
 class ResolveStatus(StrEnum):
@@ -63,38 +81,14 @@ class NameResolver:
         call=None,
     ) -> PlayerResolution:
         async def _resolve(fetch_call) -> PlayerResolution:
-            html = await fetch_call.fetch(player_search_url(name), freshness=Freshness.LOOKUP)
-            try:
-                rows = parse_player_search(html)
-            except StatsguruParseError:
-                return PlayerResolution(ResolveStatus.NEEDS_CLARIFICATION, name)
-            candidates = tuple(
-                PlayerCandidate(
-                    row.player_id,
-                    row.display_name,
-                    row.full_name,
-                    row.country_codes,
-                    tuple(
-                        fmt
-                        for fmt in row.formats
-                        if fmt.class_id == class_id and fmt.role == "player"
-                    ),
-                )
-                for row in rows
-                if _has_player_format(row.formats, class_id)
-                and _country_matches(row.country_codes, country)
-            )
-            candidates = tuple(candidate for candidate in candidates if candidate.formats)
-            exact = tuple(
-                candidate
-                for candidate in candidates
-                if _normalize(name)
-                in {_normalize(candidate.name), _normalize(candidate.full_name or "")}
-            )
-            pool = exact or candidates
-            if len(pool) == 1:
-                return PlayerResolution(ResolveStatus.MATCH, name, match=pool[0])
-            return PlayerResolution(ResolveStatus.NEEDS_CLARIFICATION, name, candidates=pool[:5])
+            url = player_search_url(name)
+            was_cached = self._fetcher.cache.get(url, self._fetcher.clock.monotonic()) is not None
+            html = await fetch_call.fetch(url, freshness=Freshness.LOOKUP)
+            result = _player_resolution_from_html(name, html, class_id=class_id, country=country)
+            if result.match is not None or result.candidates or not was_cached:
+                return result
+            html = await fetch_call.fetch(url, freshness=Freshness.LOOKUP, force_refetch=True)
+            return _player_resolution_from_html(name, html, class_id=class_id, country=country)
 
         if call is not None:
             return await _resolve(call)
@@ -109,6 +103,41 @@ class NameResolver:
 
     async def resolve_ground(self, name: str, *, class_id: int, call=None) -> LookupResult:
         return await self._id_resolver.lookup_ground(class_id, name, call=call)
+
+
+def _player_resolution_from_html(
+    name: str, html: str, *, class_id: int, country: str | None
+) -> PlayerResolution:
+    try:
+        rows = parse_player_search(html)
+    except StatsguruParseError:
+        return PlayerResolution(ResolveStatus.NEEDS_CLARIFICATION, name)
+    candidates = tuple(
+        PlayerCandidate(
+            row.player_id,
+            row.display_name,
+            row.full_name,
+            row.country_codes,
+            tuple(fmt for fmt in row.formats if fmt.class_id == class_id and fmt.role == "player"),
+        )
+        for row in rows
+        if _has_player_format(row.formats, class_id)
+        and _country_matches(row.country_codes, country)
+    )
+    candidates = tuple(candidate for candidate in candidates if candidate.formats)
+    exact = tuple(
+        candidate
+        for candidate in candidates
+        if _normalize(name) in {_normalize(candidate.name), _normalize(candidate.full_name or "")}
+    )
+    pool = _rank_player_candidates(name, exact or candidates)
+    if len(pool) == 1:
+        return PlayerResolution(ResolveStatus.MATCH, name, match=pool[0])
+    return PlayerResolution(
+        ResolveStatus.NEEDS_CLARIFICATION,
+        name,
+        candidates=pool[:MAX_PLAYER_CANDIDATES],
+    )
 
 
 class PeriodResolver:
@@ -164,8 +193,32 @@ def _has_player_format(formats: tuple[PlayerFormat, ...], class_id: int) -> bool
 def _country_matches(countries: tuple[str, ...], country: str | None) -> bool:
     if country is None:
         return True
-    wanted = _normalize(country)
+    normalized_country = _normalize(country)
+    wanted = COUNTRY_NAMES.get(normalized_country, country).casefold()
     return any(_normalize(code) == wanted for code in countries)
+
+
+def _rank_player_candidates(
+    query: str, candidates: tuple[PlayerCandidate, ...]
+) -> tuple[PlayerCandidate, ...]:
+    normalized_query = _normalize(query)
+
+    def key(candidate: PlayerCandidate) -> tuple[int, int, int, float, str, int]:
+        names = (_normalize(candidate.name), _normalize(candidate.full_name or ""))
+        exact_rank = 0 if normalized_query in names else 1
+        word_rank = 0 if any(normalized_query in name.split() for name in names) else 1
+        relevance = max(fuzz.WRatio(normalized_query, name) for name in names if name)
+        matches = max((fmt.match_count or 0 for fmt in candidate.formats), default=0)
+        return (
+            exact_rank,
+            word_rank,
+            -matches,
+            -float(relevance),
+            candidate.name,
+            candidate.player_id,
+        )
+
+    return tuple(sorted(candidates, key=key))
 
 
 def _normalize(value: str) -> str:

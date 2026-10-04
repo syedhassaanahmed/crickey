@@ -36,7 +36,15 @@ async def build_proof_link(
     as_of: date | None = None,
 ) -> ProofLink:
     as_of = date.today() if as_of is None else as_of
+    fallback_formula = formula or _formula_text(thresholds)
     if _can_express(query, thresholds):
+        if not expected_player_ids:
+            return _fallback_link(
+                query,
+                as_of=as_of,
+                formula=fallback_formula,
+                reason="confirmation needs expected player IDs",
+            )
         qualifications = query.qualifications + tuple(
             Qualification(field=threshold.metric.qualval or "", minimum=threshold.minimum)
             for threshold in thresholds
@@ -50,21 +58,28 @@ async def build_proof_link(
         actual_ids = tuple(
             int(value) for value in page.table.get("player_id", []) if value is not None
         )
-        confirmed = tuple(actual_ids) == tuple(expected_player_ids) if expected_player_ids else True
-        return ProofLink(
-            label="Confirmed Statsguru results",
-            url=url,
-            confirmed=confirmed,
-            fetched=True,
-            row_count=len(actual_ids),
+        confirmed = (
+            not page.no_records
+            and set(actual_ids) == set(expected_player_ids)
+            and len(actual_ids) == len(expected_player_ids)
+            and page.totals.total == len(expected_player_ids)
         )
-    return ProofLink(
-        label="Input Statsguru table",
-        url=query.results_url(as_of=as_of),
-        confirmed=False,
-        fetched=False,
-        formula=formula or _formula_text(thresholds),
-    )
+        if not confirmed:
+            return _fallback_link(
+                query,
+                as_of=as_of,
+                formula=fallback_formula,
+                reason="confirmation did not match Statsguru rows",
+                row_count=page.totals.total,
+            )
+        return ProofLink(
+            label=f"Confirmed Statsguru results: {proof_query.label(as_of=as_of)}",
+            url=url,
+            confirmed=True,
+            fetched=True,
+            row_count=page.totals.total,
+        )
+    return _fallback_link(query, as_of=as_of, formula=fallback_formula)
 
 
 def _can_express(query: StatsguruQuery, thresholds: tuple[Threshold, ...]) -> bool:
@@ -80,6 +95,25 @@ def _formula_text(thresholds: tuple[Threshold, ...]) -> str | None:
         threshold.metric.formula_label for threshold in thresholds if threshold.metric.formula_label
     ]
     return "; ".join(labels) if labels else None
+
+
+def _fallback_link(
+    query: StatsguruQuery,
+    *,
+    as_of: date,
+    formula: str | None,
+    reason: str | None = None,
+    row_count: int | None = None,
+) -> ProofLink:
+    suffix = f" ({reason})" if reason else ""
+    return ProofLink(
+        label=f"Input Statsguru table: {query.label(as_of=as_of)}{suffix}",
+        url=query.results_url(as_of=as_of),
+        confirmed=False,
+        fetched=False,
+        formula=formula,
+        row_count=row_count,
+    )
 
 
 def _freshness_for_query(query: StatsguruQuery, as_of: date) -> Freshness:

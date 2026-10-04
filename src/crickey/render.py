@@ -39,7 +39,12 @@ def render_answer(answer: AnswerRenderInput) -> str:
     lines.extend(["", "## Assumptions"])
     lines.extend(f"- {item}" for item in (answer.assumptions or ("None.",)))
     lines.extend(["", "## Links"])
-    lines.extend(f"- [{link.label}]({link.url})" for link in answer.proof_links)
+    for link in answer.proof_links:
+        if link.confirmed:
+            lines.append(f"- Answer proof: [{link.label}]({link.url})")
+        else:
+            formula = f" Formula: {link.formula}." if link.formula else ""
+            lines.append(f"- Input/method link: [{link.label}]({link.url}).{formula}")
     for player in answer.players:
         lines.append(f"- [{player.name} profile]({profile_url(player.player_id)})")
     lines.extend(

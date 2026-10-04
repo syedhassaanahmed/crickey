@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import Decimal, DivisionByZero, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, DivisionByZero, InvalidOperation
 from enum import StrEnum
 
 
@@ -29,12 +29,16 @@ class Metric:
     numerator_column: str | None = None
     denominator_column: str | None = None
     formula_label: str | None = None
+    denominator_columns: tuple[str, ...] = ()
+    display_precision: int | None = None
+    supported_classes: tuple[int, ...] = (1, 2, 3, 6, 11)
 
     @property
     def is_derived(self) -> bool:
         return self.numerator_column is not None
 
     def default_minimum(self, class_id: int) -> DefaultMinimum:
+        self.require_supported(class_id)
         try:
             return self.default_minimums[class_id]
         except KeyError as error:
@@ -42,15 +46,30 @@ class Metric:
                 f"metric {self.key!r} has no default minimum for class {class_id}"
             ) from error
 
-    def value_from_row(self, row: Mapping[str, object]) -> Decimal | None:
+    def require_supported(self, class_id: int) -> None:
+        if class_id not in self.supported_classes:
+            raise ValueError(f"metric {self.key!r} is not supported for class {class_id}")
+
+    def value_from_row(
+        self, row: Mapping[str, object], *, class_id: int | None = None
+    ) -> Decimal | None:
+        if class_id is not None:
+            self.require_supported(class_id)
         if not self.is_derived:
             if self.column is None:
                 raise ValueError(f"metric {self.key!r} has no column")
             return _decimal_or_none(row.get(self.column))
         assert self.numerator_column is not None
-        assert self.denominator_column is not None
+        denominator_columns = self.denominator_columns or (self.denominator_column,)
+        if None in denominator_columns:
+            raise ValueError(f"metric {self.key!r} has no denominator")
         numerator = _decimal_or_none(row.get(self.numerator_column))
-        denominator = _decimal_or_none(row.get(self.denominator_column))
+        denominator_parts = tuple(
+            _decimal_or_none(row.get(column)) for column in denominator_columns if column
+        )
+        denominator = (
+            None if any(part is None for part in denominator_parts) else sum(denominator_parts)
+        )
         if denominator is None and self.denominator_column == "Outs":
             innings = _decimal_or_none(row.get("Inns"))
             not_outs = _decimal_or_none(row.get("NO"))
@@ -63,7 +82,19 @@ class Metric:
         except DivisionByZero, InvalidOperation:
             return None
 
+    def display_value(self, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        if self.display_precision is None:
+            return value
+        quantum = Decimal(1).scaleb(-self.display_precision)
+        return value.quantize(quantum, rounding=ROUND_HALF_UP)
+
     def compare(self, left: Decimal | None, right: Decimal | None) -> int:
+        if left is None and right is None:
+            return -1
+        left = self.display_value(left)
+        right = self.display_value(right)
         if left == right:
             return 0
         if left is None:
@@ -78,16 +109,16 @@ class Metric:
         return self.compare(left, right) > 0
 
     def tied(self, left: Decimal | None, right: Decimal | None) -> bool:
-        return self.compare(left, right) == 0
+        return left is not None and right is not None and self.compare(left, right) == 0
 
 
 _FORMATS = (1, 2, 3, 6, 11)
 
 
 def _mins(field: str, values: Mapping[int, int | Decimal]) -> dict[int, DefaultMinimum]:
-    missing = set(_FORMATS) - set(values)
-    if missing:
-        raise ValueError(f"default minimums missing classes {sorted(missing)}")
+    unknown = set(values) - set(_FORMATS)
+    if unknown:
+        raise ValueError(f"default minimums include unknown classes {sorted(unknown)}")
     return {class_id: DefaultMinimum(field, value) for class_id, value in values.items()}
 
 
@@ -117,7 +148,8 @@ BATTING_METRICS: dict[str, Metric] = {
         "batting_strike_rate",
         "batting_strike_rate",
         BetterDirection.HIGHER,
-        _mins("balls_faced", {1: 500, 2: 500, 3: 250, 6: 500, 11: 1000}),
+        _mins("balls_faced", {2: 500, 3: 250, 6: 500, 11: 1000}),
+        supported_classes=(2, 3, 6, 11),
     ),
     "hundreds": Metric(
         "hundreds",
@@ -128,14 +160,14 @@ BATTING_METRICS: dict[str, Metric] = {
         BetterDirection.HIGHER,
         _mins("hundreds", {1: 5, 2: 5, 3: 1, 6: 1, 11: 10}),
     ),
-    "fifty_plus": Metric(
-        "fifty_plus",
-        "fifty-plus scores",
+    "fifties": Metric(
+        "fifties",
+        "fifties (50-99)",
         "50",
         "fifty_plus",
         "fifty_plus",
         BetterDirection.HIGHER,
-        _mins("fifty_plus", {1: 10, 2: 10, 3: 5, 6: 10, 11: 20}),
+        _mins("fifties", {1: 10, 2: 10, 3: 5, 6: 10, 11: 20}),
     ),
     "innings_per_hundred": Metric(
         "innings_per_hundred",
@@ -148,6 +180,7 @@ BATTING_METRICS: dict[str, Metric] = {
         numerator_column="Inns",
         denominator_column="100",
         formula_label="innings ÷ hundreds",
+        display_precision=2,
     ),
     "innings_per_fifty_plus": Metric(
         "innings_per_fifty_plus",
@@ -156,10 +189,12 @@ BATTING_METRICS: dict[str, Metric] = {
         None,
         None,
         BetterDirection.LOWER,
-        _mins("fifty_plus", {1: 10, 2: 10, 3: 5, 6: 10, 11: 20}),
+        _mins("fifty-plus scores", {1: 10, 2: 10, 3: 5, 6: 10, 11: 20}),
         numerator_column="Inns",
-        denominator_column="50",
-        formula_label="innings ÷ fifty-plus scores",
+        denominator_column="fifty-plus scores",
+        formula_label="innings ÷ (hundreds + fifties)",
+        denominator_columns=("100", "50"),
+        display_precision=2,
     ),
     "balls_per_dismissal": Metric(
         "balls_per_dismissal",
@@ -168,10 +203,12 @@ BATTING_METRICS: dict[str, Metric] = {
         None,
         None,
         BetterDirection.HIGHER,
-        _mins("outs", {1: 20, 2: 20, 3: 15, 6: 25, 11: 40}),
+        _mins("outs", {2: 20, 3: 15, 6: 25, 11: 40}),
         numerator_column="BF",
         denominator_column="Outs",
         formula_label="balls faced ÷ dismissals",
+        display_precision=2,
+        supported_classes=(2, 3, 6, 11),
     ),
 }
 
@@ -186,6 +223,8 @@ def batting_metric(key: str) -> Metric:
 def rank_key(metric: Metric, value: Decimal | None) -> tuple[int, Decimal]:
     if value is None:
         return (1, Decimal(0))
+    value = metric.display_value(value)
+    assert value is not None
     ranked = -value if metric.direction == BetterDirection.HIGHER else value
     return (0, ranked)
 
