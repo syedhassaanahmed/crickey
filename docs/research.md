@@ -334,6 +334,8 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
 - **Batting columns (overall view):**
   - ODIs: Player, Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0
   - T20Is: the ODI columns plus 4s and 6s
+  - All T20: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
+  - All Test/ODI/T20I combined: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
   - Tests: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
 - The `50` batting column counts fifties only (scores of 50-99), not hundreds plus fifties. For example, Tendulkar's ODI row shows 49 hundreds and 96 fifties.
 - **Bowling columns (overall view):**
@@ -342,7 +344,7 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - T20Is: Player, Span, Mat, Inns, Overs, Mdns, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5 (overs such as "449.5", not balls)
 - **Bowling decimals:** averages and economy rates (2 decimals) and strike rates (1 decimal) are truncated like batting figures. In all 334 cases on three pages where truncating and rounding differ, the page showed the truncated value.
 - **Player cell:** "Name (COUNTRY)", for example "Babar Azam (PAK)". Players who represented several teams list them all, for example "Rashid Khan (AFG/ICC)". T20I lists include players from associate nations (for example QAT and JPN).
-- **Player-search country codes:** saved player-search, results and player pages use country/team codes from Statsguru rows and ground prefixes. Codes that differ from obvious first letters include Austria = AUT, Indonesia = INA, Saudi Arabia = KSA, Sierra Leone = SLE, Scotland = SCOT, Netherlands = NED and Nepal = NEP. Name-to-code mappings should be explicit and cross-checked against the team names in the filter forms.
+- **Player-search country codes:** saved player-search, results and player pages use country/team codes from Statsguru rows and ground prefixes. Codes that differ from obvious first letters include Austria = AUT, Bermuda = BER, Indonesia = INA, Malaysia = MAS, Saudi Arabia = KSA, Sierra Leone = SLE, Scotland = SCOT, Netherlands = NED and Nepal = NEP. Italy appeared only as the ground prefix ITA in saved pages, not as a player row.
 - **Sort caption:** for example "Ordered by runs scored (descending)" or "Ordered by wickets taken (descending)".
 - **No results:** the table has one row reading "No records available to match this query".
 - **Freshness note:** each results page says "Statsguru includes the following current or recent <format> matches:", followed by match names, dates and links (`/ci/engine/match/<id>.html`, labelled like "Test # 2635").

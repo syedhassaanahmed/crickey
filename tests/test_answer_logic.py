@@ -104,8 +104,8 @@ def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
             1: None,
             2: ("balls_faced", 500),
             3: ("balls_faced", 250),
-            6: ("balls_faced", 500),
-            11: ("balls_faced", 1000),
+            6: None,
+            11: None,
         },
         "hundreds": {
             1: ("hundreds", 5),
@@ -139,18 +139,19 @@ def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
             1: None,
             2: ("hundreds", 5),
             3: ("hundreds", 1),
-            6: ("hundreds", 3),
-            11: ("hundreds", 10),
+            6: None,
+            11: None,
         },
     }
     for key in ("strike_rate", "balls_per_dismissal"):
         metric = batting_metric(key)
-        try:
-            metric.value_from_row({"SR": None, "BF": None}, class_id=1)
-        except ValueError as error:
-            assert f"metric {key!r} is not supported for class 1" in str(error)
-        else:
-            raise AssertionError(f"{key} should be unsupported for Tests")
+        for class_id in (1, 6, 11):
+            try:
+                metric.value_from_row({"SR": None, "BF": None}, class_id=class_id)
+            except ValueError as error:
+                assert f"metric {key!r} is not supported for class {class_id}" in str(error)
+            else:
+                raise AssertionError(f"{key} should be unsupported for class {class_id}")
 
 
 def test_every_default_minimum_compiles_as_statsguru_qualification() -> None:
@@ -408,6 +409,38 @@ def test_country_filter_uses_explicit_real_codes_and_never_auto_matches_on_miss(
         assert germany.match is None
         assert [candidate.name for candidate in germany.candidates] == ["V Kohli"]
         assert germany.note == "country 'Germany' did not match any candidates"
+
+    asyncio.run(run())
+
+
+def test_country_filter_maps_bermuda_and_malaysia_codes() -> None:
+    async def run() -> None:
+        brangman_url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=Brangman;template=analysis"
+        brangman = """
+        <table>
+        <tr><td>DL Brangman</td><td>BER</td><td><a href="/ci/engine/player/1.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 20 matches)</td></tr>
+        <tr><td>DL Brangman</td><td>BMUDA</td><td><a href="/ci/engine/player/2.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 1 match)</td></tr>
+        </table>
+        """
+        virandeep_url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=Virandeep+Singh;template=analysis"
+        virandeep = """
+        <table>
+        <tr><td>Virandeep Singh</td><td>MAS</td><td><a href="/ci/engine/player/3.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 80 matches)</td></tr>
+        <tr><td>Virandeep Singh</td><td>MAL</td><td><a href="/ci/engine/player/4.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 1 match)</td></tr>
+        </table>
+        """
+        resolver = NameResolver(
+            Fetcher(
+                Settings(min_interval=timedelta(seconds=0)),
+                page_source=MemoryPageSource({brangman_url: brangman, virandeep_url: virandeep}),
+            )
+        )
+
+        bermuda = await resolver.resolve_player("Brangman", class_id=3, country="Bermuda")
+        malaysia = await resolver.resolve_player("Virandeep Singh", class_id=3, country="Malaysia")
+
+        assert bermuda.match is not None and bermuda.match.player_id == 1
+        assert malaysia.match is not None and malaysia.match.player_id == 3
 
     asyncio.run(run())
 
@@ -983,6 +1016,32 @@ def test_freshness_line_without_live_warning() -> None:
         ),
         today=date(2026, 10, 4),
     )
+    end_date_today_warning = freshness_line(
+        (
+            RecentMatch(
+                "A v B, 3rd Test",
+                date(2026, 10, 1),
+                date(2026, 10, 4),
+                4,
+                "Test # 3",
+                False,
+            ),
+        ),
+        today=date(2026, 10, 4),
+    )
+    ended_yesterday = freshness_line(
+        (
+            RecentMatch(
+                "A v B, 4th Test",
+                date(2026, 10, 1),
+                date(2026, 10, 3),
+                5,
+                "Test # 4",
+                False,
+            ),
+        ),
+        today=date(2026, 10, 4),
+    )
     empty = freshness_line((), today=date(2026, 10, 4))
 
     assert (
@@ -990,6 +1049,8 @@ def test_freshness_line_without_live_warning() -> None:
         == "Freshness: newest match Statsguru included is A v B, 1st Test (Test # 1), ending 4 Sep 2026."
     )
     assert warning.endswith("Warning: a listed match may still be in progress.")
+    assert end_date_today_warning.endswith("Warning: a listed match may still be in progress.")
+    assert "Warning:" not in ended_yesterday
     assert (
         empty
         == "Freshness: Statsguru did not list any current or recent matches on the proof page."

@@ -148,8 +148,8 @@ BATTING_METRICS: dict[str, Metric] = {
         "batting_strike_rate",
         "batting_strike_rate",
         BetterDirection.HIGHER,
-        _mins("balls_faced", {2: 500, 3: 250, 6: 500, 11: 1000}),
-        supported_classes=(2, 3, 6, 11),
+        _mins("balls_faced", {2: 500, 3: 250}),
+        supported_classes=(2, 3),
     ),
     "hundreds": Metric(
         "hundreds",
@@ -203,12 +203,12 @@ BATTING_METRICS: dict[str, Metric] = {
         None,
         None,
         BetterDirection.HIGHER,
-        _mins("hundreds", {2: 5, 3: 1, 6: 3, 11: 10}),
+        _mins("hundreds", {2: 5, 3: 1}),
         numerator_column="BF",
         denominator_column="Outs",
         formula_label="balls faced ÷ dismissals",
         display_precision=2,
-        supported_classes=(2, 3, 6, 11),
+        supported_classes=(2, 3),
     ),
 }
 
