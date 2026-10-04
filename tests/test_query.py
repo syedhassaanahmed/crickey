@@ -231,6 +231,14 @@ async def _query_stats_fetch_false(query: dict[str, object]) -> dict[str, object
     return result.structured_content
 
 
+async def _query_stats_fetch_false_many(queries: list[dict[str, object]]) -> None:
+    fetcher = Fetcher(Settings(), clock=FrozenClock(), page_source=MemoryPageSource({}))
+    async with Client(create_server(Settings(), fetcher=fetcher)) as client:
+        for query in queries:
+            result = await client.call_tool("query_stats", {"query": query, "fetch": False})
+            assert result.is_error is False, query
+
+
 def _synthetic_advanced_form(stat_type: str, *, result_values: str = "") -> str:
     result_values = result_values or (
         '<input type="checkbox" name="result" value="1"> won match'
@@ -597,26 +605,27 @@ def test_catalog_has_r5_overall_sort_fields(class_id: int, stat_type: str) -> No
 @pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
 @pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
 def test_query_stats_accepts_every_r5_overall_minimum_field(class_id: int, stat_type: str) -> None:
-    for field in R5_OVERALL_QUAL_FIELDS[stat_type]:
-        asyncio.run(
-            _query_stats_fetch_false(
-                {
-                    "class": class_id,
-                    "type": stat_type,
-                    "qualval1": field,
-                    "qualmin1": 1,
-                }
-            )
+    asyncio.run(
+        _query_stats_fetch_false_many(
+            [
+                {"class": class_id, "type": stat_type, "qualval1": field, "qualmin1": 1}
+                for field in sorted(R5_OVERALL_QUAL_FIELDS[stat_type])
+            ]
         )
+    )
 
 
 @pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
 @pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
 def test_query_stats_accepts_every_r5_overall_sort_field(class_id: int, stat_type: str) -> None:
-    for field in R5_OVERALL_SORT_FIELDS[stat_type]:
-        asyncio.run(
-            _query_stats_fetch_false({"class": class_id, "type": stat_type, "orderby": field})
+    asyncio.run(
+        _query_stats_fetch_false_many(
+            [
+                {"class": class_id, "type": stat_type, "orderby": field}
+                for field in sorted(R5_OVERALL_SORT_FIELDS[stat_type])
+            ]
         )
+    )
 
 
 def test_season_period_compiles_without_dates() -> None:
