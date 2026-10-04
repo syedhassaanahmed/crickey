@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 ## Statsguru coverage (`query_stats`)
-`query_stats` exposes Statsguru's own basic and advanced forms for every stat type, with Statsguru's field names and values (R4) and its minimum and sort options (R5). Nothing is renamed or regrouped. It accepts all three result qualifications that Statsguru supports (R2).
+`query_stats` exposes Statsguru's own basic and advanced forms for every stat type, with Statsguru's field names and values (R4) and its minimum and sort options (R5). Nothing is renamed or regrouped. It accepts checkbox groups as repeated values and all three result qualifications that Statsguru supports (R2).
 
 ## MCP tools (v1)
 Five tools (D14), all read-only.
@@ -91,6 +91,7 @@ Server instructions tell the agent to:
 ## Proof links and freshness
 The proof-link builder implements D16, and the answer renderer D17.
 - **Pinned dates:** `spanmin1` is the format's first match date (from the built-in tables) and `spanmax1` is today, unless the question's period is narrower.
+- **Unresolved career-relative periods:** query specs can carry them, but proof links are built only after they have been resolved to concrete dates.
 - **Final filter in the link:** added through `qualval2` and `qualval3` (R2).
 - **Freshness line:** from the results page's list of current or recent matches (R8).
 - **Profile links:** built from the player ID in Statsguru's format (R6).
