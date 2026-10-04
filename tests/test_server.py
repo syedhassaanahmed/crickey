@@ -116,6 +116,18 @@ def bowling_page() -> str:
     """
 
 
+def team_page() -> str:
+    return """
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr><th>Team</th><th>Span</th><th>Mat</th><th>Won</th><th>Lost</th><th>Tied</th><th>NR</th><th>W/L</th><th>Ave</th><th>RPO</th><th>Inns</th><th>HS</th><th>LS</th></tr>
+    <tr class="data1"><td>Pakistan</td><td>2016-2026</td><td>145</td><td>85</td><td>51</td><td>1</td><td>8</td><td>1.666</td><td>26.38</td><td>8.17</td><td>138</td><td>232</td><td>99</td></tr>
+    </table>
+    <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
+    </body></html>
+    """
+
+
 def row(player_id: int, name: str, team: str, runs: int, ave: str = "50.00") -> str:
     return f"""
     <tr class="data1"><td><a href="/ci/content/player/{player_id}.html">{name}</a> ({team})</td><td>2015-2026</td><td>10</td><td>{runs}</td><td>101*</td><td>{ave}</td><td>1</td></tr>
@@ -667,6 +679,52 @@ async def test_query_stats_displays_overs_as_statsguru_text() -> None:
     assert source.requests == [results_url(query)]
     assert result.structured_content["rows"][0]["Overs"] == "449.5"
     assert "449.5" in result.content[0].text
+
+
+async def test_query_stats_displays_team_rows_without_player_metadata() -> None:
+    query = StatsguruQuery(**{"class": 3, "type": "team", "orderby": "won"})
+    source, _, client = await call_with_source({results_url(query): team_page()})
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats", {"query": {"class": 3, "type": "team", "orderby": "won"}}
+        )
+
+    assert source.requests == [results_url(query)]
+    assert result.structured_content["columns"] == [
+        "Team",
+        "Span",
+        "Mat",
+        "Won",
+        "Lost",
+        "Tied",
+        "NR",
+        "W/L",
+        "Ave",
+        "RPO",
+        "Inns",
+        "HS",
+        "LS",
+    ]
+    assert result.structured_content["rows"] == [
+        {
+            "Team": "Pakistan",
+            "Span": "2016-2026",
+            "Mat": 145,
+            "Won": 85,
+            "Lost": 51,
+            "Tied": 1,
+            "NR": 8,
+            "W/L": "1.666",
+            "Ave": "26.38",
+            "RPO": "8.17",
+            "Inns": 138,
+            "HS": 232,
+            "LS": 99,
+        }
+    ]
+    assert "player_id" not in result.structured_content["rows"][0]
+    assert "| Team" in result.content[0].text
 
 
 async def test_query_stats_too_broad_and_validation_errors_are_clear_tool_errors() -> None:

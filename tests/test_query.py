@@ -37,6 +37,20 @@ TYPE_LABELS_FOR_TESTS = {
     "bowling": "bowling",
     "fielding": "fielding",
 }
+REPRESENTATIVE_STAT_QUERIES = {
+    "batting": ({"runsmin1": 1}, "runs", "runs", "runsval1=runs"),
+    "bowling": ({"wicketsmin1": 1}, "wickets", "wickets", "wicketsval1=wickets"),
+    "fielding": ({"caughtmin1": 1}, "dismissals", "dismissals", "caughtval1=caught"),
+    "allround": ({"wicketsmin1": 1}, "allround_average", "allround_average", "wicketsval1=wickets"),
+    "fow": (
+        {"partnership_runsmin1": 1},
+        "fow_runs",
+        "fow_runs",
+        "partnership_runsval1=partnership_runs",
+    ),
+    "team": ({"runsmin1": 1}, "won", "won", "runsval1=runs"),
+    "aggregate": ({}, "runs", "runs", "type=aggregate"),
+}
 
 
 def _synthetic_advanced_form(stat_type: str, *, result_values: str = "") -> str:
@@ -276,64 +290,31 @@ def test_narrower_period_overrides_default_pinning_and_as_of_is_injectable() -> 
     assert "spanmax1=31+Dec+2021" in narrower.results_url(as_of=date(2026, 10, 4))
 
 
-@pytest.mark.parametrize(
-    ("stat_type", "kwargs", "expected"),
-    [
-        (
-            "batting",
-            {"orderby": "runs", "qualifications": (Qualification(field="runs", minimum=1),)},
-            "type=batting",
-        ),
-        (
-            "bowling",
-            {"orderby": "wickets", "qualifications": (Qualification(field="wickets", minimum=1),)},
-            "type=bowling",
-        ),
-        (
-            "fielding",
-            {
-                "orderby": "dismissals",
-                "qualifications": (Qualification(field="dismissals", minimum=1),),
-            },
-            "type=fielding",
-        ),
-        (
-            "allround",
-            {
-                "orderby": "allround_average",
-                "qualifications": (Qualification(field="allround_average", minimum=1),),
-            },
-            "type=allround",
-        ),
-        (
-            "fow",
-            {
-                "orderby": "fow_runs",
-                "qualifications": (Qualification(field="fow_runs", minimum=1),),
-            },
-            "type=fow",
-        ),
-        (
-            "team",
-            {"orderby": "won", "qualifications": (Qualification(field="won", minimum=1),)},
-            "type=team",
-        ),
-        (
-            "aggregate",
-            {"orderby": "runs", "qualifications": (Qualification(field="runs", minimum=1),)},
-            "type=aggregate",
-        ),
-    ],
-)
-def test_every_stat_type_compiles_representative_query(
-    stat_type: str, kwargs: dict[str, object], expected: str
+@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
+@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
+def test_every_stat_type_and_class_compiles_representative_query(
+    class_id: int, stat_type: str
 ) -> None:
-    query = StatsguruQuery(**{"class": 3, "type": stat_type, **kwargs})
+    filters, qualification, orderby, expected_filter = REPRESENTATIVE_STAT_QUERIES[stat_type]
+    query = StatsguruQuery(
+        **{
+            "class": class_id,
+            "type": stat_type,
+            **filters,
+            "qualifications": (Qualification(field=qualification, minimum=1),),
+            "orderby": orderby,
+            "size": 10,
+        }
+    )
 
     url = query.results_url(as_of=date(2026, 10, 4))
 
-    assert expected in url
-    assert "spanmin1=17+Feb+2005" in url
+    assert f"class={class_id}" in url
+    assert f"type={stat_type}" in url
+    assert f"qualval1={qualification}" in url
+    assert f"orderby={orderby}" in url
+    assert expected_filter in url
+    assert "size=10" in url
 
 
 def test_season_period_compiles_without_dates() -> None:

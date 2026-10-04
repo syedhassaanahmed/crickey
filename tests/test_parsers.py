@@ -186,6 +186,305 @@ def test_class6_results_parse_data2_rows_and_note_teams() -> None:
     assert third["HS_not_out"] is True
 
 
+def _synthetic_results_page(headers: tuple[str, ...], row: str, *, total: int = 1) -> str:
+    header_html = "".join(f"<th>{header}</th>" for header in headers)
+    return f"""
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr>{header_html}</tr>
+    {row}
+    </table>
+    <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>{total}</b></td></tr></table>
+    </body></html>
+    """
+
+
+@pytest.mark.parametrize(
+    ("stat_type", "html", "expected_columns", "expected_values"),
+    [
+        (
+            "batting",
+            _synthetic_results_page(
+                ("Player", "Span", "Mat", "Runs", "HS"),
+                '<tr class="data1"><td><a href="/ci/content/player/1.html">Alpha Batter</a> (AAA)</td><td>2020-2026</td><td>5</td><td>250</td><td>101*</td></tr>',
+            ),
+            (
+                "Player",
+                "player_name",
+                "player_id",
+                "player_team_codes",
+                "Span",
+                "Mat",
+                "Runs",
+                "Runs_not_out",
+                "HS",
+                "HS_not_out",
+            ),
+            {
+                "Player": "Alpha Batter (AAA)",
+                "player_name": "Alpha Batter",
+                "player_id": 1,
+                "player_team_codes": ("AAA",),
+                "Span": Span("2020", "2026"),
+                "Mat": 5,
+                "Runs": 250,
+                "HS": 101,
+                "HS_not_out": True,
+            },
+        ),
+        (
+            "bowling",
+            _synthetic_results_page(
+                ("Player", "Span", "Mat", "Overs", "Runs", "Wkts", "BBI", "Ave", "Econ"),
+                '<tr class="data1"><td><a href="/ci/content/player/2.html">Beta Bowler</a> (BBB)</td><td>2021-2026</td><td>6</td><td>24.5</td><td>150</td><td>9</td><td>4/22</td><td>16.66</td><td>6.04</td></tr>',
+            ),
+            (
+                "Player",
+                "player_name",
+                "player_id",
+                "player_team_codes",
+                "Span",
+                "Mat",
+                "Overs",
+                "Runs",
+                "Runs_not_out",
+                "Wkts",
+                "BBI",
+                "Ave",
+                "Econ",
+            ),
+            {
+                "Player": "Beta Bowler (BBB)",
+                "player_name": "Beta Bowler",
+                "player_id": 2,
+                "player_team_codes": ("BBB",),
+                "Overs": Overs(24, 5),
+                "Runs": 150,
+                "Wkts": 9,
+                "BBI": "4/22",
+                "Ave": Decimal("16.66"),
+                "Econ": Decimal("6.04"),
+            },
+        ),
+        (
+            "fielding",
+            _synthetic_results_page(
+                ("Player", "Span", "Mat", "Inns", "Dis", "Ct", "St", "MD", "D/I"),
+                '<tr class="data1"><td><a href="/ci/content/player/3.html">Gamma Keeper</a> (CCC)</td><td>2019-2026</td><td>7</td><td>10</td><td>18</td><td>15</td><td>3</td><td>5 (4ct 1st)</td><td>1.800</td></tr>',
+            ),
+            (
+                "Player",
+                "player_name",
+                "player_id",
+                "player_team_codes",
+                "Span",
+                "Mat",
+                "Inns",
+                "Dis",
+                "Ct",
+                "St",
+                "MD",
+                "D/I",
+            ),
+            {
+                "Player": "Gamma Keeper (CCC)",
+                "player_name": "Gamma Keeper",
+                "player_id": 3,
+                "player_team_codes": ("CCC",),
+                "Dis": 18,
+                "Ct": 15,
+                "St": 3,
+                "MD": "5 (4ct 1st)",
+                "D/I": Decimal("1.800"),
+            },
+        ),
+        (
+            "allround",
+            _synthetic_results_page(
+                (
+                    "Player",
+                    "Span",
+                    "Mat",
+                    "Runs",
+                    "HS",
+                    "Bat Av",
+                    "Wkts",
+                    "BBI",
+                    "Bowl Av",
+                    "Ct",
+                    "St",
+                    "Ave Diff",
+                ),
+                '<tr class="data1"><td><a href="/ci/content/player/4.html">Delta Allrounder</a> (DDD)</td><td>2018-2026</td><td>8</td><td>400</td><td>99</td><td>40.00</td><td>20</td><td>5/30</td><td>22.50</td><td>12</td><td>0</td><td>17.50</td></tr>',
+            ),
+            (
+                "Player",
+                "player_name",
+                "player_id",
+                "player_team_codes",
+                "Span",
+                "Mat",
+                "Runs",
+                "Runs_not_out",
+                "HS",
+                "HS_not_out",
+                "Bat Av",
+                "Wkts",
+                "BBI",
+                "Bowl Av",
+                "Ct",
+                "St",
+                "Ave Diff",
+            ),
+            {
+                "Player": "Delta Allrounder (DDD)",
+                "player_name": "Delta Allrounder",
+                "player_id": 4,
+                "player_team_codes": ("DDD",),
+                "Bat Av": Decimal("40.00"),
+                "Wkts": 20,
+                "Bowl Av": Decimal("22.50"),
+                "Ave Diff": Decimal("17.50"),
+            },
+        ),
+        (
+            "fow",
+            _synthetic_results_page(
+                ("Partners", "Span", "Inns", "NO", "Runs", "High", "Ave"),
+                '<tr class="data1"><td><a href="/ci/content/player/5.html">Epsilon Opener</a> &amp; <a href="/ci/content/player/6.html">Zeta Opener</a> (EEE)</td><td>2022-2026</td><td>9</td><td>1</td><td>700</td><td>199</td><td>87.50</td></tr>',
+            ),
+            ("Partners", "Span", "Inns", "NO", "Runs", "Runs_not_out", "High", "Ave"),
+            {
+                "Partners": "Epsilon Opener & Zeta Opener (EEE)",
+                "Span": Span("2022", "2026"),
+                "Inns": 9,
+                "NO": 1,
+                "Runs": 700,
+                "High": 199,
+                "Ave": Decimal("87.50"),
+            },
+        ),
+        (
+            "team",
+            _synthetic_results_page(
+                (
+                    "Team",
+                    "Span",
+                    "Mat",
+                    "Won",
+                    "Lost",
+                    "Tied",
+                    "NR",
+                    "W/L",
+                    "Ave",
+                    "RPO",
+                    "Inns",
+                    "HS",
+                    "LS",
+                ),
+                '<tr class="data1"><td>Sample Team</td><td>2020-2026</td><td>10</td><td>6</td><td>3</td><td>0</td><td>1</td><td>2.000</td><td>31.25</td><td>8.10</td><td>10</td><td>250</td><td>90</td></tr>',
+            ),
+            (
+                "Team",
+                "Span",
+                "Mat",
+                "Won",
+                "Lost",
+                "Tied",
+                "NR",
+                "W/L",
+                "Ave",
+                "RPO",
+                "Inns",
+                "HS",
+                "HS_not_out",
+                "LS",
+            ),
+            {
+                "Team": "Sample Team",
+                "Span": Span("2020", "2026"),
+                "Mat": 10,
+                "Won": 6,
+                "Lost": 3,
+                "NR": 1,
+                "W/L": Decimal("2.000"),
+                "Ave": Decimal("31.25"),
+                "RPO": Decimal("8.10"),
+                "HS": 250,
+                "LS": 90,
+            },
+        ),
+        (
+            "aggregate",
+            _synthetic_results_page(
+                (
+                    "Team",
+                    "Span",
+                    "Mat",
+                    "Won",
+                    "Tied",
+                    "Draw",
+                    "Runs",
+                    "Wkts",
+                    "Balls",
+                    "Ave",
+                    "RPO",
+                ),
+                '<tr class="data1"><td>All Teams</td><td>1877-2026</td><td>11</td><td>8</td><td>1</td><td>2</td><td>3000</td><td>100</td><td>6500</td><td>30.00</td><td>2.76</td></tr>',
+            ),
+            (
+                "Team",
+                "Span",
+                "Mat",
+                "Won",
+                "Tied",
+                "Draw",
+                "Runs",
+                "Runs_not_out",
+                "Wkts",
+                "Balls",
+                "Ave",
+                "RPO",
+            ),
+            {
+                "Team": "All Teams",
+                "Span": Span("1877", "2026"),
+                "Mat": 11,
+                "Won": 8,
+                "Tied": 1,
+                "Draw": 2,
+                "Runs": 3000,
+                "Wkts": 100,
+                "Balls": 6500,
+                "Ave": Decimal("30.00"),
+                "RPO": Decimal("2.76"),
+            },
+        ),
+    ],
+)
+def test_results_tables_parse_every_stat_type(
+    stat_type: str,
+    html: str,
+    expected_columns: tuple[str, ...],
+    expected_values: dict[str, object],
+) -> None:
+    parsed = parse_results_page(html)
+
+    assert parsed.no_records is False
+    assert parsed.totals.page == 1
+    assert parsed.totals.pages == 1
+    assert parsed.totals.showing_from == 1
+    assert parsed.totals.showing_to == 1
+    assert parsed.totals.total == 1
+    assert parsed.headers == expected_columns
+    assert len(parsed.table) == 1
+    row = parsed.table.iloc[0]
+    for column, value in expected_values.items():
+        assert row[column] == value, stat_type
+    if stat_type in {"fow", "team", "aggregate"}:
+        assert "player_id" not in parsed.table.columns
+
+
 def test_class6_no_records_data2_page_is_empty_and_flagged() -> None:
     html = """
     <table class="engineTable"><caption>Overall figures</caption>
