@@ -76,6 +76,7 @@ Earlier on 3 Oct, `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 o
 | Records index | `https://stats.cricinfo.com/ci/engine/records/index.html?class=<class>` |
 
 - **Separators:** parameters are separated by `;`, and `&` also works. Cricinfo redirects every query to a standard URL with parameters sorted alphabetically, for example `?class=2;orderby=hundreds;qualmin1=10;qualval1=hundreds;template=results;type=batting`.
+- **Repeated keys:** a live T20I team results query with `result=1;result=2;size=10` returned 200 and kept the standard URL as `class=3;result=1;result=2;size=10;template=results;type=team`, so checkbox groups are encoded as repeated keys. Only that already-sorted order was checked.
 - **Links inside pages:** player profiles are `/ci/content/player/<id>.html`; matches are `/ci/engine/match/<id>.html`.
 - **Date range:** `spanmin1=07+Sep+2016;spanmax1=24+Feb+2026;spanval1=span`, with dates as `DD Mon YYYY`. The form's hidden `spanmin0` and `spanmax0` hold the class's first and latest match dates. First match dates: Tests 15 Mar 1877, ODIs 05 Jan 1971, T20Is 17 Feb 2005, all T20 13 Jun 2003 and combined internationals 15 Mar 1877.
 - **Minimums:** `qualval1=<field>;qualmin1=<n>`, with optional `qualmax1`. The form shows only one, but `qualval2`/`qualmin2` and `qualval3`/`qualmin3` also work: a query with three minimums returned only rows meeting all three.
@@ -169,9 +170,9 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 | Bowling | Type of Bowler (by hand) (`bowling_hand`: 1 right-arm, 2 left-arm, 3 unknown arm); Type of Bowler (by style) (`bowling_pacespin`: 1 pace, 2 spin, 3 mixture/unknown); Balls bowled in an inns (`ballsmin1`, `ballsmax1`, `ballsquickpick`; 0–588); Runs conceded (`concededmin1`, `concededmax1`, `concededquickpick`; 0–298); Wickets taken (`wicketsmin1`, `wicketsmax1`, `wicketsquickpick`; 0–10); Bowling position (`bowling_positionmin1`, `bowling_positionmax1`, `bowling_positionquickpick`; 0–11) |
 | Fielding | Catches in an innings (`caughtmin1`, `caughtmax1`, `caughtquickpick`; 0–7); Stumpings in an innings (`stumpedmin1`, `stumpedmax1`, `stumpedquickpick`; 0–5) |
 | All-round | All the batting, bowling and fielding fields above |
-| Partnerships (`fow`) | Partnership runs (`partnership_runsmin1`, `partnership_runsmax1`, `partnership_runsquickpick`; 0–624); For wicket (`partnership_wicketmin1`, `partnership_wicketmax1`, `partnership_wicketquickpick`; 1–10); `fow_type` (1 out, 2 not out, 3 end of innings). No Captaincy or Wicketkeeper. |
-| Team | Team runs (`runsmin1`, `runsmax1`, `runsquickpick`; 0–952); Team wickets (`wicketsmin1`, `wicketsmax1`, `wicketsquickpick`; 0–10); Team balls received/bowled (`ballsmin1`, `ballsmax1`, `ballsquickpick`; 0–2012); `event` (1 all out, 2 declared, 3 target reached, 4 forfeited); Team totals for (`team_view`: blank for the batting team, `bowl` for the bowling team). No Captaincy or Wicketkeeper. |
-| Aggregate | None. It also lacks Batting or fielding first, Captaincy, Wicketkeeper, Innings in match and Group figures by. |
+| Partnerships (`fow`) | Partnership runs (`partnership_runsmin1`, `partnership_runsmax1`, `partnership_runsquickpick`; 0–624); For wicket (`partnership_wicketmin1`, `partnership_wicketmax1`, `partnership_wicketquickpick`; 1–10); `fow_type` (1 out, 2 not out, 3 end of innings). No age, debut/last match, Captaincy or Wicketkeeper. |
+| Team | Team runs (`runsmin1`, `runsmax1`, `runsquickpick`; 0–952); Team wickets (`wicketsmin1`, `wicketsmax1`, `wicketsquickpick`; 0–10); Team balls received/bowled (`ballsmin1`, `ballsmax1`, `ballsquickpick`; 0–2012); `event` (1 all out, 2 declared, 3 target reached, 4 forfeited); Team totals for (`team_view`: blank for the batting team, `bowl` for the bowling team). No age, debut/last match, Captaincy or Wicketkeeper. |
+| Aggregate | None. It also lacks opposition, home/away, result, toss, Captaincy, debut/last match, age, Batting or fielding first, Wicketkeeper, Innings in match and Group figures by; it still has match-involving player and captain searches. |
 
 **Bowling quick picks:**
 - `ballsquickpick`: 1 six or less, 2 30 or less, 3 30 or more, 4 60 or less, 5 60 or more, 6 100 or more, 7 200 or more.
@@ -199,8 +200,10 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 - ODIs list 29 teams, T20Is 110 (including associates such as 187 Qatar and 36 Japan), combined internationals 113, and all T20 562.
 - In all T20, national teams keep their IDs (7 Pakistan, 6 India), and domestic and franchise teams have their own, for example 5799 Lahore Qalandars, 5793 Karachi Kings, 4346 Mumbai Indians and 4849 Sydney Sixers.
 - In the advanced batting forms for D3's built-in classes, the `team` and `opposition` lists are identical, so the built-in team table can be used for both filters.
+- The class 2, 3 and 6 batting forms differ from Tests: `result` offers 5 (no result) instead of 4 (drawn), `final_type` includes 3 tournament semi-finals and 4 tournament quarter-finals, `innings_number` is 1–2 only, `batting_hand` includes 3 unknown, and there is no batting `view=match`.
+- The class 3, 6 and 11 batting forms additionally have `floodlit=3` for night matches and `dismissal=9` for hit the ball twice. The T20I batting form has age range defaults of 14–62 instead of 14–52.
 
-**Choice filters.** Checkboxes accept several values; leaving a radio blank means "either".
+**Choice filters.** Checkboxes accept several values; selects and radios accept one value. Leaving a radio blank means "either".
 
 | Parameter | Values |
 |---|---|
@@ -297,7 +300,7 @@ The sort list for each view contains all its minimum fields plus the extras show
 | Team | matches, won, lost, tied, drawn, no_result, win_loss_ratio, percentage_won, percentage_lost, percentage_drawn, percentage_tied, percentage_no_result, runs, wickets, balls, team_average, runs_per_over, team_innings, team_high_score, team_low_score | team, start |
 | Aggregate | The team fields except lost, win_loss_ratio, team_innings, team_high_score and team_low_score | start |
 
-Each type also has per-view lists, read the same way from its form.
+Each type also has per-view lists, read the same way from its form. Fielding, all-round, partnerships, team and aggregate are not "overall for every view": for example team `innings` has `team_score`, `team_wickets`, `team_overs`, `target` and `lead` but not `won`; all-round `awards` has `awards_match` and `awards_series`; partnerships `innings` has `fow_score`; year and season views add `year` or `season` respectively.
 
 ## 6. Player pages
 - **URL:** `https://stats.cricinfo.com/ci/engine/player/<id>.html?class=<class>;template=results;type=<type>[;view=<view>]`
