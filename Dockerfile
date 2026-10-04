@@ -15,6 +15,7 @@ COPY src ./src
 RUN --mount=type=secret,id=uv_index_url,env=UV_DEFAULT_INDEX,required=false \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --no-editable \
+    && rm -f /app/.venv/.lock \
     && rm -f uv.lock
 
 FROM python:3.14.8-slim-trixie AS final

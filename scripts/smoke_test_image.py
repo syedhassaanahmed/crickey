@@ -55,24 +55,20 @@ async def smoke_test(image: str) -> dict[str, float]:
     port = free_port()
     container_id: str | None = None
     stop_seconds = 0.0
-    failed = False
     try:
-        container_id = start_http_container(image, port)
+        container_id = create_http_container(image, port)
+        start_container(container_id)
         wait_for_health(port, container_id)
         await check_http_tools(port)
+        stop_seconds = stop_http_container(container_id)
     except Exception as error:
-        failed = True
         raise SmokeError(f"{format_exception(error)}\n\n{container_logs(container_id)}") from error
     finally:
         if container_id is not None:
-            if container_is_running(container_id):
-                try:
-                    stop_seconds = stop_container(container_id)
-                except SmokeError as stop_error:
-                    if not failed:
-                        raise
-                    print(f"Cleanup stop failed: {stop_error}", file=sys.stderr)
-            remove_container(container_id)
+            try:
+                remove_container(container_id)
+            except SmokeError as remove_error:
+                print(f"Cleanup remove failed: {remove_error}", file=sys.stderr)
 
     if stop_seconds >= STOP_GRACE_SECONDS - 0.25:
         raise SmokeError(
@@ -86,8 +82,15 @@ async def smoke_test(image: str) -> dict[str, float]:
 def format_exception(error: BaseException) -> str:
     leaves = exception_leaves(error)
     if len(leaves) == 1:
-        return str(leaves[0]) or leaves[0].__class__.__name__
-    return "; ".join(str(leaf) or leaf.__class__.__name__ for leaf in leaves)
+        return format_exception_leaf(leaves[0])
+    return "; ".join(format_exception_leaf(leaf) for leaf in leaves)
+
+
+def format_exception_leaf(error: BaseException) -> str:
+    message = str(error)
+    if message:
+        return f"{error.__class__.__name__}: {message}"
+    return error.__class__.__name__
 
 
 def exception_leaves(error: BaseException) -> list[BaseException]:
@@ -137,12 +140,11 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def start_http_container(image: str, port: int) -> str:
+def create_http_container(image: str, port: int) -> str:
     completed = run(
         [
             "docker",
-            "run",
-            "-d",
+            "create",
             "--read-only",
             "-p",
             f"127.0.0.1:{port}:8765",
@@ -151,8 +153,12 @@ def start_http_container(image: str, port: int) -> str:
     )
     container_id = completed.stdout.strip()
     if not container_id:
-        raise SmokeError("docker run did not return a container id")
+        raise SmokeError("docker create did not return a container id")
     return container_id
+
+
+def start_container(container_id: str) -> None:
+    run(["docker", "start", container_id])
 
 
 def health_body(port: int) -> bytes:
@@ -196,11 +202,11 @@ def validate_query_stats_result(*, is_error: bool, structured: dict[str, object]
         raise SmokeError(f"query_stats(fetch=false) did not return a Statsguru link: {link!r}")
     if "spanmin1=" not in link or "spanmax1=" not in link:
         raise SmokeError(f"query_stats(fetch=false) returned an unpinned link: {link!r}")
-    if structured.get("fetch") is not False:
+    if "fetch" not in structured or structured.get("fetch") is not False:
         raise SmokeError(f"query_stats(fetch=false) returned fetch={structured.get('fetch')!r}")
-    if structured.get("total") is not None:
+    if "total" not in structured or structured.get("total") is not None:
         raise SmokeError(f"query_stats(fetch=false) returned total={structured.get('total')!r}")
-    if structured.get("rows") != []:
+    if "rows" not in structured or structured.get("rows") != []:
         raise SmokeError(f"query_stats(fetch=false) returned rows={structured.get('rows')!r}")
 
 
@@ -265,8 +271,29 @@ def stop_container(container_id: str) -> float:
     return time.monotonic() - start
 
 
+def stop_http_container(container_id: str) -> float:
+    if not container_is_running(container_id):
+        exit_code = container_exit_code(container_id)
+        raise SmokeError(
+            f"HTTP container was not running before docker stop; exit code was {exit_code}"
+        )
+    stop_seconds = stop_container(container_id)
+    exit_code = container_exit_code(container_id)
+    if exit_code != 0:
+        raise SmokeError(f"HTTP container exited with code {exit_code} after docker stop")
+    return stop_seconds
+
+
+def container_exit_code(container_id: str) -> int | None:
+    output = docker_output(["inspect", "-f", "{{.State.ExitCode}}", container_id]).strip()
+    try:
+        return int(output)
+    except ValueError:
+        return None
+
+
 def remove_container(container_id: str) -> None:
-    docker_output(["rm", "-f", container_id])
+    run(["docker", "rm", "-f", container_id])
 
 
 if __name__ == "__main__":
