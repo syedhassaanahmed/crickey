@@ -29,16 +29,25 @@ def _stdio(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="crickey")
+    settings_parent = argparse.ArgumentParser(add_help=False)
+    add_settings_flags(settings_parent)
+
+    parser = argparse.ArgumentParser(prog="crickey", parents=[settings_parent])
     parser.set_defaults(func=_serve)
     subparsers = parser.add_subparsers(dest="command")
 
-    serve = subparsers.add_parser("serve", help="serve over Streamable HTTP (placeholder)")
-    add_settings_flags(serve)
+    serve = subparsers.add_parser(
+        "serve",
+        help="serve over Streamable HTTP (placeholder)",
+        parents=[settings_parent],
+    )
     serve.set_defaults(func=_serve)
 
-    stdio = subparsers.add_parser("stdio", help="serve over stdio for debugging (placeholder)")
-    add_settings_flags(stdio)
+    stdio = subparsers.add_parser(
+        "stdio",
+        help="serve over stdio for debugging (placeholder)",
+        parents=[settings_parent],
+    )
     stdio.set_defaults(func=_stdio)
 
     return parser

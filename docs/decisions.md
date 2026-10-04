@@ -18,7 +18,7 @@ Key decisions for crickey, as of 3 October 2026. Each one says what was decided 
 9. **15 seconds between requests** by default, matching robots.txt's crawl delay (R1). It can be lowered to 2 seconds, with a warning.
 10. **At most 4 result pages (800 rows) per tool call.** Broader queries are refused with a "too broad" message. There's no daily request budget.
 11. **Retries take seconds; pauses take minutes.**
-    - Timeouts, server errors (5xx) and 429 are retried within the tool call: about 15 s, then 30 s, at most 3 attempts, honouring `Retry-After`.
+    - Timeouts, server errors (5xx) and 429 are retried within the tool call up to 3 times, after about 15 s, 30 s and 60 s, honouring `Retry-After` and the call's time budget.
     - A block (403 or a challenge page) is never retried. The call fails at once, and later calls pause for 5 min → 15 min → 1 h → 4 h → 24 h, with one test request after each pause.
     - Restarting the server clears the pause.
 12. **curl's User-Agent string.** Python's default User-Agents are refused and curl's is accepted (R1), so the code sends curl's string as a constant. It never imitates a browser, rotates identities or uses proxies.

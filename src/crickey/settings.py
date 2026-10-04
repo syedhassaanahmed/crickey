@@ -11,6 +11,19 @@ from datetime import timedelta
 LOGGER = logging.getLogger(__name__)
 
 _DURATION_RE = re.compile(r"(?P<number>(?:\d+(?:\.\d+)?)|(?:\.\d+))(?P<unit>[smh]?)")
+_MAX_DURATION = timedelta(hours=168)
+_DURATION_EXPECTED = (
+    "a positive duration in seconds, or a number with an s, m or h suffix "
+    "(examples: 90, 5m, 1h), no more than 168h"
+)
+_MIN_INTERVAL_EXPECTED = (
+    "a positive duration in seconds, or a number with an s, m or h suffix "
+    "(examples: 90, 5m, 1h), from 2s through 168h"
+)
+_BLOCK_PAUSES_EXPECTED = (
+    "a comma-separated list of positive durations in seconds, or numbers with an s, m or h suffix "
+    "(examples: 90, 5m, 1h), each no more than 168h"
+)
 
 
 class SettingsError(ValueError):
@@ -48,19 +61,17 @@ class _SettingSpec:
 
 
 _SPECS: tuple[_SettingSpec, ...] = (
-    _SettingSpec(
-        "min_interval", "CRICKEY_MIN_INTERVAL", "--min-interval", "a duration of at least 2s"
-    ),
-    _SettingSpec("max_retries", "CRICKEY_MAX_RETRIES", "--max-retries", "a positive integer"),
+    _SettingSpec("min_interval", "CRICKEY_MIN_INTERVAL", "--min-interval", _MIN_INTERVAL_EXPECTED),
+    _SettingSpec("max_retries", "CRICKEY_MAX_RETRIES", "--max-retries", "a non-negative integer"),
     _SettingSpec(
         "block_pauses",
         "CRICKEY_BLOCK_PAUSES",
         "--block-pauses",
-        "one or more comma-separated positive durations",
+        _BLOCK_PAUSES_EXPECTED,
     ),
     _SettingSpec("max_pages", "CRICKEY_MAX_PAGES", "--max-pages", "a positive integer"),
     _SettingSpec("cache_max_mb", "CRICKEY_CACHE_MAX_MB", "--cache-max-mb", "a positive integer"),
-    _SettingSpec("recent_ttl", "CRICKEY_RECENT_TTL", "--recent-ttl", "a positive duration"),
+    _SettingSpec("recent_ttl", "CRICKEY_RECENT_TTL", "--recent-ttl", _DURATION_EXPECTED),
     _SettingSpec("port", "CRICKEY_PORT", "--port", "an integer from 1 to 65535"),
     _SettingSpec(
         "in_container",
@@ -100,9 +111,12 @@ def load_settings(
         source, raw = _setting_source(args, environ, spec)
         raise SettingsError(_invalid_message(source, raw, spec.expected))
     if settings.min_interval < timedelta(seconds=15):
+        spec = _SPECS_BY_FIELD["min_interval"]
+        source, raw = _setting_source(args, environ, spec)
         LOGGER.warning(
-            "CRICKEY_MIN_INTERVAL is below D9's 15s default spacing: %s",
-            _format_duration(settings.min_interval),
+            "%s=%s is below 15s, Cricinfo's crawl delay; requesting faster risks being blocked.",
+            source,
+            raw,
         )
     return settings
 
@@ -124,7 +138,9 @@ def _parse_value(spec: _SettingSpec, raw: str, source: str) -> object:
             return _parse_duration(raw)
         if spec.field_name == "block_pauses":
             return _parse_block_pauses(raw)
-        if spec.field_name in {"max_retries", "max_pages", "cache_max_mb"}:
+        if spec.field_name == "max_retries":
+            return _parse_non_negative_int(raw)
+        if spec.field_name in {"max_pages", "cache_max_mb"}:
             return _parse_positive_int(raw)
         if spec.field_name == "port":
             port = _parse_positive_int(raw)
@@ -149,7 +165,10 @@ def _parse_duration(raw: str) -> timedelta:
         raise ValueError
     unit = match.group("unit")
     multiplier = {"": 1, "s": 1, "m": 60, "h": 3600}[unit]
-    return timedelta(seconds=number * multiplier)
+    seconds = number * multiplier
+    if seconds > _MAX_DURATION.total_seconds():
+        raise ValueError
+    return timedelta(seconds=seconds)
 
 
 def _parse_block_pauses(raw: str) -> tuple[timedelta, ...]:
@@ -162,10 +181,14 @@ def _parse_block_pauses(raw: str) -> tuple[timedelta, ...]:
     return pauses
 
 
-def _parse_positive_int(raw: str) -> int:
+def _parse_non_negative_int(raw: str) -> int:
     if raw != raw.strip() or not raw.isdecimal():
         raise ValueError
-    value = int(raw)
+    return int(raw)
+
+
+def _parse_positive_int(raw: str) -> int:
+    value = _parse_non_negative_int(raw)
     if value <= 0:
         raise ValueError
     return value

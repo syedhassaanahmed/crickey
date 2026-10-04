@@ -119,6 +119,26 @@ def test_every_serve_flag_overrides_default() -> None:
     assert settings.in_container is True
 
 
+def test_plain_crickey_accepts_serve_flags(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_crickey_env(monkeypatch)
+
+    plain_status = main(["--port", "9000"])
+    plain_output = capsys.readouterr()
+    serve_status = main(["serve", "--port", "9000"])
+    serve_output = capsys.readouterr()
+
+    assert plain_status == serve_status == 1
+    assert plain_output == serve_output
+    assert plain_output.out == ""
+    assert (
+        plain_output.err
+        == "crickey serve is a placeholder; HTTP transport will be implemented in issue #10.\n"
+    )
+
+
 def test_every_stdio_flag_overrides_default() -> None:
     settings = _settings_from_cli(
         [
@@ -197,21 +217,37 @@ def test_flag_wins_over_environment_variable(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.parametrize(
-    ("env_name", "bad_value"),
+    ("env_name", "bad_value", "expected"),
     [
-        ("CRICKEY_MIN_INTERVAL", "1s"),
-        ("CRICKEY_MAX_RETRIES", "0"),
-        ("CRICKEY_BLOCK_PAUSES", ""),
-        ("CRICKEY_MAX_PAGES", "-1"),
-        ("CRICKEY_CACHE_MAX_MB", "1.5"),
-        ("CRICKEY_RECENT_TTL", "soon"),
-        ("CRICKEY_PORT", "65536"),
-        ("CRICKEY_IN_CONTAINER", "maybe"),
+        (
+            "CRICKEY_MIN_INTERVAL",
+            "1s",
+            "a positive duration in seconds, or a number with an s, m or h suffix "
+            "(examples: 90, 5m, 1h), from 2s through 168h",
+        ),
+        ("CRICKEY_MAX_RETRIES", "-1", "a non-negative integer"),
+        (
+            "CRICKEY_BLOCK_PAUSES",
+            "",
+            "a comma-separated list of positive durations in seconds, or numbers with an s, m "
+            "or h suffix (examples: 90, 5m, 1h), each no more than 168h",
+        ),
+        ("CRICKEY_MAX_PAGES", "-1", "a positive integer"),
+        ("CRICKEY_CACHE_MAX_MB", "1.5", "a positive integer"),
+        (
+            "CRICKEY_RECENT_TTL",
+            "soon",
+            "a positive duration in seconds, or a number with an s, m or h suffix "
+            "(examples: 90, 5m, 1h), no more than 168h",
+        ),
+        ("CRICKEY_PORT", "65536", "an integer from 1 to 65535"),
+        ("CRICKEY_IN_CONTAINER", "maybe", "1/0, true/false, yes/no, or empty"),
     ],
 )
 def test_invalid_environment_values_name_setting(
     env_name: str,
     bad_value: str,
+    expected: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _clear_crickey_env(monkeypatch)
@@ -220,33 +256,49 @@ def test_invalid_environment_values_name_setting(
     with pytest.raises(SettingsError) as exc_info:
         load_settings(_empty_args())
 
-    assert str(exc_info.value).startswith(f"{env_name}={bad_value!r} is invalid; expected ")
+    assert str(exc_info.value) == f"{env_name}={bad_value!r} is invalid; expected {expected}."
 
 
 @pytest.mark.parametrize(
-    ("flag_name", "bad_value"),
+    ("flag_name", "bad_value", "expected"),
     [
-        ("--min-interval", "1s"),
-        ("--max-retries", "0"),
-        ("--block-pauses", ""),
-        ("--max-pages", "-1"),
-        ("--cache-max-mb", "1.5"),
-        ("--recent-ttl", "soon"),
-        ("--port", "65536"),
-        ("--in-container", "maybe"),
+        (
+            "--min-interval",
+            "1s",
+            "a positive duration in seconds, or a number with an s, m or h suffix "
+            "(examples: 90, 5m, 1h), from 2s through 168h",
+        ),
+        ("--max-retries", "-1", "a non-negative integer"),
+        (
+            "--block-pauses",
+            "",
+            "a comma-separated list of positive durations in seconds, or numbers with an s, m "
+            "or h suffix (examples: 90, 5m, 1h), each no more than 168h",
+        ),
+        ("--max-pages", "-1", "a positive integer"),
+        ("--cache-max-mb", "1.5", "a positive integer"),
+        (
+            "--recent-ttl",
+            "soon",
+            "a positive duration in seconds, or a number with an s, m or h suffix "
+            "(examples: 90, 5m, 1h), no more than 168h",
+        ),
+        ("--port", "65536", "an integer from 1 to 65535"),
+        ("--in-container", "maybe", "1/0, true/false, yes/no, or empty"),
     ],
 )
-def test_invalid_flag_values_name_setting(flag_name: str, bad_value: str) -> None:
+def test_invalid_flag_values_name_setting(flag_name: str, bad_value: str, expected: str) -> None:
     with pytest.raises(SettingsError) as exc_info:
         _settings_from_cli(["serve", flag_name, bad_value])
 
-    assert str(exc_info.value).startswith(f"{flag_name}={bad_value!r} is invalid; expected ")
+    assert str(exc_info.value) == f"{flag_name}={bad_value!r} is invalid; expected {expected}."
 
 
 def test_invalid_value_stops_startup_before_placeholder(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _clear_crickey_env(monkeypatch)
     monkeypatch.setenv("CRICKEY_PORT", "0")
 
     assert main(["serve"]) == 2
@@ -256,6 +308,19 @@ def test_invalid_value_stops_startup_before_placeholder(
     assert (
         captured.err == "ERROR: CRICKEY_PORT='0' is invalid; expected an integer from 1 to 65535.\n"
     )
+
+
+def test_invalid_stdio_value_stops_startup_before_placeholder(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_crickey_env(monkeypatch)
+
+    assert main(["stdio", "--port", "0"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "ERROR: --port='0' is invalid; expected an integer from 1 to 65535.\n"
 
 
 def test_min_interval_floor() -> None:
@@ -268,7 +333,17 @@ def test_min_interval_floor() -> None:
 
     assert (
         str(exc_info.value)
-        == "--min-interval='1.999s' is invalid; expected a duration of at least 2s."
+        == "--min-interval='1.999s' is invalid; expected a positive duration in seconds, "
+        "or a number with an s, m or h suffix (examples: 90, 5m, 1h), from 2s through 168h."
+    )
+
+    with pytest.raises(SettingsError) as exc_info:
+        _settings_from_cli(["serve", "--min-interval", "1m30s"])
+
+    assert (
+        str(exc_info.value)
+        == "--min-interval='1m30s' is invalid; expected a positive duration in seconds, "
+        "or a number with an s, m or h suffix (examples: 90, 5m, 1h), from 2s through 168h."
     )
 
 
@@ -279,7 +354,27 @@ def test_min_interval_warning_below_fifteen_seconds(
         settings = _settings_from_cli(["serve", "--min-interval", "14s"])
 
     assert settings.min_interval == timedelta(seconds=14)
-    assert caplog.messages == ["CRICKEY_MIN_INTERVAL is below D9's 15s default spacing: 14s"]
+    assert caplog.messages == [
+        "--min-interval=14s is below 15s, Cricinfo's crawl delay; requesting faster risks being "
+        "blocked."
+    ]
+
+
+def test_min_interval_warning_names_environment_source(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_crickey_env(monkeypatch)
+    monkeypatch.setenv("CRICKEY_MIN_INTERVAL", "14s")
+
+    with caplog.at_level(logging.WARNING, logger="crickey.settings"):
+        settings = load_settings(_empty_args())
+
+    assert settings.min_interval == timedelta(seconds=14)
+    assert caplog.messages == [
+        "CRICKEY_MIN_INTERVAL=14s is below 15s, Cricinfo's crawl delay; requesting faster risks "
+        "being blocked."
+    ]
 
 
 def test_min_interval_no_warning_at_fifteen_seconds(
@@ -294,7 +389,7 @@ def test_min_interval_no_warning_at_fifteen_seconds(
 
 @pytest.mark.parametrize(
     "bad_value",
-    ["0", "0s", "-1s", "1d", "", " ", " 5m", "5m "],
+    ["0", "0s", "-1s", "1d", "5min", "1h30m", "", " ", " 5m", "5m "],
 )
 def test_duration_parsing_edge_cases_are_refused(
     bad_value: str,
@@ -306,7 +401,50 @@ def test_duration_parsing_edge_cases_are_refused(
     with pytest.raises(SettingsError) as exc_info:
         load_settings(_empty_args())
 
-    assert str(exc_info.value).startswith(f"CRICKEY_RECENT_TTL={bad_value!r} is invalid; expected ")
+    assert (
+        str(exc_info.value)
+        == f"CRICKEY_RECENT_TTL={bad_value!r} is invalid; expected a positive duration in "
+        "seconds, or a number with an s, m or h suffix (examples: 90, 5m, 1h), no more than 168h."
+    )
+
+
+@pytest.mark.parametrize("bad_value", ["99999999999999999", "1000000000h"])
+def test_huge_durations_are_refused(
+    bad_value: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_crickey_env(monkeypatch)
+    monkeypatch.setenv("CRICKEY_RECENT_TTL", bad_value)
+
+    with pytest.raises(SettingsError) as exc_info:
+        load_settings(_empty_args())
+
+    assert (
+        str(exc_info.value)
+        == f"CRICKEY_RECENT_TTL={bad_value!r} is invalid; expected a positive duration in "
+        "seconds, or a number with an s, m or h suffix (examples: 90, 5m, 1h), no more than 168h."
+    )
+
+
+@pytest.mark.parametrize("bad_value", ["99999999999999999", "1000000000h"])
+def test_huge_duration_stops_startup_without_traceback(
+    bad_value: str,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_crickey_env(monkeypatch)
+    monkeypatch.setenv("CRICKEY_RECENT_TTL", bad_value)
+
+    assert main(["serve"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert (
+        captured.err
+        == f"ERROR: CRICKEY_RECENT_TTL={bad_value!r} is invalid; expected a positive duration "
+        "in seconds, or a number with an s, m or h suffix (examples: 90, 5m, 1h), no more than "
+        "168h.\n"
+    )
 
 
 def test_duration_suffixes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -345,8 +483,11 @@ def test_block_pause_list_invalid_values(
     with pytest.raises(SettingsError) as exc_info:
         load_settings(_empty_args())
 
-    assert str(exc_info.value).startswith(
-        f"CRICKEY_BLOCK_PAUSES={bad_value!r} is invalid; expected "
+    assert (
+        str(exc_info.value)
+        == f"CRICKEY_BLOCK_PAUSES={bad_value!r} is invalid; expected a comma-separated list of "
+        "positive durations in seconds, or numbers with an s, m or h suffix (examples: 90, 5m, "
+        "1h), each no more than 168h."
     )
 
 
@@ -361,7 +502,17 @@ def test_port_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CRICKEY_PORT", bad_value)
         with pytest.raises(SettingsError) as exc_info:
             load_settings(_empty_args())
-        assert str(exc_info.value).startswith(f"CRICKEY_PORT={bad_value!r} is invalid; expected ")
+        assert (
+            str(exc_info.value)
+            == f"CRICKEY_PORT={bad_value!r} is invalid; expected an integer from 1 to 65535."
+        )
+
+
+def test_max_retries_zero_disables_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_crickey_env(monkeypatch)
+    monkeypatch.setenv("CRICKEY_MAX_RETRIES", "0")
+
+    assert load_settings(_empty_args()).max_retries == 0
 
 
 @pytest.mark.parametrize(
