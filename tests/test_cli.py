@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import socket
 import sys
 
 import pytest
@@ -76,6 +78,13 @@ def test_port_in_use_is_clear(
     assert f"Port {port} is already in use" in error
     assert "--port or CRICKEY_PORT" in error
     assert "Traceback" not in error
+
+
+def test_bound_socket_reuses_address_only_on_posix() -> None:
+    with _bind_socket(NATIVE_HOST, 0) as sock:
+        reuse = sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR)
+
+    assert bool(reuse) == (os.name == "posix")
 
 
 def test_cli_errors_do_not_propagate_to_root_logger(capsys: pytest.CaptureFixture[str]) -> None:
