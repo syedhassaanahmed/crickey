@@ -34,7 +34,7 @@ docker run -d --rm --read-only --name crickey -p 127.0.0.1:8765:8765 -e CRICKEY_
 
 ## Connect a client
 
-Use this URL: `http://127.0.0.1:8765/mcp`. If your client has a tool timeout, set it to 5 minutes.
+Use this URL in your MCP client: `http://127.0.0.1:8765/mcp`. It isn't a web page, so a browser shows a "Missing session ID" error. If your client has a tool timeout, set it to 5 minutes.
 
 ```json
 {
