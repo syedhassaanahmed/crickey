@@ -56,20 +56,7 @@ async def build_proof_link(
                 reason="confirmation needs expected player IDs",
             )
         qualifications = query.qualifications + tuple(
-            Qualification(
-                field=threshold.metric.qualval or "",
-                minimum=(
-                    threshold.minimum
-                    if threshold.metric.direction == BetterDirection.HIGHER
-                    else None
-                ),
-                maximum=(
-                    threshold.minimum
-                    if threshold.metric.direction == BetterDirection.LOWER
-                    else None
-                ),
-            )
-            for threshold in thresholds
+            _threshold_qualification(threshold) for threshold in thresholds
         )
         proof_query = query.model_copy(update={"qualifications": qualifications})
         url = proof_query.results_url(as_of=as_of)
@@ -149,6 +136,22 @@ def _can_express(query: StatsguruQuery, thresholds: tuple[Threshold, ...]) -> bo
         and len(query.qualifications) + len(thresholds) <= 3
         and all(threshold.metric.qualval for threshold in thresholds)
     )
+
+
+def _threshold_qualification(threshold: Threshold) -> Qualification:
+    if threshold.metric.direction == BetterDirection.HIGHER:
+        return Qualification(field=threshold.metric.qualval or "", minimum=threshold.minimum)
+    return Qualification(
+        field=threshold.metric.qualval or "",
+        maximum=_inclusive_display_max(threshold.minimum),
+    )
+
+
+def _inclusive_display_max(value: Decimal | int) -> Decimal | int:
+    if isinstance(value, int):
+        return value
+    unit = Decimal(1).scaleb(min(value.as_tuple().exponent, 0))
+    return value + unit - Decimal("0.0001")
 
 
 def _formula_text(thresholds: tuple[Threshold, ...]) -> str | None:

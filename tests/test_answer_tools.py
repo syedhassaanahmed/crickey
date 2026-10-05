@@ -9,9 +9,9 @@ import pytest
 from mcp import Client
 
 from crickey.fetcher import Fetcher, MemoryPageSource
-from crickey.metrics import batting_metric
+from crickey.metrics import batting_metric, bowling_metric
 from crickey.query import PlayerPageSpec, Qualification, ResolvedPeriod, StatsguruQuery
-from crickey.server import create_server
+from crickey.server import _comparison_default_minimum, create_server
 from crickey.settings import Settings
 
 pytestmark = pytest.mark.anyio
@@ -179,6 +179,26 @@ async def client_for(pages: dict[str, str], settings_: Settings | None = None):
     source = MemoryPageSource(pages)
     fetcher = Fetcher(settings_ or settings(), clock=FakeClock(), page_source=source)
     return source, Client(create_server(settings_ or settings(), fetcher=fetcher))
+
+
+@pytest.mark.parametrize(
+    ("class_id", "expected"),
+    [(1, 100), (2, 100), (3, 50), (6, 100), (11, 200)],
+)
+def test_unfiltered_bowling_rate_default_minimums(class_id: int, expected: int) -> None:
+    assert _comparison_default_minimum(
+        (bowling_metric("bowling_average"),), class_id, period=None, filters={}
+    ) == ("wickets", expected)
+
+
+@pytest.mark.parametrize(
+    ("class_id", "expected"),
+    [(1, 30), (2, 30), (3, 20), (6, 30), (11, 50)],
+)
+def test_filtered_bowling_rate_default_minimums(class_id: int, expected: int) -> None:
+    assert _comparison_default_minimum(
+        (bowling_metric("bowling_average"),), class_id, period=None, filters={"continent": 2}
+    ) == ("wickets", expected)
 
 
 async def test_golden_question_1_odi_innings_per_hundred_leaderboard_requests_and_cache() -> None:
@@ -434,24 +454,32 @@ async def test_bowling_better_than_player_lower_metric_uses_qualmax_and_reports_
             "type": "bowling",
             "period": period,
             "continent": 2,
-            "qualifications": (Qualification(field="wickets", minimum=100),),
+            "qualifications": (Qualification(field="wickets", minimum=30),),
             "orderby": "bowling_average",
-            "orderbyad": "reverse",
             "size": 200,
         }
     )
     proof_query = base_query.model_copy(
         update={
             "qualifications": (
-                Qualification(field="wickets", minimum=100),
-                Qualification(field="bowling_average", maximum="25.00"),
+                Qualification(field="wickets", minimum=30),
+                Qualification(field="bowling_average", maximum="25.0099"),
             )
         }
     )
     form_url, form = career_form(47492, 1, "17 Dec 2004", "21 Feb 2019")
+    target_spec = PlayerPageSpec(
+        player_id=47492,
+        **{
+            "class": 1,
+            "type": "bowling",
+            "period": period,
+            "continent": 2,
+        },
+    )
     rows = [
         bowling_row(1, "Better Bowler", "AAA", "2005-2018", 130, "22.00"),
-        bowling_row(47492, "Dale Steyn", "SA", "2004-2019", 439, "25.00"),
+        bowling_row(47492, "Dale Steyn", "SA", "2004-2019", 92, "25.00"),
         bowling_row(2, "Tie Bowler", "BBB", "2006-2018", 120, "25.00"),
         bowling_row(3, "Worse Bowler", "CCC", "2006-2018", 120, "26.00"),
     ]
@@ -461,6 +489,10 @@ async def test_bowling_better_than_player_lower_metric_uses_qualmax_and_reports_
                 search_row("Dale Steyn", "SA", 47492, 1, "Test matches", "2004/05 - 2018/19")
             ),
             form_url: form,
+            target_spec.url(as_of=FakeClock().now().date()): bowling_player_page(
+                '<tr class="data1"><td>unfiltered</td><td>2004-2019</td><td>93</td><td>171</td><td>3101.2</td><td>660</td><td>10077</td><td>439</td><td>7/51</td><td>22.95</td><td>3.24</td><td>42.3</td><td>29</td><td>5</td><td>0</td></tr>'
+                '<tr class="data1"><td>filtered</td><td>2007-2018</td><td>22</td><td>42</td><td>657.4</td><td>140</td><td>2218</td><td>92</td><td>5/56</td><td>25.00</td><td>3.36</td><td>42.9</td><td>5</td><td>2</td><td>0</td></tr>'
+            ),
             url(base_query): bowling_result_page(rows, total=4),
             url(proof_query): bowling_result_page(rows[:3], total=3),
         }
@@ -478,14 +510,169 @@ async def test_bowling_better_than_player_lower_metric_uses_qualmax_and_reports_
             },
         )
 
-    assert len(source.requests) == 4
+    assert len(source.requests) == 5
     assert [row["player"] for row in result.structured_content["beaters"]] == ["Better Bowler"]
     assert [row["player"] for row in result.structured_content["ties"]] == ["Tie Bowler"]
     proof_url = result.structured_content["proof"]["url"]
     assert "qualval2=bowling_average" in proof_url
-    assert "qualmax2=25" in proof_url
+    assert "qualmax2=25.0099" in proof_url
     assert "qualmin2" not in proof_url
     assert result.structured_content["proof"]["confirmed"] is True
+    assert "Minimum: wickets >= 30." in result.structured_content["answer_markdown"]
+    assert "Lower bowling average is better." in result.structured_content["answer_markdown"]
+
+
+async def test_bowling_better_than_player_handles_economy_strike_and_mixed_directions() -> None:
+    period = ResolvedPeriod(start="2004-12-17", end="2019-02-21")
+    base_query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "bowling",
+            "period": period,
+            "host": (6, 7),
+            "qualifications": (Qualification(field="wickets", minimum=30),),
+            "orderby": "economy_rate",
+            "size": 200,
+        }
+    )
+    proof_query = base_query.model_copy(
+        update={
+            "qualifications": (
+                Qualification(field="wickets", minimum=30),
+                Qualification(field="economy_rate", maximum="4.5099"),
+                Qualification(field="bowling_strike_rate", maximum="35.0999"),
+            )
+        }
+    )
+    form_url, form = career_form(47492, 2, "17 Dec 2004", "21 Feb 2019")
+    target_spec = PlayerPageSpec(
+        player_id=47492,
+        **{"class": 2, "type": "bowling", "period": period, "host": (6, 7)},
+    )
+    rows = [
+        bowling_row(1, "Double Beater", "AAA", "2005-2018", 45, "22.00", econ="4.00", sr="30.0"),
+        bowling_row(47492, "Dale Steyn", "SA", "2004-2019", 40, "25.00", econ="4.50", sr="35.0"),
+        bowling_row(2, "Economy Only", "BBB", "2006-2018", 40, "26.00", econ="4.00", sr="40.0"),
+        bowling_row(3, "Strike Only", "CCC", "2006-2018", 40, "27.00", econ="5.00", sr="30.0"),
+    ]
+    source, client = await client_for(
+        {
+            player_search_url("Dale Steyn"): search_page(
+                search_row("Dale Steyn", "SA", 47492, 2, "One-Day Internationals", "2004 - 2019")
+            ),
+            form_url: form,
+            target_spec.url(as_of=FakeClock().now().date()): bowling_player_page(
+                '<tr class="data1"><td>filtered</td><td>2004-2019</td><td>20</td><td>20</td><td>200.0</td><td>10</td><td>900</td><td>40</td><td>5/50</td><td>25.00</td><td>4.50</td><td>35.0</td><td>1</td><td>1</td><td>0</td></tr>'
+            ),
+            url(base_query): bowling_result_page(rows, total=4),
+            url(proof_query): bowling_result_page(rows[:2], total=2),
+        }
+    )
+    mixed_query = base_query.model_copy(update={"orderby": "five_wickets"})
+    mixed_proof = mixed_query.model_copy(
+        update={
+            "qualifications": (
+                Qualification(field="wickets", minimum=30),
+                Qualification(field="five_wickets", minimum=5),
+                Qualification(field="bowling_average", maximum="25.0099"),
+            )
+        }
+    )
+    source.pages[url(mixed_query)] = bowling_result_page(rows, total=4)
+    source.pages[url(mixed_proof)] = bowling_result_page(rows[:2], total=2)
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Dale Steyn",
+                "format": "ODI",
+                "discipline": "bowling",
+                "metrics": ["economy", "strike rate"],
+                "host_country": ["India", "Pakistan"],
+            },
+        )
+        mixed = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Dale Steyn",
+                "format": "ODI",
+                "discipline": "bowling",
+                "metrics": ["five-fors", "average"],
+                "host_country": ["India", "Pakistan"],
+            },
+        )
+
+    assert [row["player"] for row in result.structured_content["beaters"]] == ["Double Beater"]
+    assert result.structured_content["proof"]["confirmed"] is True
+    assert (
+        "Lower economy rate and bowling strike rate are better."
+        in result.structured_content["answer_markdown"]
+    )
+
+    assert mixed.structured_content["proof"]["confirmed"] is True
+    assert "Higher five-wicket hauls is better" in mixed.structured_content["answer_markdown"]
+    assert "Lower bowling average is better" in mixed.structured_content["answer_markdown"]
+
+
+async def test_bowling_comparison_floor_never_exceeds_target_filtered_wickets() -> None:
+    period = ResolvedPeriod(start="2020-01-01", end="2026-01-01")
+    base_query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "bowling",
+            "period": period,
+            "continent": 2,
+            "qualifications": (Qualification(field="wickets", minimum=15),),
+            "orderby": "bowling_strike_rate",
+            "size": 200,
+        }
+    )
+    proof_query = base_query.model_copy(
+        update={
+            "qualifications": (
+                Qualification(field="wickets", minimum=15),
+                Qualification(field="bowling_strike_rate", maximum="18.0999"),
+            )
+        }
+    )
+    form_url, form = career_form(999, 3, "01 Jan 2020", "01 Jan 2026")
+    target_spec = PlayerPageSpec(
+        player_id=999,
+        **{"class": 3, "type": "bowling", "period": period, "continent": 2},
+    )
+    rows = [
+        bowling_row(1, "Fast Wickets", "AAA", "2020-2026", 20, "20.00", sr="15.0"),
+        bowling_row(999, "Target Bowler", "BBB", "2020-2026", 15, "25.00", sr="18.0"),
+    ]
+    source, client = await client_for(
+        {
+            player_search_url("Target Bowler"): search_page(
+                search_row("Target Bowler", "BBB", 999, 3, "Twenty20 Internationals", "2020 - 2026")
+            ),
+            form_url: form,
+            target_spec.url(as_of=FakeClock().now().date()): bowling_player_page(
+                '<tr class="data1"><td>filtered</td><td>2020-2026</td><td>10</td><td>10</td><td>45.0</td><td>1</td><td>270</td><td>15</td><td>4/20</td><td>18.00</td><td>6.00</td><td>18.0</td><td>1</td><td>0</td><td>0</td></tr>'
+            ),
+            url(base_query): bowling_result_page(rows, total=2),
+            url(proof_query): bowling_result_page(rows, total=2),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Target Bowler",
+                "format": "T20I",
+                "discipline": "bowling",
+                "metrics": ["strike rate"],
+                "continent": "Asia",
+            },
+        )
+
+    assert result.structured_content["proof"]["confirmed"] is True
+    assert "Minimum: wickets >= 15." in result.structured_content["answer_markdown"]
 
 
 async def test_golden_question_4_last_years_test_record_requests_and_cache() -> None:
@@ -688,9 +875,8 @@ async def test_bowling_leaderboard_lower_metric_uses_continent_and_ties() -> Non
             "class": 1,
             "type": "bowling",
             "continent": 2,
-            "qualifications": (Qualification(field="wickets", minimum=100),),
+            "qualifications": (Qualification(field="wickets", minimum=30),),
             "orderby": "bowling_average",
-            "orderbyad": "reverse",
             "size": 10,
         }
     )
@@ -727,6 +913,97 @@ async def test_bowling_leaderboard_lower_metric_uses_continent_and_ties() -> Non
         "Beta Bowler",
     ]
     assert result.structured_content["rows"][0]["value"] == "20.00"
+    assert result.structured_content["rows"][0]["wickets"] == 120
+    assert "Minimum: wickets >= 30." in result.structured_content["answer_markdown"]
+    assert "Lower bowling average is better." in result.structured_content["answer_markdown"]
+
+
+async def test_bowling_rate_leaderboard_follows_real_statsguru_order_across_pages() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 1,
+            "type": "bowling",
+            "qualifications": (Qualification(field="wickets", minimum=100),),
+            "orderby": "bowling_average",
+            "size": 25,
+        }
+    )
+    page2 = query.model_copy(update={"page": 2})
+    source, client = await client_for(
+        {
+            url(query): bowling_result_page(
+                [
+                    bowling_row(index, f"P{index}", "AAA", "2000-2010", 100, "20.00")
+                    for index in range(1, 26)
+                ],
+                pages=2,
+                total=26,
+            ),
+            url(page2): bowling_result_page(
+                [bowling_row(26, "P26", "AAA", "2000-2010", 100, "20.00")],
+                page=2,
+                pages=2,
+                total=26,
+            ),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard",
+            {
+                "format": "Test",
+                "discipline": "bowling",
+                "metric": "bowling_average",
+                "top_n": 10,
+            },
+        )
+
+    assert len(source.requests) == 2
+    assert "orderbyad=reverse" not in source.requests[0]
+    assert len(result.structured_content["rows"]) == 26
+
+
+async def test_filtered_t20i_bowling_rate_leaderboard_uses_filtered_floor() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "bowling",
+            "host": (6, 7),
+            "qualifications": (Qualification(field="wickets", minimum=20),),
+            "orderby": "economy_rate",
+            "size": 10,
+        }
+    )
+    source, client = await client_for(
+        {
+            url(query): bowling_result_page(
+                [
+                    bowling_row(1, "Economical", "AAA", "2020-2026", 22, "18.00", econ="5.00"),
+                    bowling_row(2, "Costly", "BBB", "2020-2026", 30, "20.00", econ="6.00"),
+                ],
+                total=2,
+            )
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard",
+            {
+                "format": "T20I",
+                "discipline": "bowling",
+                "metric": "economy",
+                "host_country": ["India", "Pakistan"],
+                "top_n": 1,
+            },
+        )
+
+    assert len(source.requests) == 1
+    assert "host=6;host=7" in source.requests[0]
+    assert "qualmin1=20" in source.requests[0]
+    assert result.structured_content["rows"][0]["player"] == "Economical"
+    assert result.structured_content["rows"][0]["value"] == "5.00"
 
 
 async def test_sortable_leaderboard_follows_boundary_tie_to_next_page() -> None:

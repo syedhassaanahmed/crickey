@@ -16,7 +16,14 @@ from pydantic import BaseModel, Field, PositiveInt, ValidationError
 
 from crickey.fetcher import Fetcher, FetcherError, Freshness, TooBroadError, freshness_from_end_date
 from crickey.ids import LookupResult, lookup_continent, lookup_host
-from crickey.metrics import BetterDirection, Metric, batting_metric, bowling_metric, rank_key
+from crickey.metrics import (
+    BetterDirection,
+    DefaultMinimum,
+    Metric,
+    batting_metric,
+    bowling_metric,
+    rank_key,
+)
 from crickey.parsers import (
     Overs,
     PlayerFormat,
@@ -89,6 +96,8 @@ _FORMAT_CLASSES = {
 }
 _DEFAULT_FIND_CLASSES = (1, 2, 3, 6, 11)
 _METADATA_COLUMNS = {"player_name", "player_id", "player_team_codes", "match_id"}
+_BOWLING_RATE_METRICS = {"bowling_average", "economy_rate", "bowling_strike_rate"}
+_FILTERED_BOWLING_RATE_MINIMUMS = {1: 30, 2: 30, 3: 20, 6: 30, 11: 50}
 
 
 class AnswerMetric(StrEnum):
@@ -465,8 +474,6 @@ async def _leaderboard_tool(
         metric = _answer_metric(discipline_value, metric_key)
         metric.require_supported(class_id)
         _validate_period_shape(period)
-        minimum_value = minimum if minimum is not None else metric.default_minimum(class_id).minimum
-        minimum_field = metric.default_minimum(class_id).field
         resolved_period = _parse_period(period)
     except (ValueError, QuerySpecError) as error:
         raise ToolError(str(error)) from error
@@ -488,6 +495,11 @@ async def _leaderboard_tool(
             )
             if filters.get("needs_clarification"):
                 return _tool_result("A filter needs clarification.", filters)
+            default_minimum = _leaderboard_default_minimum(
+                metric, class_id, period=resolved_period, filters=filters["query"]
+            )
+            minimum_value = minimum if minimum is not None else default_minimum.minimum
+            minimum_field = default_minimum.field
             query = StatsguruQuery(
                 **{
                     "class": class_id,
@@ -495,7 +507,7 @@ async def _leaderboard_tool(
                     "period": resolved_period,
                     "qualifications": (Qualification(field=minimum_field, minimum=minimum_value),),
                     "orderby": metric.orderby or minimum_field,
-                    "orderbyad": "reverse" if metric.direction.value == "lower" else "",
+                    "orderbyad": _statsguru_orderbyad(metric),
                     "size": 200 if metric.is_derived else _page_size_for_top_n(top_n),
                     **filters["query"],
                 }
@@ -544,6 +556,7 @@ async def _leaderboard_tool(
                 "Calculated derived metrics from totals."
                 if metric.is_derived
                 else "Used Statsguru displayed values.",
+                _direction_method(metric),
                 "Equal displayed values count as ties.",
             ),
             assumptions=(
@@ -636,7 +649,21 @@ async def _better_than_player_tool(
             )
             if filters.get("needs_clarification"):
                 return _tool_result("A filter needs clarification.", filters)
-            min_field, min_value = _comparison_default_minimum(metrics, class_id)
+            min_field, min_value = _comparison_default_minimum(
+                metrics, class_id, period=period_value, filters=filters["query"]
+            )
+            if minimum is None and _uses_bowling_rate_minimum(metrics):
+                target_wickets = await _target_filtered_wickets(
+                    call,
+                    resolution.match.player_id,
+                    class_id=class_id,
+                    discipline=discipline_value,
+                    period=period_value,
+                    filters=filters["player_page"],
+                    fetcher=fetcher,
+                )
+                if target_wickets is not None:
+                    min_value = min(Decimal(min_value), target_wickets)
             query = StatsguruQuery(
                 **{
                     "class": class_id,
@@ -649,11 +676,7 @@ async def _better_than_player_tool(
                         ),
                     ),
                     "orderby": metrics[0].orderby,
-                    "orderbyad": (
-                        "reverse"
-                        if metrics[0].orderby and metrics[0].direction == BetterDirection.LOWER
-                        else ""
-                    ),
+                    "orderbyad": "",
                     "size": 200,
                     **filters["query"],
                 }
@@ -768,6 +791,7 @@ async def _better_than_player_tool(
             ),
             method=(
                 "Compared Statsguru displayed values; equal displayed values count as ties.",
+                _direction_method(*metrics),
                 (
                     f"Required {'all' if match_mode == 'all' else 'any'} metric(s) "
                     "to beat the player; all-metric ties are reported separately."
@@ -1202,20 +1226,105 @@ def _period_text(period: Period, *, as_of: date) -> str:
     return f"all time through {as_of.isoformat()}"
 
 
+def _leaderboard_default_minimum(
+    metric: Metric, class_id: int, *, period: Period, filters: Mapping[str, Any]
+) -> DefaultMinimum:
+    if metric.key in _BOWLING_RATE_METRICS and _is_filtered_bowling_query(period, filters):
+        return DefaultMinimum("wickets", _FILTERED_BOWLING_RATE_MINIMUMS[class_id])
+    return metric.default_minimum(class_id)
+
+
 def _comparison_default_minimum(
-    metrics: tuple[Metric, ...], class_id: int
+    metrics: tuple[Metric, ...],
+    class_id: int,
+    *,
+    period: Period = None,
+    filters: Mapping[str, Any] | None = None,
 ) -> tuple[str, int | Decimal]:
     if any(metric.key in {"average", "strike_rate"} for metric in metrics):
         minimum = batting_metric("runs").default_minimum(class_id)
         return minimum.field, max(Decimal(minimum.minimum), Decimal(1000))
-    if any(
-        metric.key in {"bowling_average", "economy_rate", "bowling_strike_rate"}
-        for metric in metrics
-    ):
-        minimum = bowling_metric("wickets").default_minimum(class_id)
+    if _uses_bowling_rate_minimum(metrics):
+        minimum = _leaderboard_default_minimum(
+            bowling_metric("wickets")
+            if not any(metric.key in _BOWLING_RATE_METRICS for metric in metrics)
+            else next(metric for metric in metrics if metric.key in _BOWLING_RATE_METRICS),
+            class_id,
+            period=period,
+            filters=filters or {},
+        )
         return minimum.field, minimum.minimum
     minimum = metrics[0].default_minimum(class_id)
     return minimum.field, minimum.minimum
+
+
+def _uses_bowling_rate_minimum(metrics: tuple[Metric, ...]) -> bool:
+    return any(metric.key in _BOWLING_RATE_METRICS for metric in metrics)
+
+
+def _is_filtered_bowling_query(period: Period, filters: Mapping[str, Any]) -> bool:
+    return period is not None or any(
+        key in filters
+        for key in (
+            "continent",
+            "ground",
+            "home_or_away",
+            "host",
+            "opposition",
+            "result",
+            "team",
+            "trophy",
+        )
+    )
+
+
+async def _target_filtered_wickets(
+    call,
+    player_id: int,
+    *,
+    class_id: int,
+    discipline: str,
+    period: Period,
+    filters: Mapping[str, Any],
+    fetcher: Fetcher,
+) -> Decimal | None:
+    spec = PlayerPageSpec(
+        player_id=player_id,
+        **{
+            "class": class_id,
+            "type": discipline,
+            "period": period,
+            **filters,
+        },
+    )
+    as_of = _today(fetcher)
+    html = await call.fetch(
+        spec.url(as_of=as_of),
+        freshness=_freshness_for_query(
+            StatsguruQuery(**{"class": class_id, "type": discipline, "period": period}),
+            as_of,
+        ),
+    )
+    page = parse_player_page(html)
+    row = _player_record_row(page)
+    if row is None:
+        return None
+    return _decimal(row.get("Wkts"))
+
+
+def _statsguru_orderbyad(metric: Metric) -> str:
+    return "reverse" if metric.is_derived and metric.direction == BetterDirection.LOWER else ""
+
+
+def _direction_method(*metrics: Metric) -> str:
+    lower = [metric.label for metric in metrics if metric.direction == BetterDirection.LOWER]
+    higher = [metric.label for metric in metrics if metric.direction == BetterDirection.HIGHER]
+    pieces = []
+    if lower:
+        pieces.append(f"Lower {_metric_list(lower)} {'is' if len(lower) == 1 else 'are'} better")
+    if higher:
+        pieces.append(f"Higher {_metric_list(higher)} {'is' if len(higher) == 1 else 'are'} better")
+    return "; ".join(pieces) + "."
 
 
 async def _fetch_all_result_pages(
