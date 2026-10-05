@@ -143,7 +143,7 @@ Implements D7–D12 and D17.
 
 ## CI pipeline (GitHub Actions)
 - **`ci.yml`** (pull requests and pushes to `main`):
-  - ruff and pytest on `ubuntu-latest` and `windows-latest` (crickey also runs natively on Windows, D20), using uv with R15's Python version and public PyPI;
+  - ruff and pytest on `ubuntu-latest`, using uv with R15's Python version and public PyPI;
   - build the image for `linux/amd64` without pushing, then run a smoke test with `--read-only`: start it in its default HTTP mode, check `/health`, list tools and call `query_stats` with `fetch=false` (no network needed) through a Bash client with curl and jq over Streamable HTTP, and check that `stdio` still lists the tools.
 - **`release.yml`** (tags `v*`):
   - rerun the tests;
@@ -177,7 +177,7 @@ The work is split into [GitHub issues #1–#18](https://github.com/syedhassaanah
   - The fetcher: rate limiter, page cap, retries (`Retry-After`, jitter limits, time budget), pauses after a block, unavailable URLs, the cache size cap and the freshness rules.
 - **Answer tools:** each one against synthetic pages, with expected answers and proof links.
 - **HTTP tests:** Host and Origin checks (localhost on any port), loopback-only binding natively, binding in container mode, and SSE progress.
-- **End to end:** tests over HTTP and stdio using the synthetic-page hook, a check that no files are written, and the `--read-only` container smoke test. CI runs on Ubuntu and Windows. Live smoke tests run only when explicitly enabled.
+- **End to end:** tests over HTTP and stdio using the synthetic-page hook, a check that no files are written, and the `--read-only` container smoke test. CI runs on Ubuntu. Live smoke tests run only when explicitly enabled.
 - **Acceptance:** the five golden questions are answered correctly with both models, every pinned link shows matching numbers, and the public image works on a machine without the source.
 
 ## Risks and open items

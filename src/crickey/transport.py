@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import socket
-import sys
 from typing import Final
 
 import uvicorn
@@ -102,18 +101,9 @@ def _listen_stream_closer(mcp: MCPServer):
 
 
 def _bind_socket(host: str, port: int) -> socket.socket:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        if sys.platform == "win32":
-            exclusive = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
-            if exclusive is not None:
-                sock.setsockopt(socket.SOL_SOCKET, exclusive, 1)
-        else:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((host, port))
+        return socket.create_server((host, port))
     except OSError as error:
-        sock.close()
         raise TransportError(
             f"Port {port} is already in use; choose another port with --port or CRICKEY_PORT."
         ) from error
-    return sock
