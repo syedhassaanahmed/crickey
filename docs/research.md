@@ -77,6 +77,24 @@ Earlier on 3 Oct, `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 o
 
 - **Separators:** parameters are separated by `;`, and `&` also works. Cricinfo redirects every query to a standard URL with parameters sorted alphabetically, for example `?class=2;orderby=hundreds;qualmin1=10;qualval1=hundreds;template=results;type=batting`.
 - **Repeated keys:** a live T20I team results query with `result=1;result=2;size=10` returned 200 and kept the standard URL as `class=3;result=1;result=2;size=10;template=results;type=team`, so checkbox groups are encoded as repeated keys. Only that already-sorted order was checked.
+- **Repeated keys for dropdown filters:** checked live on 5 Oct 2026 with `size=10` and curl's User-Agent. For each row, the filter summary applied repeated keys as “one of”.
+
+| Parameter | Checked query | Filter summary text |
+|---|---|---|
+| `team` | `?class=1;continent=2;orderby=wickets;size=10;team=1;team=3;template=results;type=bowling` | `Primary team England or South Africa On continent Asia` |
+| `opposition` | `?class=1;opposition=1;opposition=3;orderby=wickets;size=10;template=results;type=bowling` | `Opposition team England or South Africa` |
+| `host` | `?class=1;host=6;host=7;orderby=wickets;size=10;template=results;type=bowling` | `Host country India or Pakistan` |
+| `ground` | `?class=1;ground=131;ground=132;orderby=wickets;size=10;template=results;type=bowling` | `At ground AUS: Adelaide Oval or AUS: Sydney Cricket Ground` |
+| `season` | `?class=1;orderby=wickets;season=2025;season=2026;size=10;template=results;type=bowling` | `Season 2025 or 2026` |
+| `trophy` | `?class=1;orderby=wickets;size=10;template=results;trophy=1;trophy=2;type=bowling` | `Trophy The Ashes or Triangular Tournament` |
+| `series` | `?class=1;orderby=wickets;series=1;series=2;size=10;template=results;type=bowling` | `Series England in Australia Test Series, 1876/77 or England in Australia Test Match, 1878/79` |
+| `continent` | `?class=1;continent=2;continent=4;orderby=wickets;size=10;template=results;type=bowling` | `On continent Asia or Europe` |
+| `final_type` | `?class=2;final_type=0;final_type=1;orderby=runs;size=10;template=results;type=batting` | `Match type tournament finals or preliminary matches` |
+| `dismissal` | `?class=1;dismissal=1;dismissal=2;orderby=runs;size=10;template=results;type=batting` | `Type of dismissal caught or bowled` |
+| `fow_type` | `?class=1;fow_type=1;fow_type=2;orderby=fow_score;size=10;template=results;type=fow` | `Fall of wicket dismissal out or not out` |
+| `event` | `?class=1;event=1;event=2;orderby=runs;size=10;template=results;type=team` | `Innings end all out or declared Totals in terms of batting team` |
+
+Skipped: `view`, `groupby`, `orderby`, `orderbyad`, `size` and `page` are output controls, not filters; quick-pick dropdowns such as `spanquickpick`, `agequickpick`, `runsquickpick`, `qualquickpick` and similar range shortcuts are not supported by crickey; text and numeric ranges are not dropdowns; checkbox groups were already known multi-value; radios (`toss`, `batting_fielding_first`, `captain`, `keeper`, `outs`) are not dropdowns and leaving them blank already means either state; `team_view` chooses whether team totals are from the batting or bowling side, so several values would not narrow to “one of”.
 - **Links inside pages:** player profiles are `/ci/content/player/<id>.html`; matches are `/ci/engine/match/<id>.html`.
 - **Date range:** `spanmin1=07+Sep+2016;spanmax1=24+Feb+2026;spanval1=span`, with dates as `DD Mon YYYY`. The form's hidden `spanmin0` and `spanmax0` hold the class's first and latest match dates. First match dates: Tests 15 Mar 1877, ODIs 05 Jan 1971, T20Is 17 Feb 2005, all T20 13 Jun 2003 and combined internationals 15 Mar 1877.
 - **Minimums:** `qualval1=<field>;qualmin1=<n>`, with optional `qualmax1`. The form shows only one, but `qualval2`/`qualmin2` and `qualval3`/`qualmin3` also work: a query with three minimums returned only rows meeting all three.
@@ -203,7 +221,7 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 - The class 2, 3 and 6 batting forms differ from Tests: `result` offers 5 (no result) instead of 4 (drawn), `final_type` includes 3 tournament semi-finals and 4 tournament quarter-finals, `innings_number` is 1–2 only, `batting_hand` includes 3 unknown, and there is no batting `view=match`.
 - The class 3, 6 and 11 batting forms additionally have `floodlit=3` for night matches and `dismissal=9` for hit the ball twice. The T20I batting form has age range defaults of 14–62 instead of 14–52.
 
-**Choice filters.** Checkboxes accept several values; selects and radios accept one value. Leaving a radio blank means "either".
+**Choice filters.** The forms' checkboxes allow several choices. The forms' selects and radios allow one choice, but the engine accepts repeated keys for the dropdowns listed in R2. Leaving a radio blank means "either".
 
 | Parameter | Values |
 |---|---|

@@ -213,6 +213,10 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert (
             "Who has the most ODI wickets against Australia?" in by_name["query_stats"].description
         )
+        assert (
+            "Lists work for every filter except batting_fielding_first, captain, keeper, outs "
+            "and toss." in by_name["query_stats"].description
+        )
         assert client.instructions == "\n".join(
             [
                 "Prefer crickey's answer tools and show answer_markdown as-is when they return it.",
@@ -226,6 +230,31 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert "'type'" in query_schema
         assert "'orderby'" in query_schema
         assert "'qualval1'" in query_schema
+
+
+async def test_query_stats_fetch_false_allows_repeated_team_link() -> None:
+    _, _, client = await call_with_source({})
+
+    async with client:
+        result = await client.call_tool(
+            "query_stats",
+            {
+                "fetch": False,
+                "query": {
+                    "class": 1,
+                    "type": "bowling",
+                    "continent": 2,
+                    "orderby": "wickets",
+                    "team": [1, 3],
+                },
+            },
+        )
+
+    assert result.structured_content["link"] == (
+        "https://stats.cricinfo.com/ci/engine/stats/index.html?"
+        "class=1;continent=2;orderby=wickets;spanmax1=04+Oct+2026;"
+        "spanmin1=15+Mar+1877;spanval1=span;team=1;team=3;template=results;type=bowling"
+    )
 
 
 async def test_find_player_unique_ambiguous_and_unknown() -> None:
