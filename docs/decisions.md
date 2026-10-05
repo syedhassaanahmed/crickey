@@ -91,5 +91,6 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 | A separate access-check step before building | Done during research (R1, R9); the fetcher's live smoke test re-checks it. |
 | uvx, PyPI, MCP Bundles, a Copilot plugin, one-click install links, MCP Registry or directory listings (R14) | Docker only. |
 | A private container image | Public, so friends don't need to log in. |
+| Running CI on `windows-latest` | The owner runs crickey only in Linux containers, which Ubuntu CI and the image job cover. |
 | An MCP Apps UI | Not needed for v1. |
 | A full HTTP cache library (hishel), and libraries for the fetcher's retries and spacing (tenacity, aiolimiter, pyrate-limiter, httpx-retries) | HTTP caches decide freshness from HTTP headers instead of the query's date range (D17), sit below the rate limiter, and hishel's storage does not fit D19 (R15). The fetcher's shared lock, per-call budgets, process-wide `Retry-After` and block pause (D11) are crickey-specific, and these libraries keep their own clocks. |
