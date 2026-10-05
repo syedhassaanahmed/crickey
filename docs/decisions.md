@@ -62,7 +62,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 28. **Page cache storage from cachetools.** The page cache stores pages in `cachetools.TLRUCache` (R15) instead of its own LRU code; D17's freshness rules stay crickey's own.
 29. **Rate comparisons use a runs floor when needed.** When a batting answer compares average or strike rate and the user does not give a minimum, the tool uses a runs minimum rather than an innings or balls-faced minimum. That matches the golden-question sample in R10 and avoids broad rate tables that exceed D10 before the comparison can be made.
 30. **Dependabot tracks Python dependencies with the uv ecosystem.** crickey is a uv project and does not commit `uv.lock` (D23); Dependabot's uv updater supports `pyproject.toml` without a lockfile (R15), so it can update the manifest directly while staying aligned with the local and CI install path.
-31. **The image smoke test is Bash over the wire.** The owner asked for a Bash script instead of Python. The image jobs use curl and jq, so they do not need Python dependencies or uv after the image is built, and the test checks the raw Streamable HTTP wire protocol the way a third-party client would.
+31. **The image smoke test is Bash over the wire.** The owner asked for a Bash script instead of Python. The image jobs use curl and jq, so they do not need Python dependencies or uv after the image is built, and the test checks the raw Streamable HTTP wire protocol the way a third-party client would. The script has no pytest tests of its own; CI runs it against the built image, and the release against the pushed one.
 
 ## Considered and dropped
 
