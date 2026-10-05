@@ -508,6 +508,7 @@ class PlayerPageSpec(BaseModel):
     period: Period = None
     opposition: ValueList | None = None
     host: ValueList | None = None
+    continent: ValueList | None = None
     ground: ValueList | None = None
     home_or_away: ValueList | None = None
     spanquickpick: int | None = None
@@ -522,7 +523,19 @@ class PlayerPageSpec(BaseModel):
         if self.view not in PLAYER_PAGE_VIEWS[self.class_][self.type]:
             raise ValueError(f"view {self.view!r} is not valid for player-page type {self.type!r}")
         _validate_quickpicks(self)
-        _validate_multi_values(self, default_multi={"home_or_away", "result"})
+        _validate_multi_values(
+            self,
+            default_multi={
+                "continent",
+                "ground",
+                "home_or_away",
+                "host",
+                "opposition",
+                "result",
+                "season",
+                "trophy",
+            },
+        )
         _validate_choice_values(self, _player_page_choice_values(self))
         _validate_season_values(self)
         _validate_built_in_ids(self)
@@ -797,7 +810,16 @@ def _filter_params(model: BaseModel) -> list[tuple[str, str]]:
         values = _as_sequence(value)
         if isinstance(model, StatsguruQuery) and name in MULTI_FIELDS[model.class_][model.type]:
             values = tuple(sorted(values, key=lambda item: str(item)))
-        elif isinstance(model, PlayerPageSpec) and name in {"home_or_away", "result"}:
+        elif isinstance(model, PlayerPageSpec) and name in {
+            "continent",
+            "ground",
+            "home_or_away",
+            "host",
+            "opposition",
+            "result",
+            "season",
+            "trophy",
+        }:
             values = tuple(sorted(values, key=lambda item: str(item)))
         for item in values:
             params.append((name, _value(item)))

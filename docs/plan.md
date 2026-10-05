@@ -52,19 +52,19 @@ flowchart LR
 Five tools (D14), all read-only.
 - **Answer tools** return `answer_markdown` plus structured data. The markdown has a short answer, a table, the method and assumptions, labelled pinned links and profile links (D16), the "as of" date and the freshness line (D17).
 - **Ambiguous names** (players, teams, grounds, trophies) return `needs_clarification` with the candidates.
-- **Descriptions** for answer tools start with example questions taken from the golden questions; `find_player` and `query_stats` start with their own example question.
+- **Descriptions** for answer tools start with example questions taken from the golden questions, followed by a bowling example where applicable; `find_player` and `query_stats` start with their own example question.
 
 1. **`leaderboard`** (golden question 1): "Who has the best or fastest …?"
-   - Parameters: format, metric, period, filters by name (team, opposition, host country, ground, trophy, home or away, match result), minimum and top N.
-   - Metrics can be Statsguru columns (runs, average, strike rate, hundreds, …) or derived rates (innings per hundred, innings per fifty-plus, balls per dismissal).
+   - Parameters: format, discipline (batting by default, or bowling), metric, period, filters by name (team, opposition, host country, continent, ground, trophy, home or away, match result), minimum and top N.
+   - Metrics can be Statsguru columns (batting: runs, average, strike rate, hundreds, …; bowling: wickets, bowling average, economy rate, bowling strike rate, five-wicket hauls and ten-wicket matches) or derived batting rates (innings per hundred, innings per fifty-plus, balls per dismissal).
    - For a derived rate it also gives the group's overall figure, for example total innings ÷ total hundreds across all qualifying players.
 2. **`better_than_player`** (golden questions 2 and 3): "Who beats player X on A (and B)?"
-   - Parameters: player name, format, 1–3 metrics, all or any, period (all time, X's career span, or dates), minimum and filters.
-   - Includes X's own row. Proof link (D16): the results query with X's values as extra minimums (R2).
-   - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum.
+   - Parameters: player name, format, discipline (batting by default, or bowling), 1–3 metrics, all or any, period (all time, X's career span, or dates), minimum and filters.
+   - Includes X's own row. Proof link (D16): the results query with X's values as extra minimums or maximums for lower-is-better metrics (R2).
+   - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum and the bowling answer uses D32's default minimum.
 3. **`player_record`** (golden questions 4 and 5): one player's figures in a format.
-   - Parameters: player name, format, period (whole career, first or last N years of their career, dates or season) and filters (opposition, host country, ground, trophy such as the ODI World Cup, home or away, match result).
-   - Proof link: the player's Statsguru page with the same filters (R6).
+   - Parameters: player name, format, discipline (batting by default, or bowling), period (whole career, first or last N years of their career, dates or season) and filters (opposition, host country, continent, ground, trophy such as the ODI World Cup, home or away, match result).
+   - Proof link: the player's Statsguru batting or bowling page with the same filters (R6).
 4. **`find_player`**: candidates with ID, country, formats and career spans (R7).
 5. **`query_stats`**: any Statsguru query (see coverage above).
    - Returns up to `limit` rows (default 50, maximum 200), the total row count, the table's columns and the pinned link.
@@ -77,7 +77,7 @@ Server instructions tell the agent to:
 - read "T20" as D3 says.
 
 ## Calculations (inside the answer tools)
-- **Metric registry (batting first):** for each metric it records:
+- **Metric registry (batting and bowling):** for each metric it records:
   - the label;
   - the Statsguru column, sort field and qualification field, if Statsguru has the metric;
   - the formula from totals, if it's derived;

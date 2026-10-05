@@ -31,6 +31,7 @@ class Metric:
     formula_label: str | None = None
     denominator_columns: tuple[str, ...] = ()
     display_precision: int | None = None
+    proof_precision: int | None = None
     supported_classes: tuple[int, ...] = (1, 2, 3, 6, 11)
 
     @property
@@ -140,6 +141,7 @@ BATTING_METRICS: dict[str, Metric] = {
         "batting_average",
         BetterDirection.HIGHER,
         _mins("innings", {1: 20, 2: 20, 3: 20, 6: 30, 11: 30}),
+        proof_precision=2,
     ),
     "strike_rate": Metric(
         "strike_rate",
@@ -149,6 +151,7 @@ BATTING_METRICS: dict[str, Metric] = {
         "batting_strike_rate",
         BetterDirection.HIGHER,
         _mins("balls_faced", {2: 500, 3: 250}),
+        proof_precision=2,
         supported_classes=(2, 3),
     ),
     "hundreds": Metric(
@@ -213,11 +216,79 @@ BATTING_METRICS: dict[str, Metric] = {
 }
 
 
+BOWLING_METRICS: dict[str, Metric] = {
+    "wickets": Metric(
+        "wickets",
+        "wickets",
+        "Wkts",
+        "wickets",
+        "wickets",
+        BetterDirection.HIGHER,
+        _mins("wickets", {1: 100, 2: 100, 3: 50, 6: 100, 11: 200}),
+    ),
+    "bowling_average": Metric(
+        "bowling_average",
+        "bowling average",
+        "Ave",
+        "bowling_average",
+        "bowling_average",
+        BetterDirection.LOWER,
+        _mins("wickets", {1: 100, 2: 100, 3: 50, 6: 100, 11: 200}),
+        proof_precision=2,
+    ),
+    "economy_rate": Metric(
+        "economy_rate",
+        "economy rate",
+        "Econ",
+        "economy_rate",
+        "economy_rate",
+        BetterDirection.LOWER,
+        _mins("wickets", {1: 100, 2: 100, 3: 50, 6: 100, 11: 200}),
+        proof_precision=2,
+    ),
+    "bowling_strike_rate": Metric(
+        "bowling_strike_rate",
+        "bowling strike rate",
+        "SR",
+        "bowling_strike_rate",
+        "bowling_strike_rate",
+        BetterDirection.LOWER,
+        _mins("wickets", {1: 100, 2: 100, 3: 50, 6: 100, 11: 200}),
+        proof_precision=1,
+    ),
+    "five_wickets": Metric(
+        "five_wickets",
+        "five-wicket hauls",
+        "5",
+        "five_wickets",
+        "five_wickets",
+        BetterDirection.HIGHER,
+        _mins("five_wickets", {1: 5, 2: 2, 3: 1, 6: 1, 11: 5}),
+    ),
+    "ten_wickets": Metric(
+        "ten_wickets",
+        "ten-wicket matches",
+        "10",
+        "ten_wickets",
+        "ten_wickets",
+        BetterDirection.HIGHER,
+        _mins("ten_wickets", {1: 1, 2: 1, 3: 1, 6: 1, 11: 1}),
+    ),
+}
+
+
 def batting_metric(key: str) -> Metric:
     try:
         return BATTING_METRICS[key]
     except KeyError as error:
         raise ValueError(f"unknown batting metric {key!r}") from error
+
+
+def bowling_metric(key: str) -> Metric:
+    try:
+        return BOWLING_METRICS[key]
+    except KeyError as error:
+        raise ValueError(f"unknown bowling metric {key!r}") from error
 
 
 def rank_key(metric: Metric, value: Decimal | None) -> tuple[int, Decimal]:

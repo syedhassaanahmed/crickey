@@ -98,11 +98,14 @@ Skipped: `view`, `groupby`, `orderby`, `orderbyad`, `size` and `page` are output
 - **Links inside pages:** player profiles are `/ci/content/player/<id>.html`; matches are `/ci/engine/match/<id>.html`.
 - **Date range:** `spanmin1=07+Sep+2016;spanmax1=24+Feb+2026;spanval1=span`, with dates as `DD Mon YYYY`. The form's hidden `spanmin0` and `spanmax0` hold the class's first and latest match dates. First match dates: Tests 15 Mar 1877, ODIs 05 Jan 1971, T20Is 17 Feb 2005, all T20 13 Jun 2003 and combined internationals 15 Mar 1877.
 - **Minimums:** `qualval1=<field>;qualmin1=<n>`, with optional `qualmax1`. The form shows only one, but `qualval2`/`qualmin2` and `qualval3`/`qualmin3` also work: a query with three minimums returned only rows meeting all three.
+- **Maximums for lower-is-better bowling fields:** checked live on 5 Oct 2026 with curl's User-Agent. Test bowling in Asia with `wickets>=100` and `qualmax2=25;qualval2=bowling_average` returned 7 rows, all with displayed bowling average at or below 25. The same check with `qualmax2=50;qualval2=bowling_strike_rate` returned 5 rows, all with displayed bowling strike rate at or below 50. Because Statsguru compares exact values while it displays truncated values, answer proof links use an inclusive display maximum: `qualmax2=27.5199;qualval2=bowling_average` with `wickets>=92` included JM Anderson's displayed 27.51 in Asia.
 - **Minimum precision:** minimums are compared with exact values, to at least 4 decimals. Babar Azam's T20I average is 38.94915…; `qualmin2=38.9491` kept his row, while `qualmin2=38.9492` returned "No records available to match this query".
 - **Sort:** `orderby=<field>`; `orderbyad=reverse` reverses the order.
+- **Bowling sort order:** checked from saved pages on 5 Oct 2026. `orderby=wickets` returns most wickets first; `orderby=bowling_average;orderbyad=reverse` returns higher averages before lower averages, so the default `orderby=bowling_average` is best-first for bowling average. The same reverse page shape was checked for bowling strike rate. A live `orderby=economy_rate` Test bowling query in Asia with `wickets>=100` returned lower economy rates first (1.99, 2.01, 2.13...), so economy rate is also best-first by default. Higher-count bowling fields such as wickets, five-wicket hauls and ten-wicket matches use Statsguru's default high-to-low order.
 - **Paging:** `size` is 10, 25, 50 (default), 100, 150 or 200, and `page=<n>` selects later pages. Each page shows the total, for example "Page 2 of 5 Showing 201 - 400 of 850", so the first page tells how many pages a query needs. A 200-row page is about 1 MB of HTML.
 - **Truncated decimals:** averages and strike rates are cut off, not rounded. Babar Azam's T20I average is 4596 ÷ 118 = 38.949, shown as 38.94 (rounding would give 38.95). Bowling figures are truncated too (R8).
 - **Trailing zeros** are dropped from displayed numbers, for example "47.8" and "55".
+- **Fixed decimal places for proof thresholds:** saved pages show batting average, batting strike rate, bowling average and economy rate to at most 2 decimal places, and bowling strike rate to at most 1 decimal place, with trailing zeros dropped. Proof links that need an inclusive displayed maximum use those fixed precisions rather than the number of decimals present in the cell text.
 
 ## 3. Match classes and record types
 
@@ -339,6 +342,8 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - Bowling columns: Overs, Mdns, Runs, Wkts, Econ, Pos, Inns, (blank), Opposition, Ground, Start Date, then the match label.
 - **Filters in the URL:** player pages accept advanced-form filters that their own form doesn't show, including dates and `trophy`. Babar Azam's T20I summary page links innings lists such as `…/player/348144.html?batting_fielding_first=1;class=3;result=1;template=results;type=batting;view=innings`.
 - **Filtered pages:** with any filter, "Career averages" shows an "unfiltered" row and a "filtered" row (examples in R10).
+- **Player-page repeated filters:** checked live on 5 Oct 2026 with curl's User-Agent. JM Anderson's Test bowling page with `host=6;host=7` showed a filtered row, so player pages also apply repeated host keys as "one of".
+- **Bowling player pages with continent filters:** checked live on 5 Oct 2026. JM Anderson (ID 8608) with `class=1;continent=2;type=bowling` showed the filtered Asia row as 32 Tests, 92 wickets, average 27.51, economy 2.59 and strike rate 63.6. DW Steyn (ID 47492, found from saved Statsguru links and player search) with the same filter showed 22 Tests, 92 wickets, average 24.11, economy 3.36 and strike rate 42.9.
 - **Profile link:** the summary row's "Profile" link is `/ci/content/player/<id>.html`. On stats.cricinfo.com it redirects (302) to `https://www.espncricinfo.com/ci/content/player/<id>.html`, part of the player's profile on www, which scripts can't fetch (R1).
 - **Same IDs:** Statsguru and the www profile pages use the same player ID. For example, 348144 is Babar Azam on Statsguru and in `https://www.cricinfo.com/cricketers/babar-azam-348144`.
 
@@ -428,6 +433,10 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 - Hundreds minimums: Tests `hundreds>=5` 292 rows; ODIs `hundreds>=5` 144; T20Is `hundreds>=1` 191; all T20 `hundreds>=3` 121; combined internationals `hundreds>=10` 207.
 - Candidate innings-per-fifty-plus innings minimums were too broad: Tests `innings>=20` 1225 rows; ODIs `innings>=20` 1060; T20Is `innings>=20` 1064; all T20 `innings>=30` 2347; combined internationals `innings>=30` 1965.
 - Candidate balls-per-dismissal outs minimums were too broad: ODIs `outs>=20` 907 rows; T20Is `outs>=15` 1114; all T20 `outs>=25` 2167; combined internationals `outs>=40` 1279.
+
+**Bowling default-minimum count checks** (size=10 pages, fetched 5 Oct 2026 for issue #48):
+- Wickets floors: Tests `wickets>=100` 206 rows; ODIs `wickets>=100` 178; T20Is `wickets>=50` 236 (from the T20I bowling check below); all T20 `wickets>=100` 446; combined internationals `wickets>=200` 193.
+- Filtered-floor counts, measured with only a recent 10-year span from 5 Oct 2016 to 5 Oct 2026: Tests `wickets>=30` 110 rows; ODIs `wickets>=30` 190; T20Is `wickets>=20` 681; all T20 `wickets>=30` 1188, so the filtered all T20 floor is `wickets>=50`, which gives 706 rows; combined internationals `wickets>=50` 382. Longer spans, such as a 20-year career, can return more rows than D10 allows; the tool then stops with its "too broad" message.
 
 **Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
 - Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`

@@ -6,10 +6,16 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from crickey.fetcher import Fetcher, Freshness, MemoryPageSource
-from crickey.metrics import BATTING_METRICS, BetterDirection, batting_metric, rank_key
+from crickey.metrics import (
+    BATTING_METRICS,
+    BetterDirection,
+    batting_metric,
+    bowling_metric,
+    rank_key,
+)
 from crickey.parsers import RecentMatch
 from crickey.parsers.results import parse_results_page
-from crickey.proof import ProofLink, Threshold, build_proof_link
+from crickey.proof import ProofLink, Threshold, _threshold_qualification, build_proof_link
 from crickey.query import (
     Qualification,
     ResolvedPeriod,
@@ -707,6 +713,67 @@ def test_proof_confirmation_mismatch_no_expected_ids_and_no_records_fall_back() 
         assert "confirmation needs expected player IDs" in no_expected.label
 
     asyncio.run(run())
+
+
+def test_lower_is_better_proof_uses_inclusive_display_maximum() -> None:
+    async def run() -> None:
+        query = StatsguruQuery(
+            **{
+                "class": 1,
+                "type": "bowling",
+                "period": ResolvedPeriod(start=date(2003, 1, 1), end=date(2024, 1, 1)),
+                "qualifications": (Qualification(field="wickets", minimum=92),),
+                "orderby": "bowling_average",
+                "size": 200,
+            }
+        )
+        proof_url = (
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?"
+            "class=1;orderby=bowling_average;qualmax2=27.5199;qualmin1=92;"
+            "qualval1=wickets;qualval2=bowling_average;size=200;"
+            "spanmax1=01+Jan+2024;spanmin1=01+Jan+2003;spanval1=span;"
+            "template=results;type=bowling"
+        )
+        html = """
+        <table class="engineTable"><caption>Overall figures</caption>
+        <tr><th>Player</th><th>Wkts</th><th>Ave</th></tr>
+        <tr class="data1"><td><a href="/ci/content/player/8608.html">JM Anderson</a> (ENG)</td><td>92</td><td>27.51</td></tr>
+        </table><table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
+        """
+        source = MemoryPageSource({proof_url: html})
+        fetcher = Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
+        async with fetcher.call(budget=5) as call:
+            proof = await build_proof_link(
+                query,
+                thresholds=(Threshold(bowling_metric("bowling_average"), Decimal("27.51")),),
+                expected_player_ids=(8608,),
+                call=call,
+                as_of=date(2026, 10, 4),
+            )
+
+        assert proof.url == proof_url
+        assert proof.confirmed is True
+        assert "qualmin2" not in proof.url
+
+    asyncio.run(run())
+
+
+def test_lower_is_better_proof_uses_metric_fixed_precision() -> None:
+    assert _threshold_qualification(
+        Threshold(bowling_metric("bowling_average"), Decimal("27"))
+    ).maximum == Decimal("27.0099")
+    assert _threshold_qualification(
+        Threshold(bowling_metric("bowling_average"), Decimal("27.5"))
+    ).maximum == Decimal("27.5099")
+    assert _threshold_qualification(
+        Threshold(bowling_metric("economy_rate"), Decimal("4.5"))
+    ).maximum == Decimal("4.5099")
+    assert _threshold_qualification(
+        Threshold(bowling_metric("bowling_strike_rate"), Decimal("35"))
+    ).maximum == Decimal("35.0999")
+    assert _threshold_qualification(
+        Threshold(batting_metric("average"), Decimal("38"))
+    ).minimum == Decimal("38")
 
 
 def test_proof_confirmation_requires_matching_total_row_count() -> None:

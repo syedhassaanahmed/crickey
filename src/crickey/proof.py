@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from crickey.fetcher import Freshness, freshness_from_end_date
-from crickey.metrics import Metric
+from crickey.metrics import BetterDirection, Metric
 from crickey.parsers import parse_results_page
 from crickey.parsers.common import StatsguruParseError
 from crickey.query import Qualification, ResolvedPeriod, StatsguruQuery
@@ -56,8 +56,7 @@ async def build_proof_link(
                 reason="confirmation needs expected player IDs",
             )
         qualifications = query.qualifications + tuple(
-            Qualification(field=threshold.metric.qualval or "", minimum=threshold.minimum)
-            for threshold in thresholds
+            _threshold_qualification(threshold) for threshold in thresholds
         )
         proof_query = query.model_copy(update={"qualifications": qualifications})
         url = proof_query.results_url(as_of=as_of)
@@ -137,6 +136,26 @@ def _can_express(query: StatsguruQuery, thresholds: tuple[Threshold, ...]) -> bo
         and len(query.qualifications) + len(thresholds) <= 3
         and all(threshold.metric.qualval for threshold in thresholds)
     )
+
+
+def _threshold_qualification(threshold: Threshold) -> Qualification:
+    if threshold.metric.direction == BetterDirection.HIGHER:
+        return Qualification(field=threshold.metric.qualval or "", minimum=threshold.minimum)
+    return Qualification(
+        field=threshold.metric.qualval or "",
+        maximum=_inclusive_display_max(threshold),
+    )
+
+
+def _inclusive_display_max(threshold: Threshold) -> Decimal | int:
+    value = threshold.minimum
+    if isinstance(value, int):
+        return value
+    precision = threshold.metric.proof_precision
+    if precision is None:
+        precision = max(-value.as_tuple().exponent, 0)
+    unit = Decimal(1).scaleb(-precision)
+    return value + unit - Decimal("0.0001")
 
 
 def _formula_text(thresholds: tuple[Threshold, ...]) -> str | None:

@@ -15,8 +15,15 @@ from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, Field, PositiveInt, ValidationError
 
 from crickey.fetcher import Fetcher, FetcherError, Freshness, TooBroadError, freshness_from_end_date
-from crickey.ids import LookupResult, lookup_host
-from crickey.metrics import Metric, batting_metric, rank_key
+from crickey.ids import LookupResult, lookup_continent, lookup_host
+from crickey.metrics import (
+    BetterDirection,
+    DefaultMinimum,
+    Metric,
+    batting_metric,
+    bowling_metric,
+    rank_key,
+)
 from crickey.parsers import (
     Overs,
     PlayerFormat,
@@ -89,6 +96,8 @@ _FORMAT_CLASSES = {
 }
 _DEFAULT_FIND_CLASSES = (1, 2, 3, 6, 11)
 _METADATA_COLUMNS = {"player_name", "player_id", "player_team_codes", "match_id"}
+_BOWLING_RATE_METRICS = {"bowling_average", "economy_rate", "bowling_strike_rate"}
+_FILTERED_BOWLING_RATE_MINIMUMS = {1: 30, 2: 30, 3: 20, 6: 50, 11: 50}
 
 
 class AnswerMetric(StrEnum):
@@ -100,6 +109,11 @@ class AnswerMetric(StrEnum):
     INNINGS_PER_HUNDRED = "innings_per_hundred"
     INNINGS_PER_FIFTY_PLUS = "innings_per_fifty_plus"
     BALLS_PER_DISMISSAL = "balls_per_dismissal"
+
+
+class AnswerDiscipline(StrEnum):
+    BATTING = "batting"
+    BOWLING = "bowling"
 
 
 class AllTimePeriod(BaseModel):
@@ -300,18 +314,21 @@ def create_server(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
             "Example: Average number of innings taken per ODI century (minimum X number "
-            "of centuries). Return a batting leaderboard with proof links."
+            "of centuries). Bowling example: Which Test bowlers have the best bowling "
+            "average in Asia? Return a batting or bowling leaderboard with proof links."
         ),
     )
     async def leaderboard(
         format: str | int,
         metric: AnswerMetric | str,
+        discipline: AnswerDiscipline | str = AnswerDiscipline.BATTING,
         period: AnswerPeriod | dict[str, Any] | None = None,
-        team: str | None = None,
-        opposition: str | None = None,
-        host_country: str | None = None,
-        ground: str | None = None,
-        trophy: str | None = None,
+        team: str | list[str] | None = None,
+        opposition: str | list[str] | None = None,
+        host_country: str | list[str] | None = None,
+        continent: str | list[str] | None = None,
+        ground: str | list[str] | None = None,
+        trophy: str | list[str] | None = None,
         home_or_away: str | int | None = None,
         match_result: str | int | None = None,
         minimum: int | Decimal | None = None,
@@ -322,11 +339,13 @@ def create_server(
             fetcher,
             fetcher.settings,
             format=format,
+            discipline=discipline,
             metric_key=metric,
             period=period,
             team=team,
             opposition=opposition,
             host_country=host_country,
+            continent=continent,
             ground=ground,
             trophy=trophy,
             home_or_away=home_or_away,
@@ -341,20 +360,24 @@ def create_server(
         description=(
             "Example: Which players have scored Test hundreds more frequently than "
             "Babar Azam? Which batters had better average and strike rate in T20 "
-            "than Babar Azam, in the same period that Babar Azam played? Compare players."
+            "than Babar Azam, in the same period that Babar Azam played? Bowling example: "
+            "Which Test bowlers had a better bowling average than Dale Steyn in Asia? "
+            "Compare players."
         ),
     )
     async def better_than_player(
         player_name: str,
         format: str | int,
         metrics: list[AnswerMetric | str],
+        discipline: AnswerDiscipline | str = AnswerDiscipline.BATTING,
         match: str = "all",
         period: AnswerPeriod | dict[str, Any] | None = None,
-        team: str | None = None,
-        opposition: str | None = None,
-        host_country: str | None = None,
-        ground: str | None = None,
-        trophy: str | None = None,
+        team: str | list[str] | None = None,
+        opposition: str | list[str] | None = None,
+        host_country: str | list[str] | None = None,
+        continent: str | list[str] | None = None,
+        ground: str | list[str] | None = None,
+        trophy: str | list[str] | None = None,
         home_or_away: str | int | None = None,
         match_result: str | int | None = None,
         minimum: int | Decimal | None = None,
@@ -365,12 +388,14 @@ def create_server(
             fetcher.settings,
             player_name=player_name,
             format=format,
+            discipline=discipline,
             metric_keys=metrics,
             match_mode=match,
             period=period,
             team=team,
             opposition=opposition,
             host_country=host_country,
+            continent=continent,
             ground=ground,
             trophy=trophy,
             home_or_away=home_or_away,
@@ -384,17 +409,20 @@ def create_server(
         description=(
             "Example: What was Babar Azam's Test batting average in the last Y years "
             "of his career? How many hundreds has Babar Azam scored in ODI World Cups? "
-            "Return one player's batting record with a proof link."
+            "Bowling example: What was James Anderson's Test bowling record in Asia? "
+            "Return one player's batting or bowling record with a proof link."
         ),
     )
     async def player_record(
         player_name: str,
         format: str | int,
+        discipline: AnswerDiscipline | str = AnswerDiscipline.BATTING,
         period: AnswerPeriod | dict[str, Any] | None = None,
-        opposition: str | None = None,
-        host_country: str | None = None,
-        ground: str | None = None,
-        trophy: str | None = None,
+        opposition: str | list[str] | None = None,
+        host_country: str | list[str] | None = None,
+        continent: str | list[str] | None = None,
+        ground: str | list[str] | None = None,
+        trophy: str | list[str] | None = None,
         home_or_away: str | int | None = None,
         match_result: str | int | None = None,
         ctx: Context | None = None,
@@ -403,9 +431,11 @@ def create_server(
             fetcher,
             player_name=player_name,
             format=format,
+            discipline=discipline,
             period=period,
             opposition=opposition,
             host_country=host_country,
+            continent=continent,
             ground=ground,
             trophy=trophy,
             home_or_away=home_or_away,
@@ -421,13 +451,15 @@ async def _leaderboard_tool(
     settings: Settings,
     *,
     format: str | int,
+    discipline: AnswerDiscipline | str,
     metric_key: str,
     period: AnswerPeriod | dict[str, Any] | None,
-    team: str | None,
-    opposition: str | None,
-    host_country: str | None,
-    ground: str | None,
-    trophy: str | None,
+    team: str | list[str] | None,
+    opposition: str | list[str] | None,
+    host_country: str | list[str] | None,
+    continent: str | list[str] | None,
+    ground: str | list[str] | None,
+    trophy: str | list[str] | None,
     home_or_away: str | int | None,
     match_result: str | int | None,
     minimum: int | Decimal | None,
@@ -438,11 +470,10 @@ async def _leaderboard_tool(
         raise ToolError("top_n must be from 1 to 200.")
     try:
         class_id = _format_class(format)
-        metric = _answer_metric(metric_key)
+        discipline_value = _answer_discipline(discipline)
+        metric = _answer_metric(discipline_value, metric_key)
         metric.require_supported(class_id)
         _validate_period_shape(period)
-        minimum_value = minimum if minimum is not None else metric.default_minimum(class_id).minimum
-        minimum_field = metric.default_minimum(class_id).field
         resolved_period = _parse_period(period)
     except (ValueError, QuerySpecError) as error:
         raise ToolError(str(error)) from error
@@ -456,6 +487,7 @@ async def _leaderboard_tool(
                 team=team,
                 opposition=opposition,
                 host_country=host_country,
+                continent=continent,
                 ground=ground,
                 trophy=trophy,
                 home_or_away=home_or_away,
@@ -463,14 +495,19 @@ async def _leaderboard_tool(
             )
             if filters.get("needs_clarification"):
                 return _tool_result("A filter needs clarification.", filters)
+            default_minimum = _leaderboard_default_minimum(
+                metric, class_id, period=resolved_period, filters=filters["query"]
+            )
+            minimum_value = minimum if minimum is not None else default_minimum.minimum
+            minimum_field = default_minimum.field
             query = StatsguruQuery(
                 **{
                     "class": class_id,
-                    "type": "batting",
+                    "type": discipline_value,
                     "period": resolved_period,
                     "qualifications": (Qualification(field=minimum_field, minimum=minimum_value),),
                     "orderby": metric.orderby or minimum_field,
-                    "orderbyad": "reverse" if metric.direction.value == "lower" else "",
+                    "orderbyad": _statsguru_orderbyad(metric),
                     "size": 200 if metric.is_derived else _page_size_for_top_n(top_n),
                     **filters["query"],
                 }
@@ -519,6 +556,7 @@ async def _leaderboard_tool(
                 "Calculated derived metrics from totals."
                 if metric.is_derived
                 else "Used Statsguru displayed values.",
+                _direction_method(metric),
                 "Equal displayed values count as ties.",
             ),
             assumptions=(
@@ -558,26 +596,29 @@ async def _better_than_player_tool(
     *,
     player_name: str,
     format: str | int,
+    discipline: AnswerDiscipline | str,
     metric_keys: list[AnswerMetric | str],
     match_mode: str,
     period: AnswerPeriod | dict[str, Any] | None,
-    team: str | None,
-    opposition: str | None,
-    host_country: str | None,
-    ground: str | None,
-    trophy: str | None,
+    team: str | list[str] | None,
+    opposition: str | list[str] | None,
+    host_country: str | list[str] | None,
+    continent: str | list[str] | None,
+    ground: str | list[str] | None,
+    trophy: str | list[str] | None,
     home_or_away: str | int | None,
     match_result: str | int | None,
     minimum: int | Decimal | None,
     ctx: Context | None,
 ) -> CallToolResult:
     if not 1 <= len(metric_keys) <= 3:
-        raise ToolError("metrics must contain 1 to 3 batting metrics.")
+        raise ToolError("metrics must contain 1 to 3 metrics.")
     if match_mode not in {"all", "any"}:
         raise ToolError("match must be 'all' or 'any'.")
     try:
         class_id = _format_class(format)
-        metrics = tuple(_answer_metric(key) for key in metric_keys)
+        discipline_value = _answer_discipline(discipline)
+        metrics = tuple(_answer_metric(discipline_value, key) for key in metric_keys)
         _validate_period_shape(period)
         for metric in metrics:
             metric.require_supported(class_id)
@@ -600,6 +641,7 @@ async def _better_than_player_tool(
                 team=team,
                 opposition=opposition,
                 host_country=host_country,
+                continent=continent,
                 ground=ground,
                 trophy=trophy,
                 home_or_away=home_or_away,
@@ -607,11 +649,26 @@ async def _better_than_player_tool(
             )
             if filters.get("needs_clarification"):
                 return _tool_result("A filter needs clarification.", filters)
-            min_field, min_value = _comparison_default_minimum(metrics, class_id)
+            min_field, min_value = _comparison_default_minimum(
+                metrics, class_id, period=period_value, filters=filters["query"]
+            )
+            if minimum is None and discipline_value == "bowling":
+                target_floor = await _target_filtered_floor(
+                    call,
+                    resolution.match.player_id,
+                    class_id=class_id,
+                    discipline=discipline_value,
+                    period=period_value,
+                    filters=filters["player_page"],
+                    field=min_field,
+                    fetcher=fetcher,
+                )
+                if target_floor is not None:
+                    min_value = min(Decimal(min_value), target_floor)
             query = StatsguruQuery(
                 **{
                     "class": class_id,
-                    "type": "batting",
+                    "type": discipline_value,
                     "period": period_value,
                     "qualifications": (
                         Qualification(
@@ -620,6 +677,7 @@ async def _better_than_player_tool(
                         ),
                     ),
                     "orderby": metrics[0].orderby,
+                    "orderbyad": "",
                     "size": 200,
                     **filters["query"],
                 }
@@ -734,6 +792,7 @@ async def _better_than_player_tool(
             ),
             method=(
                 "Compared Statsguru displayed values; equal displayed values count as ties.",
+                _direction_method(*metrics),
                 (
                     f"Required {'all' if match_mode == 'all' else 'any'} metric(s) "
                     "to beat the player; all-metric ties are reported separately."
@@ -777,17 +836,20 @@ async def _player_record_tool(
     *,
     player_name: str,
     format: str | int,
+    discipline: AnswerDiscipline | str,
     period: AnswerPeriod | dict[str, Any] | None,
-    opposition: str | None,
-    host_country: str | None,
-    ground: str | None,
-    trophy: str | None,
+    opposition: str | list[str] | None,
+    host_country: str | list[str] | None,
+    continent: str | list[str] | None,
+    ground: str | list[str] | None,
+    trophy: str | list[str] | None,
     home_or_away: str | int | None,
     match_result: str | int | None,
     ctx: Context | None,
 ) -> CallToolResult:
     try:
         class_id = _format_class(format)
+        discipline_value = _answer_discipline(discipline)
         _validate_period_shape(period)
     except ValueError as error:
         raise ToolError(str(error)) from error
@@ -807,6 +869,7 @@ async def _player_record_tool(
                 call=call,
                 opposition=opposition,
                 host_country=host_country,
+                continent=continent,
                 ground=ground,
                 trophy=trophy,
                 home_or_away=home_or_away,
@@ -818,7 +881,7 @@ async def _player_record_tool(
                 player_id=resolution.match.player_id,
                 **{
                     "class": class_id,
-                    "type": "batting",
+                    "type": discipline_value,
                     "period": period_value,
                     **filters["player_page"],
                 },
@@ -829,7 +892,7 @@ async def _player_record_tool(
                 url,
                 freshness=_freshness_for_query(
                     StatsguruQuery(
-                        **{"class": class_id, "type": "batting", "period": period_value}
+                        **{"class": class_id, "type": discipline_value, "period": period_value}
                     ),
                     as_of,
                 ),
@@ -856,7 +919,9 @@ async def _player_record_tool(
                 table=RenderedTable(
                     headers=("Player", "Result"), rows=((resolution.match.name, "No matches"),)
                 ),
-                method=("Read the player's Statsguru batting page with the same filters.",),
+                method=(
+                    f"Read the player's Statsguru {discipline_value} page with the same filters.",
+                ),
                 assumptions=(f"Period: {_period_text(period_value, as_of=as_of)}.",),
                 proof_links=(proof,),
                 players=(RenderPlayer(resolution.match.name, resolution.match.player_id),),
@@ -877,14 +942,14 @@ async def _player_record_tool(
 
     columns = _player_record_columns(page)
     values = {column: _display_value(row, column) for column in columns}
-    summary_values = _player_record_summary(resolution.match.name, values)
+    summary_values = _player_record_summary(resolution.match.name, values, discipline_value)
     answer = render_answer(
         AnswerRenderInput(
             short_answer=summary_values,
             table=RenderedTable(
                 headers=tuple(columns), rows=(tuple(values[column] for column in columns),)
             ),
-            method=("Read the player's Statsguru batting page with the same filters.",),
+            method=(f"Read the player's Statsguru {discipline_value} page with the same filters.",),
             assumptions=(f"Period: {_period_text(period_value, as_of=as_of)}.",),
             proof_links=(proof,),
             players=(RenderPlayer(resolution.match.name, resolution.match.player_id),),
@@ -918,19 +983,65 @@ def _format_class(value: str | int) -> int:
         raise ToolError("format must be Test, ODI, T20I, all T20 or all internationals.") from error
 
 
-def _answer_metric(value: AnswerMetric | str) -> Metric:
+def _answer_discipline(value: AnswerDiscipline | str) -> str:
+    normalized = str(value.value if isinstance(value, AnswerDiscipline) else value).casefold()
+    if normalized in {"batting", "bowling"}:
+        return normalized
+    raise ValueError("discipline must be 'batting' or 'bowling'.")
+
+
+def _answer_metric(discipline: str, value: AnswerMetric | str) -> Metric:
     normalized = str(value.value if isinstance(value, AnswerMetric) else value)
     normalized = " ".join(normalized.casefold().replace("_", " ").replace("-", " ").split())
-    for metric in (batting_metric(key.value) for key in AnswerMetric):
+    registry = {
+        "batting": (
+            "runs",
+            "average",
+            "strike_rate",
+            "hundreds",
+            "fifties",
+            "innings_per_hundred",
+            "innings_per_fifty_plus",
+            "balls_per_dismissal",
+        ),
+        "bowling": (
+            "wickets",
+            "bowling_average",
+            "economy_rate",
+            "bowling_strike_rate",
+            "five_wickets",
+            "ten_wickets",
+        ),
+    }[discipline]
+    aliases = {
+        "batting": {
+            "average": "average",
+            "strike rate": "strike rate",
+        },
+        "bowling": {
+            "average": "bowling average",
+            "economy": "economy rate",
+            "economy rate": "economy rate",
+            "strike rate": "bowling strike rate",
+            "five fors": "five wickets",
+            "five for": "five wickets",
+            "five wickets": "five wickets",
+        },
+    }[discipline]
+    normalized = aliases.get(normalized, normalized)
+    getter = batting_metric if discipline == "batting" else bowling_metric
+    for metric in (getter(key) for key in registry):
         labels = {
             metric.key.casefold().replace("_", " "),
             metric.label.casefold(),
         }
         if normalized in labels:
             return metric
-    valid = ", ".join(metric.value for metric in AnswerMetric)
-    labels = ", ".join(batting_metric(metric.value).label for metric in AnswerMetric)
-    raise ValueError(f"unknown batting metric {value!r}; valid keys: {valid}; labels: {labels}")
+    labels = ", ".join(getter(key).label for key in registry)
+    raise ValueError(
+        f"unknown {discipline} metric {value!r}; valid keys: {', '.join(registry)}; "
+        f"labels: {labels}"
+    )
 
 
 async def _answer_filters(
@@ -938,11 +1049,12 @@ async def _answer_filters(
     class_id: int,
     *,
     call,
-    team: str | None = None,
-    opposition: str | None = None,
-    host_country: str | None = None,
-    ground: str | None = None,
-    trophy: str | None = None,
+    team: str | list[str] | None = None,
+    opposition: str | list[str] | None = None,
+    host_country: str | list[str] | None = None,
+    continent: str | list[str] | None = None,
+    ground: str | list[str] | None = None,
+    trophy: str | list[str] | None = None,
     home_or_away: str | int | None = None,
     match_result: str | int | None = None,
 ) -> dict[str, Any]:
@@ -951,24 +1063,55 @@ async def _answer_filters(
     player_page: dict[str, Any] = {}
     clarifications: list[dict[str, Any]] = []
 
-    def add_lookup(field: str, result: LookupResult, *, for_player_page: bool = True) -> None:
-        if result.match is not None:
-            query[field] = result.match.value
+    def add_lookup(
+        field: str, results: Iterable[LookupResult], *, for_player_page: bool = True
+    ) -> None:
+        results = tuple(results)
+        values = []
+        for result in results:
+            if result.match is None:
+                clarifications.append(_lookup_payload(result))
+                continue
+            values.append(result.match.value)
+        if values and not any(result.match is None for result in results):
+            value: int | tuple[int, ...] = values[0] if len(values) == 1 else tuple(values)
+            query[field] = value
             if for_player_page:
-                player_page[field] = result.match.value
+                player_page[field] = value
             return
-        clarifications.append(_lookup_payload(result))
 
     if team is not None:
-        add_lookup("team", resolver.resolve_team(team, class_id=class_id), for_player_page=False)
+        add_lookup(
+            "team",
+            (resolver.resolve_team(item, class_id=class_id) for item in _filter_items(team)),
+            for_player_page=False,
+        )
     if opposition is not None:
-        add_lookup("opposition", resolver.resolve_team(opposition, class_id=class_id))
+        add_lookup(
+            "opposition",
+            (resolver.resolve_team(item, class_id=class_id) for item in _filter_items(opposition)),
+        )
     if host_country is not None:
-        add_lookup("host", lookup_host(class_id, host_country))
+        add_lookup("host", (lookup_host(class_id, item) for item in _filter_items(host_country)))
+    if continent is not None:
+        add_lookup(
+            "continent", (lookup_continent(class_id, item) for item in _filter_items(continent))
+        )
     if trophy is not None:
-        add_lookup("trophy", resolver.resolve_trophy(trophy, class_id=class_id))
+        add_lookup(
+            "trophy",
+            (resolver.resolve_trophy(item, class_id=class_id) for item in _filter_items(trophy)),
+        )
     if ground is not None:
-        add_lookup("ground", await resolver.resolve_ground(ground, class_id=class_id, call=call))
+        add_lookup(
+            "ground",
+            tuple(
+                [
+                    await resolver.resolve_ground(item, class_id=class_id, call=call)
+                    for item in _filter_items(ground)
+                ]
+            ),
+        )
     if home_or_away is not None:
         value = _choice_value(home_or_away, {"home": 1, "away": 2, "neutral": 3})
         query["home_or_away"] = value
@@ -998,6 +1141,12 @@ def _choice_value(value: str | int, choices: Mapping[str, int]) -> int:
         raise ValueError(
             f"unknown filter value {value!r}; expected {', '.join(choices)}"
         ) from error
+
+
+def _filter_items(value: str | list[str]) -> tuple[str, ...]:
+    if isinstance(value, list):
+        return tuple(str(item) for item in value)
+    return (str(value),)
 
 
 def _parse_period(value: AnswerPeriod | Mapping[str, Any] | None) -> Period:
@@ -1078,14 +1227,109 @@ def _period_text(period: Period, *, as_of: date) -> str:
     return f"all time through {as_of.isoformat()}"
 
 
+def _leaderboard_default_minimum(
+    metric: Metric, class_id: int, *, period: Period, filters: Mapping[str, Any]
+) -> DefaultMinimum:
+    if metric.key in _BOWLING_RATE_METRICS and _is_filtered_bowling_query(period, filters):
+        return DefaultMinimum("wickets", _FILTERED_BOWLING_RATE_MINIMUMS[class_id])
+    return metric.default_minimum(class_id)
+
+
 def _comparison_default_minimum(
-    metrics: tuple[Metric, ...], class_id: int
+    metrics: tuple[Metric, ...],
+    class_id: int,
+    *,
+    period: Period = None,
+    filters: Mapping[str, Any] | None = None,
 ) -> tuple[str, int | Decimal]:
     if any(metric.key in {"average", "strike_rate"} for metric in metrics):
         minimum = batting_metric("runs").default_minimum(class_id)
         return minimum.field, max(Decimal(minimum.minimum), Decimal(1000))
+    if _uses_bowling_rate_minimum(metrics):
+        minimum = _leaderboard_default_minimum(
+            bowling_metric("wickets")
+            if not any(metric.key in _BOWLING_RATE_METRICS for metric in metrics)
+            else next(metric for metric in metrics if metric.key in _BOWLING_RATE_METRICS),
+            class_id,
+            period=period,
+            filters=filters or {},
+        )
+        return minimum.field, minimum.minimum
     minimum = metrics[0].default_minimum(class_id)
     return minimum.field, minimum.minimum
+
+
+def _uses_bowling_rate_minimum(metrics: tuple[Metric, ...]) -> bool:
+    return any(metric.key in _BOWLING_RATE_METRICS for metric in metrics)
+
+
+def _is_filtered_bowling_query(period: Period, filters: Mapping[str, Any]) -> bool:
+    return period is not None or any(
+        key in filters
+        for key in (
+            "continent",
+            "ground",
+            "home_or_away",
+            "host",
+            "opposition",
+            "result",
+            "team",
+            "trophy",
+        )
+    )
+
+
+async def _target_filtered_floor(
+    call,
+    player_id: int,
+    *,
+    class_id: int,
+    discipline: str,
+    period: Period,
+    filters: Mapping[str, Any],
+    field: str,
+    fetcher: Fetcher,
+) -> Decimal | None:
+    column = _FIELD_COLUMNS[discipline].get(field)
+    if column is None:
+        return None
+    spec = PlayerPageSpec(
+        player_id=player_id,
+        **{
+            "class": class_id,
+            "type": discipline,
+            "period": period,
+            **filters,
+        },
+    )
+    as_of = _today(fetcher)
+    html = await call.fetch(
+        spec.url(as_of=as_of),
+        freshness=_freshness_for_query(
+            StatsguruQuery(**{"class": class_id, "type": discipline, "period": period}),
+            as_of,
+        ),
+    )
+    page = parse_player_page(html)
+    row = _player_record_row(page)
+    if row is None:
+        return None
+    return _decimal(row.get(column))
+
+
+def _statsguru_orderbyad(metric: Metric) -> str:
+    return "reverse" if metric.is_derived and metric.direction == BetterDirection.LOWER else ""
+
+
+def _direction_method(*metrics: Metric) -> str:
+    lower = [metric.label for metric in metrics if metric.direction == BetterDirection.LOWER]
+    higher = [metric.label for metric in metrics if metric.direction == BetterDirection.HIGHER]
+    pieces = []
+    if lower:
+        pieces.append(f"Lower {_metric_list(lower)} {'is' if len(lower) == 1 else 'are'} better")
+    if higher:
+        pieces.append(f"Higher {_metric_list(higher)} {'is' if len(higher) == 1 else 'are'} better")
+    return "; ".join(pieces) + "."
 
 
 async def _fetch_all_result_pages(
@@ -1268,7 +1512,21 @@ def _metric_row_payload(
         "value": value,
         "metric": metric.key,
     }
-    for field in ("Inns", "100", "50", "Runs", "Ave", "SR", "BF"):
+    for field in (
+        "Inns",
+        "100",
+        "50",
+        "Runs",
+        "Ave",
+        "SR",
+        "BF",
+        "Overs",
+        "Mdns",
+        "Wkts",
+        "Econ",
+        "5",
+        "10",
+    ):
         if field in row:
             payload[field] = _display_value(row, field)
     for qual_field, column in {
@@ -1277,6 +1535,9 @@ def _metric_row_payload(
         "runs": "Runs",
         "balls_faced": "BF",
         "fifty_plus": "50",
+        "wickets": "Wkts",
+        "five_wickets": "5",
+        "ten_wickets": "10",
     }.items():
         if column in row:
             payload[qual_field] = _display_value(row, column)
@@ -1363,16 +1624,30 @@ def _player_record_columns(page) -> list[str]:
     ]
 
 
-def _player_record_summary(player_name: str, values: Mapping[str, Any]) -> str:
-    labels = (
-        ("Mat", "matches"),
-        ("Inns", "innings"),
-        ("Runs", "runs"),
-        ("Ave", "average"),
-        ("100", "hundreds"),
-        ("50", "fifties"),
-    )
+def _player_record_summary(player_name: str, values: Mapping[str, Any], discipline: str) -> str:
+    if discipline == "bowling":
+        labels = (
+            ("Mat", "matches"),
+            ("Inns", "innings"),
+            ("Wkts", "wickets"),
+            ("Ave", "average"),
+            ("Econ", "economy"),
+            ("SR", "strike rate"),
+            ("5", "five-wicket hauls"),
+            ("10", "ten-wicket matches"),
+        )
+    else:
+        labels = (
+            ("Mat", "matches"),
+            ("Inns", "innings"),
+            ("Runs", "runs"),
+            ("Ave", "average"),
+            ("100", "hundreds"),
+            ("50", "fifties"),
+        )
     pieces = [f"{label} {values[column]}" for column, label in labels if column in values]
+    if discipline == "bowling" and "BBI" in values:
+        pieces.append(f"best innings {values['BBI']}")
     if "HS" in values:
         pieces.append(f"highest score {values['HS']}")
     return f"{player_name}'s record: {', '.join(pieces)}."
