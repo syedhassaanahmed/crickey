@@ -684,11 +684,12 @@ def test_range_filters_emit_matching_val1_and_quickpicks_are_refused() -> None:
         StatsguruQuery(**{"class": 1, "type": "batting", "spanquickpick": 5})
 
 
-def test_single_value_fields_reject_lists_but_checkboxes_accept_and_sort_them() -> None:
-    with pytest.raises(ValidationError, match="field 'team' accepts only one value"):
-        StatsguruQuery(**{"class": 1, "type": "batting", "team": [1, 2]})
+def test_multi_value_fields_accept_lists_and_sort_repeated_keys() -> None:
     with pytest.raises(ValidationError, match="field 'toss' accepts only one value"):
         StatsguruQuery(**{"class": 1, "type": "batting", "toss": [1, 2]})
+
+    team_query = StatsguruQuery(**{"class": 1, "type": "batting", "team": [2, 1]})
+    assert "team=1;team=2" in team_query.results_url(as_of=date(2026, 10, 4))
 
     query = StatsguruQuery(**{"class": 1, "type": "batting", "result": [2, 1]})
     assert "result=1;result=2" in query.results_url(as_of=date(2026, 10, 4))

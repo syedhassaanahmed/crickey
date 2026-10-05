@@ -88,6 +88,25 @@ MULTI_FIELDS = {
     class_id: {stat_type: set(fields) for stat_type, fields in by_type.items()}
     for class_id, by_type in query_catalog.MULTI_FIELDS.items()
 }
+# Repeated keys for these dropdown filters are applied as "one of" by
+# classic Statsguru. Keep this explicit list aligned with the live checks in R2.
+REPEATED_KEY_SELECT_FIELDS = {
+    "continent",
+    "dismissal",
+    "event",
+    "final_type",
+    "fow_type",
+    "ground",
+    "host",
+    "opposition",
+    "season",
+    "series",
+    "team",
+    "trophy",
+}
+for _class_id, _by_type in TYPE_FILTER_FIELDS.items():
+    for _stat_type, _fields in _by_type.items():
+        MULTI_FIELDS[_class_id][_stat_type].update(REPEATED_KEY_SELECT_FIELDS & _fields)
 for _class_id, _by_type in TYPE_FILTER_FIELDS.items():
     for _stat_type, _fields in _by_type.items():
         if "search_player" in _fields:

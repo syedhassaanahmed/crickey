@@ -214,7 +214,10 @@ def create_server(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
             "Example: Who has the most ODI wickets against Australia? Compile and optionally "
-            "fetch any Statsguru query, returning rows, totals and the pinned link."
+            "fetch any Statsguru query, returning rows, totals and the pinned link. "
+            "Several values are allowed for checkbox filters and for these dropdown filters: "
+            "team, opposition, host, ground, season, continent, series, trophy, final_type, "
+            "dismissal, fow_type and event."
         ),
     )
     async def query_stats(

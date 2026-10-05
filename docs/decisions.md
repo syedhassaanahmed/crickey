@@ -86,6 +86,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 | A fixed 24-hour cache expiry | Replaced by the freshness rules above. |
 | A stored filter catalogue | Replaced by built-in ID tables plus lookups when needed. |
 | Fetching player profile pages from www.cricinfo.com | Blocked to scripts (R1), so getting through would mean working around bot protection. Their statistics match Statsguru's, so answers link to them instead. |
+| Linking or fetching the new Statsguru on www.cricinfo.com/statsguru | crickey can't fetch or confirm it (D7, R1), the classic engine serves the same data, and repeated keys cover multi-value queries (#46). |
 | A separate access-check step before building | Done during research (R1, R9); the fetcher's live smoke test re-checks it. |
 | uvx, PyPI, MCP Bundles, a Copilot plugin, one-click install links, MCP Registry or directory listings (R14) | Docker only. |
 | A private container image | Public, so friends don't need to log in. |
