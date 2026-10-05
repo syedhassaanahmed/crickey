@@ -82,6 +82,26 @@ def result_page(rows: list[str], *, page: int = 1, pages: int = 1, total: int | 
     """
 
 
+def bowling_result_page(
+    rows: list[str], *, page: int = 1, pages: int = 1, total: int | None = None
+) -> str:
+    total = len(rows) if total is None else total
+    start = 1 if rows else 0
+    end = len(rows) if rows else 0
+    if page > 1 and rows:
+        start = (page - 1) * 200 + 1
+        end = start + len(rows) - 1
+    return f"""
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr><th>Player</th><th>Span</th><th>Mat</th><th>Inns</th><th>Balls</th><th>Overs</th><th>Mdns</th><th>Runs</th><th>Wkts</th><th>BBI</th><th>BBM</th><th>Ave</th><th>Econ</th><th>SR</th><th>4</th><th>5</th><th>10</th></tr>
+    {"".join(rows)}
+    </table>
+    <table><tr><td>Page <b>{page}</b> of <b>{pages}</b></td><td>Showing <b>{start}</b> - <b>{end}</b> of <b>{total}</b></td></tr></table>
+    </body></html>
+    """
+
+
 def row(
     player_id: int,
     name: str,
@@ -97,6 +117,23 @@ def row(
 ) -> str:
     return f"""
     <tr class="data1"><td><a href="/ci/content/player/{player_id}.html">{name}</a> ({team})</td><td>{span}</td><td>10</td><td>{inns}</td><td>0</td><td>{runs}</td><td>122</td><td>{ave}</td><td>{bf}</td><td>{sr}</td><td>{hundreds}</td><td>{fifties}</td><td>0</td></tr>
+    """
+
+
+def bowling_row(
+    player_id: int,
+    name: str,
+    team: str,
+    span: str,
+    wickets: int,
+    ave: str,
+    econ: str = "2.50",
+    sr: str = "50.0",
+    five: int = 5,
+    ten: int = 1,
+) -> str:
+    return f"""
+    <tr class="data1"><td><a href="/ci/content/player/{player_id}.html">{name}</a> ({team})</td><td>{span}</td><td>50</td><td>80</td><td>6000</td><td>1000.0</td><td>200</td><td>2500</td><td>{wickets}</td><td>6/40</td><td>10/100</td><td>{ave}</td><td>{econ}</td><td>{sr}</td><td>10</td><td>{five}</td><td>{ten}</td></tr>
     """
 
 
@@ -123,6 +160,16 @@ def player_page(row_html: str) -> str:
     <html><body>
     <table class="engineTable"><caption>Career averages</caption>
     <tr><th></th><th>Span</th><th>Mat</th><th>Inns</th><th>NO</th><th>Runs</th><th>HS</th><th>Ave</th><th>BF</th><th>SR</th><th>100</th><th>50</th><th>0</th></tr>
+    {row_html}
+    </table></body></html>
+    """
+
+
+def bowling_player_page(row_html: str) -> str:
+    return f"""
+    <html><body>
+    <table class="engineTable"><caption>Career averages</caption>
+    <tr><th></th><th>Span</th><th>Mat</th><th>Inns</th><th>Overs</th><th>Mdns</th><th>Runs</th><th>Wkts</th><th>BBI</th><th>Ave</th><th>Econ</th><th>SR</th><th>4</th><th>5</th><th>10</th></tr>
     {row_html}
     </table></body></html>
     """
@@ -379,6 +426,68 @@ async def test_golden_question_2_test_hundreds_more_frequently_requests_and_cach
     assert "innings ÷ hundreds" in cold.structured_content["answer_markdown"]
 
 
+async def test_bowling_better_than_player_lower_metric_uses_qualmax_and_reports_level() -> None:
+    period = ResolvedPeriod(start="2004-12-17", end="2019-02-21")
+    base_query = StatsguruQuery(
+        **{
+            "class": 1,
+            "type": "bowling",
+            "period": period,
+            "continent": 2,
+            "qualifications": (Qualification(field="wickets", minimum=100),),
+            "orderby": "bowling_average",
+            "orderbyad": "reverse",
+            "size": 200,
+        }
+    )
+    proof_query = base_query.model_copy(
+        update={
+            "qualifications": (
+                Qualification(field="wickets", minimum=100),
+                Qualification(field="bowling_average", maximum="25.00"),
+            )
+        }
+    )
+    form_url, form = career_form(47492, 1, "17 Dec 2004", "21 Feb 2019")
+    rows = [
+        bowling_row(1, "Better Bowler", "AAA", "2005-2018", 130, "22.00"),
+        bowling_row(47492, "Dale Steyn", "SA", "2004-2019", 439, "25.00"),
+        bowling_row(2, "Tie Bowler", "BBB", "2006-2018", 120, "25.00"),
+        bowling_row(3, "Worse Bowler", "CCC", "2006-2018", 120, "26.00"),
+    ]
+    source, client = await client_for(
+        {
+            player_search_url("Dale Steyn"): search_page(
+                search_row("Dale Steyn", "SA", 47492, 1, "Test matches", "2004/05 - 2018/19")
+            ),
+            form_url: form,
+            url(base_query): bowling_result_page(rows, total=4),
+            url(proof_query): bowling_result_page(rows[:3], total=3),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Dale Steyn",
+                "format": "Test",
+                "discipline": "bowling",
+                "metrics": ["bowling_average"],
+                "continent": "Asia",
+            },
+        )
+
+    assert len(source.requests) == 4
+    assert [row["player"] for row in result.structured_content["beaters"]] == ["Better Bowler"]
+    assert [row["player"] for row in result.structured_content["ties"]] == ["Tie Bowler"]
+    proof_url = result.structured_content["proof"]["url"]
+    assert "qualval2=bowling_average" in proof_url
+    assert "qualmax2=25" in proof_url
+    assert "qualmin2" not in proof_url
+    assert result.structured_content["proof"]["confirmed"] is True
+
+
 async def test_golden_question_4_last_years_test_record_requests_and_cache() -> None:
     form_url, form = career_form(348144, 1, "13 Oct 2016", "24 Feb 2026")
     spec = PlayerPageSpec(
@@ -461,6 +570,58 @@ async def test_golden_question_5_babar_odi_world_cup_record_requests_and_cache()
     assert "hundreds 20" not in short_answer
 
 
+async def test_player_record_bowling_in_asia_for_two_players() -> None:
+    anderson_spec = PlayerPageSpec(
+        player_id=8608, **{"class": 1, "type": "bowling", "continent": 2}
+    )
+    steyn_spec = PlayerPageSpec(player_id=47492, **{"class": 1, "type": "bowling", "continent": 2})
+    source, client = await client_for(
+        {
+            player_search_url("James Anderson"): search_page(
+                search_row("James Anderson", "ENG", 8608, 1, "Test matches", "2003 - 2024")
+            ),
+            player_search_url("Dale Steyn"): search_page(
+                search_row("Dale Steyn", "SA", 47492, 1, "Test matches", "2004/05 - 2018/19")
+            ),
+            anderson_spec.url(as_of=FakeClock().now().date()): bowling_player_page(
+                '<tr class="data1"><td>unfiltered</td><td>2003-2024</td><td>188</td><td>350</td><td>6672.5</td><td>1730</td><td>18627</td><td>704</td><td>7/42</td><td>26.45</td><td>2.79</td><td>56.8</td><td>32</td><td>3</td><td>0</td></tr>'
+                '<tr class="data1"><td>filtered</td><td>2006-2024</td><td>32</td><td>60</td><td>1625.3</td><td>420</td><td>2531</td><td>92</td><td>5/72</td><td>27.51</td><td>2.59</td><td>63.6</td><td>4</td><td>1</td><td>0</td></tr>'
+            ),
+            steyn_spec.url(as_of=FakeClock().now().date()): bowling_player_page(
+                '<tr class="data1"><td>unfiltered</td><td>2004-2019</td><td>93</td><td>171</td><td>3101.2</td><td>660</td><td>10077</td><td>439</td><td>7/51</td><td>22.95</td><td>3.24</td><td>42.3</td><td>29</td><td>5</td><td>0</td></tr>'
+                '<tr class="data1"><td>filtered</td><td>2007-2018</td><td>22</td><td>42</td><td>657.4</td><td>140</td><td>2218</td><td>92</td><td>5/56</td><td>24.11</td><td>3.36</td><td>42.9</td><td>5</td><td>2</td><td>0</td></tr>'
+            ),
+        }
+    )
+
+    async with client:
+        anderson = await client.call_tool(
+            "player_record",
+            {
+                "player_name": "James Anderson",
+                "format": "Test",
+                "discipline": "bowling",
+                "continent": "Asia",
+            },
+        )
+        steyn = await client.call_tool(
+            "player_record",
+            {
+                "player_name": "Dale Steyn",
+                "format": "Test",
+                "discipline": "bowling",
+                "continent": "Asia",
+            },
+        )
+
+    assert len(source.requests) == 4
+    assert anderson.structured_content["row"]["Wkts"] == 92
+    assert steyn.structured_content["row"]["Ave"] == "24.11"
+    assert "continent=2" in anderson.structured_content["proof"]["url"]
+    assert "type=bowling" in steyn.structured_content["proof"]["url"]
+    assert "wickets 92" in anderson.structured_content["answer_markdown"].split("\n", 1)[0]
+
+
 async def test_player_record_without_filtered_row_reports_no_matches() -> None:
     spec = PlayerPageSpec(player_id=348144, **{"class": 2, "type": "batting", "trophy": 12})
     source, client = await client_for(
@@ -519,6 +680,53 @@ async def test_leaderboard_ties_share_rank_and_extend_top_n_boundary() -> None:
     assert [row["rank"] for row in result.structured_content["rows"]] == [1, 1]
     assert [row["player"] for row in result.structured_content["rows"]] == ["P1", "P2"]
     assert "tied for the lead" in result.structured_content["answer_markdown"]
+
+
+async def test_bowling_leaderboard_lower_metric_uses_continent_and_ties() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 1,
+            "type": "bowling",
+            "continent": 2,
+            "qualifications": (Qualification(field="wickets", minimum=100),),
+            "orderby": "bowling_average",
+            "orderbyad": "reverse",
+            "size": 10,
+        }
+    )
+    source, client = await client_for(
+        {
+            url(query): bowling_result_page(
+                [
+                    bowling_row(1, "Alpha Bowler", "AAA", "2000-2010", 120, "20.00"),
+                    bowling_row(2, "Beta Bowler", "BBB", "2000-2010", 110, "20.00"),
+                    bowling_row(3, "Gamma Bowler", "CCC", "2000-2010", 150, "21.00"),
+                ],
+                total=3,
+            )
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard",
+            {
+                "format": "Test",
+                "discipline": "bowling",
+                "metric": "average",
+                "continent": "Asia",
+                "top_n": 1,
+            },
+        )
+
+    assert len(source.requests) == 1
+    assert "continent=2" in source.requests[0]
+    assert [row["rank"] for row in result.structured_content["rows"]] == [1, 1]
+    assert [row["player"] for row in result.structured_content["rows"]] == [
+        "Alpha Bowler",
+        "Beta Bowler",
+    ]
+    assert result.structured_content["rows"][0]["value"] == "20.00"
 
 
 async def test_sortable_leaderboard_follows_boundary_tie_to_next_page() -> None:

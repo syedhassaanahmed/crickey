@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 
 from crickey.fetcher import Freshness, freshness_from_end_date
-from crickey.metrics import Metric
+from crickey.metrics import BetterDirection, Metric
 from crickey.parsers import parse_results_page
 from crickey.parsers.common import StatsguruParseError
 from crickey.query import Qualification, ResolvedPeriod, StatsguruQuery
@@ -56,7 +56,19 @@ async def build_proof_link(
                 reason="confirmation needs expected player IDs",
             )
         qualifications = query.qualifications + tuple(
-            Qualification(field=threshold.metric.qualval or "", minimum=threshold.minimum)
+            Qualification(
+                field=threshold.metric.qualval or "",
+                minimum=(
+                    threshold.minimum
+                    if threshold.metric.direction == BetterDirection.HIGHER
+                    else None
+                ),
+                maximum=(
+                    threshold.minimum
+                    if threshold.metric.direction == BetterDirection.LOWER
+                    else None
+                ),
+            )
             for threshold in thresholds
         )
         proof_query = query.model_copy(update={"qualifications": qualifications})

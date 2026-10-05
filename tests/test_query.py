@@ -1077,6 +1077,26 @@ def test_player_page_label_describes_parameters() -> None:
     )
 
 
+def test_player_page_allows_repeated_engine_filters() -> None:
+    page = PlayerPageSpec(
+        player_id=8608,
+        **{
+            "class": 1,
+            "type": "bowling",
+            "continent": 2,
+            "host": [6, 7],
+            "opposition": [4, 6],
+        },
+    )
+
+    assert page.url(as_of=date(2026, 10, 4)) == (
+        "https://stats.cricinfo.com/ci/engine/player/8608.html?"
+        "class=1;continent=2;host=6;host=7;opposition=4;opposition=6;"
+        "spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;"
+        "template=results;type=bowling"
+    )
+
+
 @pytest.mark.parametrize("stat_type", ["allround", "bowling", "fielding"])
 def test_player_page_labels_use_choice_labels_for_each_type(stat_type: str) -> None:
     page = PlayerPageSpec(
@@ -1101,7 +1121,6 @@ def test_player_page_rejects_drawn_result_and_accepts_no_result() -> None:
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
-        ({"opposition": [7, 8]}, "field 'opposition' accepts only one value"),
         ({"spanquickpick": 5}, "spanquickpick is not supported; use period"),
         ({"opposition": 999999}, "unknown opposition ID 999999"),
         ({"season": "World Cup"}, "season value 'World Cup'"),
