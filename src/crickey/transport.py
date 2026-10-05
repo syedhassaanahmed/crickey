@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import socket
 from typing import Final
 
@@ -102,16 +101,9 @@ def _listen_stream_closer(mcp: MCPServer):
 
 
 def _bind_socket(host: str, port: int) -> socket.socket:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        if os.name == "posix":
-            # As asyncio does: lets a restart reuse a port still in TIME_WAIT. Elsewhere the
-            # option would let a second server share the port, and the default already refuses.
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((host, port))
+        return socket.create_server((host, port))
     except OSError as error:
-        sock.close()
         raise TransportError(
             f"Port {port} is already in use; choose another port with --port or CRICKEY_PORT."
         ) from error
-    return sock
