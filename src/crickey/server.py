@@ -97,7 +97,7 @@ _FORMAT_CLASSES = {
 _DEFAULT_FIND_CLASSES = (1, 2, 3, 6, 11)
 _METADATA_COLUMNS = {"player_name", "player_id", "player_team_codes", "match_id"}
 _BOWLING_RATE_METRICS = {"bowling_average", "economy_rate", "bowling_strike_rate"}
-_FILTERED_BOWLING_RATE_MINIMUMS = {1: 30, 2: 30, 3: 20, 6: 30, 11: 50}
+_FILTERED_BOWLING_RATE_MINIMUMS = {1: 30, 2: 30, 3: 20, 6: 50, 11: 50}
 
 
 class AnswerMetric(StrEnum):
@@ -652,18 +652,19 @@ async def _better_than_player_tool(
             min_field, min_value = _comparison_default_minimum(
                 metrics, class_id, period=period_value, filters=filters["query"]
             )
-            if minimum is None and _uses_bowling_rate_minimum(metrics):
-                target_wickets = await _target_filtered_wickets(
+            if minimum is None and discipline_value == "bowling":
+                target_floor = await _target_filtered_floor(
                     call,
                     resolution.match.player_id,
                     class_id=class_id,
                     discipline=discipline_value,
                     period=period_value,
                     filters=filters["player_page"],
+                    field=min_field,
                     fetcher=fetcher,
                 )
-                if target_wickets is not None:
-                    min_value = min(Decimal(min_value), target_wickets)
+                if target_floor is not None:
+                    min_value = min(Decimal(min_value), target_floor)
             query = StatsguruQuery(
                 **{
                     "class": class_id,
@@ -1278,7 +1279,7 @@ def _is_filtered_bowling_query(period: Period, filters: Mapping[str, Any]) -> bo
     )
 
 
-async def _target_filtered_wickets(
+async def _target_filtered_floor(
     call,
     player_id: int,
     *,
@@ -1286,8 +1287,12 @@ async def _target_filtered_wickets(
     discipline: str,
     period: Period,
     filters: Mapping[str, Any],
+    field: str,
     fetcher: Fetcher,
 ) -> Decimal | None:
+    column = _FIELD_COLUMNS[discipline].get(field)
+    if column is None:
+        return None
     spec = PlayerPageSpec(
         player_id=player_id,
         **{
@@ -1309,7 +1314,7 @@ async def _target_filtered_wickets(
     row = _player_record_row(page)
     if row is None:
         return None
-    return _decimal(row.get("Wkts"))
+    return _decimal(row.get(column))
 
 
 def _statsguru_orderbyad(metric: Metric) -> str:

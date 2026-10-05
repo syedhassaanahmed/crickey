@@ -105,6 +105,7 @@ Skipped: `view`, `groupby`, `orderby`, `orderbyad`, `size` and `page` are output
 - **Paging:** `size` is 10, 25, 50 (default), 100, 150 or 200, and `page=<n>` selects later pages. Each page shows the total, for example "Page 2 of 5 Showing 201 - 400 of 850", so the first page tells how many pages a query needs. A 200-row page is about 1 MB of HTML.
 - **Truncated decimals:** averages and strike rates are cut off, not rounded. Babar Azam's T20I average is 4596 ÷ 118 = 38.949, shown as 38.94 (rounding would give 38.95). Bowling figures are truncated too (R8).
 - **Trailing zeros** are dropped from displayed numbers, for example "47.8" and "55".
+- **Fixed decimal places for proof thresholds:** saved pages show batting average, batting strike rate, bowling average and economy rate to at most 2 decimal places, and bowling strike rate to at most 1 decimal place, with trailing zeros dropped. Proof links that need an inclusive displayed maximum use those fixed precisions rather than the number of decimals present in the cell text.
 
 ## 3. Match classes and record types
 
@@ -435,6 +436,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 
 **Bowling default-minimum count checks** (size=10 pages, fetched 5 Oct 2026 for issue #48):
 - Wickets floors: Tests `wickets>=100` 206 rows; ODIs `wickets>=100` 178; T20Is `wickets>=50` 236 (from the T20I bowling check below); all T20 `wickets>=100` 446; combined internationals `wickets>=200` 193.
+- Filtered-floor worst case, measured with only a recent 10-year span from 5 Oct 2016 to 5 Oct 2026: Tests `wickets>=30` 110 rows; ODIs `wickets>=30` 190; T20Is `wickets>=20` 681; all T20 `wickets>=30` 1188, so the filtered all T20 floor is `wickets>=50`, which gives 706 rows; combined internationals `wickets>=50` 382.
 
 **Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
 - Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`

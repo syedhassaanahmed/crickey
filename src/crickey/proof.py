@@ -143,14 +143,18 @@ def _threshold_qualification(threshold: Threshold) -> Qualification:
         return Qualification(field=threshold.metric.qualval or "", minimum=threshold.minimum)
     return Qualification(
         field=threshold.metric.qualval or "",
-        maximum=_inclusive_display_max(threshold.minimum),
+        maximum=_inclusive_display_max(threshold),
     )
 
 
-def _inclusive_display_max(value: Decimal | int) -> Decimal | int:
+def _inclusive_display_max(threshold: Threshold) -> Decimal | int:
+    value = threshold.minimum
     if isinstance(value, int):
         return value
-    unit = Decimal(1).scaleb(min(value.as_tuple().exponent, 0))
+    precision = threshold.metric.proof_precision
+    if precision is None:
+        precision = max(-value.as_tuple().exponent, 0)
+    unit = Decimal(1).scaleb(-precision)
     return value + unit - Decimal("0.0001")
 
 

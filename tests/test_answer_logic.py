@@ -15,7 +15,7 @@ from crickey.metrics import (
 )
 from crickey.parsers import RecentMatch
 from crickey.parsers.results import parse_results_page
-from crickey.proof import ProofLink, Threshold, build_proof_link
+from crickey.proof import ProofLink, Threshold, _threshold_qualification, build_proof_link
 from crickey.query import (
     Qualification,
     ResolvedPeriod,
@@ -756,6 +756,24 @@ def test_lower_is_better_proof_uses_inclusive_display_maximum() -> None:
         assert "qualmin2" not in proof.url
 
     asyncio.run(run())
+
+
+def test_lower_is_better_proof_uses_metric_fixed_precision() -> None:
+    assert _threshold_qualification(
+        Threshold(bowling_metric("bowling_average"), Decimal("27"))
+    ).maximum == Decimal("27.0099")
+    assert _threshold_qualification(
+        Threshold(bowling_metric("bowling_average"), Decimal("27.5"))
+    ).maximum == Decimal("27.5099")
+    assert _threshold_qualification(
+        Threshold(bowling_metric("economy_rate"), Decimal("4.5"))
+    ).maximum == Decimal("4.5099")
+    assert _threshold_qualification(
+        Threshold(bowling_metric("bowling_strike_rate"), Decimal("35"))
+    ).maximum == Decimal("35.0999")
+    assert _threshold_qualification(
+        Threshold(batting_metric("average"), Decimal("38"))
+    ).minimum == Decimal("38")
 
 
 def test_proof_confirmation_requires_matching_total_row_count() -> None:
