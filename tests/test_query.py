@@ -18,6 +18,7 @@ from stat_type_cases import REPRESENTATIVE_STAT_QUERIES, representative_query_pa
 from crickey import query_catalog
 from crickey.fetcher import Fetcher, MemoryPageSource
 from crickey.query import (
+    REPEATED_KEY_SELECT_FIELDS,
     PlayerPageSpec,
     Qualification,
     QuerySpecError,
@@ -684,12 +685,90 @@ def test_range_filters_emit_matching_val1_and_quickpicks_are_refused() -> None:
         StatsguruQuery(**{"class": 1, "type": "batting", "spanquickpick": 5})
 
 
-def test_multi_value_fields_accept_lists_and_sort_repeated_keys() -> None:
+@pytest.mark.parametrize(
+    ("field", "payload", "expected_url"),
+    [
+        (
+            "team",
+            {"class": 1, "type": "bowling", "continent": 2, "orderby": "wickets", "team": [3, 1]},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;continent=2;orderby=wickets;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;team=1;team=3;template=results;type=bowling",
+        ),
+        (
+            "opposition",
+            {"class": 1, "type": "bowling", "opposition": [3, 1], "orderby": "wickets"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;opposition=1;opposition=3;orderby=wickets;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=bowling",
+        ),
+        (
+            "host",
+            {"class": 1, "type": "bowling", "host": [7, 6], "orderby": "wickets"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;host=6;host=7;orderby=wickets;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=bowling",
+        ),
+        (
+            "ground",
+            {"class": 1, "type": "bowling", "ground": [132, 131], "orderby": "wickets"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;ground=131;ground=132;orderby=wickets;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=bowling",
+        ),
+        (
+            "season",
+            {"class": 1, "type": "bowling", "season": ["2026", "2025"], "orderby": "wickets"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=wickets;season=2025;season=2026;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=bowling",
+        ),
+        (
+            "trophy",
+            {"class": 1, "type": "bowling", "trophy": [2, 1], "orderby": "wickets"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=wickets;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;trophy=1;trophy=2;type=bowling",
+        ),
+        (
+            "series",
+            {"class": 1, "type": "bowling", "series": [2, 1], "orderby": "wickets"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;orderby=wickets;series=1;series=2;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=bowling",
+        ),
+        (
+            "continent",
+            {"class": 1, "type": "bowling", "continent": [4, 2], "orderby": "wickets"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;continent=2;continent=4;orderby=wickets;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=bowling",
+        ),
+        (
+            "final_type",
+            {"class": 2, "type": "batting", "final_type": [1, 0], "orderby": "runs"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;final_type=0;final_type=1;orderby=runs;spanmax1=04+Oct+2026;spanmin1=05+Jan+1971;spanval1=span;template=results;type=batting",
+        ),
+        (
+            "dismissal",
+            {"class": 1, "type": "batting", "dismissal": [2, 1], "orderby": "runs"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;dismissal=1;dismissal=2;orderby=runs;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=batting",
+        ),
+        (
+            "fow_type",
+            {
+                "class": 1,
+                "type": "fow",
+                "view": "innings",
+                "fow_type": [2, 1],
+                "orderby": "fow_score",
+            },
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;fow_type=1;fow_type=2;orderby=fow_score;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=fow;view=innings",
+        ),
+        (
+            "event",
+            {"class": 1, "type": "team", "event": [2, 1], "orderby": "runs"},
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;event=1;event=2;orderby=runs;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=team",
+        ),
+    ],
+)
+def test_repeated_key_dropdown_fields_accept_lists_and_sort_values(
+    field: str, payload: dict[str, object], expected_url: str
+) -> None:
+    assert field in REPEATED_KEY_SELECT_FIELDS
+
+    query = StatsguruQuery(**payload)
+
+    assert query.results_url(as_of=date(2026, 10, 4)) == expected_url
+
+
+def test_single_value_list_fields_reject_lists_but_multi_fields_accept_them() -> None:
     with pytest.raises(ValidationError, match="field 'toss' accepts only one value"):
         StatsguruQuery(**{"class": 1, "type": "batting", "toss": [1, 2]})
-
-    team_query = StatsguruQuery(**{"class": 1, "type": "batting", "team": [2, 1]})
-    assert "team=1;team=2" in team_query.results_url(as_of=date(2026, 10, 4))
 
     query = StatsguruQuery(**{"class": 1, "type": "batting", "result": [2, 1]})
     assert "result=1;result=2" in query.results_url(as_of=date(2026, 10, 4))

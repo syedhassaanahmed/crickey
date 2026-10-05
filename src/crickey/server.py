@@ -29,6 +29,7 @@ from crickey.parsers import (
 )
 from crickey.proof import ProofLink, Threshold, build_proof_link
 from crickey.query import (
+    SINGLE_VALUE_LIST_FIELDS,
     Period,
     PlayerPageSpec,
     Qualification,
@@ -65,6 +66,9 @@ MAX_QUERY_STATS_LIMIT = 200
 DEFAULT_QUERY_STATS_LIMIT = 50
 
 _READ_ONLY_ANNOTATIONS = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+_QUERY_STATS_SINGLE_VALUE_LIST_FIELDS = (
+    ", ".join(SINGLE_VALUE_LIST_FIELDS[:-1]) + f" and {SINGLE_VALUE_LIST_FIELDS[-1]}"
+)
 _FORMAT_CLASSES = {
     "test": 1,
     "tests": 1,
@@ -215,9 +219,8 @@ def create_server(
         description=(
             "Example: Who has the most ODI wickets against Australia? Compile and optionally "
             "fetch any Statsguru query, returning rows, totals and the pinned link. "
-            "Several values are allowed for checkbox filters and for these dropdown filters: "
-            "team, opposition, host, ground, season, continent, series, trophy, final_type, "
-            "dismissal, fow_type and event."
+            "Lists work for every filter except "
+            f"{_QUERY_STATS_SINGLE_VALUE_LIST_FIELDS}."
         ),
     )
     async def query_stats(

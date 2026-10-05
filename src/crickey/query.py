@@ -104,6 +104,36 @@ REPEATED_KEY_SELECT_FIELDS = {
     "team",
     "trophy",
 }
+STATSGURU_QUERY_LIST_FILTER_FIELDS = {
+    "batting_fielding_first",
+    "batting_hand",
+    "bowling_hand",
+    "bowling_pacespin",
+    "captain",
+    "captain_involve",
+    "continent",
+    "debut_or_last",
+    "dismissal",
+    "event",
+    "final_type",
+    "floodlit",
+    "fow_type",
+    "ground",
+    "home_or_away",
+    "host",
+    "innings_number",
+    "keeper",
+    "opposition",
+    "outs",
+    "player_involve",
+    "result",
+    "season",
+    "series",
+    "team",
+    "toss",
+    "tournament_type",
+    "trophy",
+}
 for _class_id, _by_type in TYPE_FILTER_FIELDS.items():
     for _stat_type, _fields in _by_type.items():
         MULTI_FIELDS[_class_id][_stat_type].update(REPEATED_KEY_SELECT_FIELDS & _fields)
@@ -115,6 +145,23 @@ for _class_id, _by_type in TYPE_FILTER_FIELDS.items():
         if "search_captain" in _fields:
             _fields.update({"captain_involve", "captain_involve_type"})
             MULTI_FIELDS[_class_id][_stat_type].add("captain_involve")
+SINGLE_VALUE_LIST_FIELDS = tuple(
+    sorted(
+        field
+        for field in STATSGURU_QUERY_LIST_FILTER_FIELDS
+        if any(
+            field in type_fields
+            for by_type in TYPE_FILTER_FIELDS.values()
+            for type_fields in by_type.values()
+        )
+        and all(
+            field not in MULTI_FIELDS[class_id][stat_type]
+            for class_id, by_type in TYPE_FILTER_FIELDS.items()
+            for stat_type, type_fields in by_type.items()
+            if field in type_fields
+        )
+    )
+)
 QUAL_FIELDS = {
     class_id: {
         stat_type: {view: set(fields) for view, fields in by_view.items()}

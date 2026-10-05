@@ -9,7 +9,7 @@ import pytest
 from mcp import Client
 
 from crickey.fetcher import Fetcher, FetchResponse, Freshness, MemoryPageSource
-from crickey.query import Qualification, StatsguruQuery
+from crickey.query import SINGLE_VALUE_LIST_FIELDS, Qualification, StatsguruQuery
 from crickey.server import _freshness_for_query, create_server
 from crickey.settings import Settings
 
@@ -213,7 +213,13 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert (
             "Who has the most ODI wickets against Australia?" in by_name["query_stats"].description
         )
-        assert "team, opposition, host, ground" in by_name["query_stats"].description
+        single_value_fields = (
+            ", ".join(SINGLE_VALUE_LIST_FIELDS[:-1]) + f" and {SINGLE_VALUE_LIST_FIELDS[-1]}"
+        )
+        assert (
+            f"Lists work for every filter except {single_value_fields}."
+            in by_name["query_stats"].description
+        )
         assert client.instructions == "\n".join(
             [
                 "Prefer crickey's answer tools and show answer_markdown as-is when they return it.",
