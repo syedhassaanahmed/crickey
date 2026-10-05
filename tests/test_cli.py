@@ -94,4 +94,4 @@ def test_cli_errors_do_not_propagate_to_root_logger(capsys: pytest.CaptureFixtur
 
 
 def test_package_version_is_exposed() -> None:
-    assert __version__ == "0.1.0"
+    assert __version__ == "0.1.1"
