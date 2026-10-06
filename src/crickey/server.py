@@ -694,13 +694,11 @@ async def _better_than_player_tool(
                 )
 
             floor_value: int | Decimal = minimum if minimum is not None else default_floor
-            # X always qualifies (D29, D32), except under a team filter, which the player page
-            # doesn't offer (R6). Bowling reads X's figures up front; batting reads them only
-            # when X is missing, so comparisons where X qualifies cost no request.
-            team_filtered = "team" in filters["query"]
-            target_floor_read = (
-                minimum is None and discipline_value == "bowling" and not team_filtered
-            )
+            # X always qualifies (D29, D32). Bowling reads X's figures up front; batting reads
+            # them only when X is missing, so comparisons where X qualifies cost no request.
+            # The player page has no team filter (R6), so under one its figure covers all of
+            # X's teams: exact for one team, an upper bound for more.
+            target_floor_read = minimum is None and discipline_value == "bowling"
             if target_floor_read:
                 floor_value = _floor_for_target(floor_value, await target_floor())
             query = comparison_query(floor_value)
@@ -708,23 +706,14 @@ async def _better_than_player_tool(
             result_pages_used = len(pages)
             target = _target_row(pages, player_id)
             if target is None and minimum is None and not target_floor_read:
-                missing = (
-                    f"{resolution.match.name} was not in the qualifying Statsguru rows "
-                    f"({min_field} >= {floor_value})"
-                )
-                if team_filtered:
-                    raise ToolError(
-                        f"{missing}. {resolution.match.name}'s {min_field} for that team can't "
-                        "be read from the player page, which has no team filter, so the minimum "
-                        "wasn't lowered; pass minimum to set one."
-                    )
                 # The lower-floor table holds every row of this one, so it needs as many pages.
                 if 2 * result_pages_used > settings.max_pages:
                     raise TooBroadError(
-                        f"That query is too broad: {missing}, and a lower minimum needs at "
-                        f"least {result_pages_used} more pages, but this call has "
-                        f"{settings.max_pages - result_pages_used} of its {settings.max_pages} "
-                        "pages left; pass minimum to set one."
+                        f"That query is too broad: {resolution.match.name} was not in the "
+                        f"qualifying Statsguru rows ({min_field} >= {floor_value}), and a lower "
+                        f"minimum needs at least {result_pages_used} more pages, but this call "
+                        f"has {settings.max_pages - result_pages_used} of its "
+                        f"{settings.max_pages} pages left; pass minimum to set one."
                     )
                 lowered_floor = _floor_for_target(floor_value, await target_floor())
                 if lowered_floor < floor_value:
@@ -739,6 +728,13 @@ async def _better_than_player_tool(
                     )
                     result_pages_used += len(pages)
                     target = _target_row(pages, player_id)
+            if target is None and minimum is None and "team" in filters["query"]:
+                raise ToolError(
+                    f"{resolution.match.name} was not in the qualifying Statsguru rows "
+                    f"({min_field} >= {floor_value}). {resolution.match.name}'s {min_field} for "
+                    "that team can't be read from the player page, which has no team filter; "
+                    "pass minimum to set a lower one."
+                )
             if target is None:
                 raise ToolError(
                     f"{resolution.match.name} was not in the qualifying Statsguru rows."

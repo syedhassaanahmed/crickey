@@ -2144,63 +2144,234 @@ async def test_batting_comparison_refetch_counts_against_the_page_limit() -> Non
     assert url(lowered_query.model_copy(update={"page": 2})) not in source.requests
 
 
+def team_filter_case(discipline: str, all_teams_figure: int):
+    batting = discipline == "batting"
+    filters = {"host": 27} if batting else {"continent": 2}
+    base = {
+        "class": 3 if batting else 1,
+        "type": discipline,
+        "team": 6 if batting else 1,
+        "orderby": "batting_average" if batting else "bowling_average",
+        "size": 200,
+        **filters,
+    }
+    field = "runs" if batting else "wickets"
+
+    def query(floor: int, *thresholds: Qualification) -> StatsguruQuery:
+        return StatsguruQuery(
+            **{**base, "qualifications": (Qualification(field=field, minimum=floor), *thresholds)}
+        )
+
+    target_url = PlayerPageSpec(
+        player_id=902, **{"class": base["class"], "type": discipline, **filters}
+    ).url(as_of=FakeClock().now().date())
+    target_page = (
+        player_page(
+            f'<tr class="data1"><td>filtered</td><td>2016-2024</td><td>10</td><td>8</td><td>3</td><td>{all_teams_figure}</td><td>122*</td><td>68.75</td><td>255</td><td>134.90</td><td>1</td><td>3</td><td>1</td></tr>'
+        )
+        if batting
+        else bowling_player_page(
+            f'<tr class="data1"><td>filtered</td><td>2012-2020</td><td>9</td><td>17</td><td>290.0</td><td>40</td><td>750</td><td>{all_teams_figure}</td><td>5/60</td><td>30.00</td><td>2.58</td><td>69.6</td><td>1</td><td>1</td><td>0</td></tr>'
+        )
+    )
+    search = search_page(
+        search_row(
+            "Team Target",
+            "TTT",
+            902,
+            base["class"],
+            "Twenty20 Internationals" if batting else "Test matches",
+            "2010 - 2024",
+        )
+    )
+    arguments = {
+        "player_name": "Team Target",
+        "format": "T20I" if batting else "Test",
+        "discipline": discipline,
+        "metrics": ["average"],
+        "team": "India" if batting else "England",
+        "period": {"kind": "all_time"},
+        **({"host_country": "United Arab Emirates"} if batting else {"continent": "Asia"}),
+    }
+    return arguments, query, {player_search_url("Team Target"): search}, (target_url, target_page)
+
+
 @pytest.mark.parametrize("discipline", ["batting", "bowling"])
-async def test_comparison_under_team_filter_asks_for_minimum_instead_of_lowering(
+async def test_comparison_under_team_filter_uses_a_one_team_players_figure(
     discipline: str,
 ) -> None:
     batting = discipline == "batting"
-    field, floor = ("runs", 1000) if batting else ("wickets", 30)
+    figure = 344 if batting else 25
+    arguments, query, pages, (target_url, target_page) = team_filter_case(discipline, figure)
+    if batting:
+        beater = row(903, "Better Batter", "IND", "2016-2024", 9, 400, "70.00", 300, "133.33", 1, 3)
+        target = row(902, "Team Target", "IND", "2016-2024", 8, 344, "68.75", 255, "134.90", 1, 3)
+        other = row(904, "Team Opener", "IND", "2016-2024", 30, 1100, "36.66", 846, "130.02", 1, 8)
+        threshold = Qualification(field="batting_average", minimum=Decimal("68.75"))
+        pages[url(query(1000))] = result_page([other])
+        pages[target_url] = target_page
+        pages[url(query(figure))] = result_page([beater, target, other])
+        pages[url(query(figure, threshold))] = result_page([beater, target])
+    else:
+        beater = bowling_row(903, "Better Bowler", "ENG", "2010-2020", 40, "25.00")
+        target = bowling_row(902, "Team Target", "ENG", "2012-2020", 25, "30.00")
+        other = bowling_row(904, "Costly Bowler", "ENG", "2010-2020", 35, "33.00")
+        threshold = Qualification(field="bowling_average", maximum=Decimal("30.0099"))
+        pages[target_url] = target_page
+        pages[url(query(figure))] = bowling_result_page([beater, target, other])
+        pages[url(query(figure, threshold))] = bowling_result_page([beater, target])
+    source, client = await client_for(pages)
+
+    async with client:
+        result = await client.call_tool("better_than_player", arguments)
+
+    assert result.is_error is False
+    assert source.requests == list(pages)
+    assert [row["player"] for row in result.structured_content["beaters"]] == [
+        "Better Batter" if batting else "Better Bowler"
+    ]
+    assert result.structured_content["proof"]["confirmed"] is True
+    assert (
+        f"Minimum: {'runs' if batting else 'wickets'} >= {figure}."
+        in result.structured_content["answer_markdown"]
+    )
+
+
+@pytest.mark.parametrize("discipline", ["batting", "bowling"])
+async def test_comparison_under_team_filter_asks_for_minimum_when_still_missing(
+    discipline: str,
+) -> None:
+    batting = discipline == "batting"
+    figure = 600 if batting else 25
+    arguments, query, pages, (target_url, target_page) = team_filter_case(discipline, figure)
+    if batting:
+        other = row(904, "Team Opener", "IND", "2016-2024", 30, 1100, "36.66", 846, "130.02", 1, 8)
+        pages[url(query(1000))] = result_page([other])
+        pages[target_url] = target_page
+        pages[url(query(figure))] = result_page([other])
+    else:
+        other = bowling_row(904, "Costly Bowler", "ENG", "2010-2020", 35, "33.00")
+        pages[target_url] = target_page
+        pages[url(query(figure))] = bowling_result_page([other])
+    source, client = await client_for(pages)
+
+    async with client:
+        result = await client.call_tool("better_than_player", arguments)
+        explicit = await client.call_tool("better_than_player", {**arguments, "minimum": figure})
+
+    field = "runs" if batting else "wickets"
+    assert result.is_error is True
+    assert source.requests == list(pages)
+    assert (
+        f"Team Target was not in the qualifying Statsguru rows ({field} >= {figure}). "
+        f"Team Target's {field} for that team can't be read from the player page, which has "
+        "no team filter; pass minimum to set a lower one."
+    ) in result.content[0].text
+    assert explicit.is_error is True
+    assert "Team Target was not in the qualifying Statsguru rows." in explicit.content[0].text
+    assert "team filter" not in explicit.content[0].text
+
+
+async def test_comparison_without_team_filter_reports_a_missing_target_plainly() -> None:
     query = StatsguruQuery(
         **{
-            "class": 3 if batting else 1,
-            "type": discipline,
-            "team": 7 if batting else 1,
-            **({} if batting else {"continent": 2}),
-            "qualifications": (Qualification(field=field, minimum=floor),),
-            "orderby": "batting_average" if batting else "bowling_average",
+            "class": 1,
+            "type": "bowling",
+            "continent": 2,
+            "qualifications": (Qualification(field="wickets", minimum=30),),
+            "orderby": "bowling_average",
             "size": 200,
         }
     )
-    opener = row(901, "Team Opener", "PAK", "2010-2020", 60, 1800, "33.33", 1500, "120.00", 1, 9)
-    spinner = bowling_row(901, "Team Spinner", "ENG", "2010-2020", 45, "28.00")
-    search_url = player_search_url("Team Target")
-    source, client = await client_for(
-        {
-            search_url: search_page(
-                search_row(
-                    "Team Target",
-                    "TTT",
-                    902,
-                    3 if batting else 1,
-                    "Twenty20 Internationals" if batting else "Test matches",
-                    "2010 - 2020",
-                )
-            ),
-            url(query): result_page([opener]) if batting else bowling_result_page([spinner]),
-        }
-    )
+    target_url = PlayerPageSpec(
+        player_id=902, **{"class": 1, "type": "bowling", "continent": 2}
+    ).url(as_of=FakeClock().now().date())
+    pages = {
+        player_search_url("Team Target"): search_page(
+            search_row("Team Target", "TTT", 902, 1, "Test matches", "2010 - 2024")
+        ),
+        target_url: bowling_player_page(
+            '<tr class="data1"><td>unfiltered</td><td>2012-2020</td><td>9</td><td>17</td><td>290.0</td><td>40</td><td>750</td><td>25</td><td>5/60</td><td>30.00</td><td>2.58</td><td>69.6</td><td>1</td><td>1</td><td>0</td></tr>'
+        ),
+        url(query): bowling_result_page(
+            [bowling_row(904, "Costly Bowler", "ENG", "2010-2020", 35, "33.00")]
+        ),
+    }
+    source, client = await client_for(pages)
 
     async with client:
         result = await client.call_tool(
             "better_than_player",
             {
                 "player_name": "Team Target",
-                "format": "T20I" if batting else "Test",
-                "discipline": discipline,
+                "format": "Test",
+                "discipline": "bowling",
                 "metrics": ["average"],
-                "team": "Pakistan" if batting else "England",
+                "continent": "Asia",
                 "period": {"kind": "all_time"},
-                **({} if batting else {"continent": "Asia"}),
             },
         )
 
-    assert source.requests == [search_url, url(query)]
     assert result.is_error is True
-    assert (
-        f"Team Target was not in the qualifying Statsguru rows ({field} >= {floor}). "
-        f"Team Target's {field} for that team can't be read from the player page, which has "
-        "no team filter, so the minimum wasn't lowered; pass minimum to set one."
-    ) in result.content[0].text
+    assert source.requests == list(pages)
+    assert "Team Target was not in the qualifying Statsguru rows." in result.content[0].text
+    assert "team filter" not in result.content[0].text
+
+
+async def test_comparison_finds_the_target_on_a_later_page_without_the_fallback() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "batting",
+            "host": 27,
+            "qualifications": (Qualification(field="runs", minimum=1000),),
+            "orderby": "batting_average",
+            "size": 200,
+        }
+    )
+    proof_query = query.model_copy(
+        update={
+            "qualifications": (
+                *query.qualifications,
+                Qualification(field="batting_average", minimum=Decimal("42.16")),
+            )
+        }
+    )
+    star = row(801, "Visiting Star", "VVV", "2018-2022", 30, 1830, "61.00", 1350, "135.55", 2, 9)
+    target = row(777, "Target Batter", "TTT", "2016-2023", 40, 1265, "42.16", 1000, "126.50", 1, 8)
+    home = row(804, "Home Opener", "UAE", "2016-2023", 52, 1450, "31.20", 1200, "120.83", 1, 8)
+    pages = {
+        player_search_url("Target Batter"): search_page(
+            search_row("Target Batter", "TTT", 777, 3, "Twenty20 Internationals", "2016 - 2024")
+        ),
+        url(query): result_page([star], pages=2, total=202),
+        url(query.model_copy(update={"page": 2})): result_page(
+            [target, home], page=2, pages=2, total=202
+        ),
+        url(proof_query): result_page([star, target]),
+    }
+    source, client = await client_for(pages)
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Target Batter",
+                "format": "T20I",
+                "metrics": ["average"],
+                "host_country": "United Arab Emirates",
+                "period": {"kind": "all_time"},
+            },
+        )
+
+    assert result.is_error is False
+    assert source.requests == list(pages)
+    assert [(row["player"], row["relation"]) for row in result.structured_content["rows"]] == [
+        ("Visiting Star", "beats"),
+        ("Target Batter", "target"),
+    ]
+    assert result.structured_content["proof"]["confirmed"] is True
+    assert "Minimum: runs >= 1000." in result.structured_content["answer_markdown"]
 
 
 async def test_batting_comparison_refuses_a_lower_floor_that_cannot_fit_the_page_limit() -> None:
@@ -2362,11 +2533,24 @@ async def test_any_mode_short_answer_counts_beaters_on_each_metric() -> None:
                 "period": {"kind": "all_time"},
             },
         )
+        single = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Target Batter",
+                "format": "T20I",
+                "metrics": ["average"],
+                "match": "any",
+                "period": {"kind": "all_time"},
+            },
+        )
 
     assert source.requests == [search_url, url(query)]
     assert result.structured_content["answer_markdown"].startswith(
         "4 player(s) beat Target Batter's displayed batting average or strike rate: "
         "3 on batting average and 2 on strike rate.\n"
+    )
+    assert single.structured_content["answer_markdown"].startswith(
+        "3 player(s) beat Target Batter's displayed batting average.\n"
     )
 
 
