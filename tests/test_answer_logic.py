@@ -8,6 +8,7 @@ from decimal import Decimal
 from crickey.fetcher import Fetcher, Freshness, MemoryPageSource
 from crickey.metrics import (
     BATTING_METRICS,
+    BOWLING_METRICS,
     BetterDirection,
     batting_metric,
     bowling_metric,
@@ -158,6 +159,19 @@ def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
                 assert f"metric {key!r} is not supported for class {class_id}" in str(error)
             else:
                 raise AssertionError(f"{key} should be unsupported for class {class_id}")
+
+
+def test_count_metrics_are_derived_from_the_registry() -> None:
+    metrics = {**BATTING_METRICS, **BOWLING_METRICS}
+
+    assert {key for key, metric in metrics.items() if metric.is_count} == {
+        "runs",
+        "hundreds",
+        "fifties",
+        "wickets",
+        "five_wickets",
+        "ten_wickets",
+    }
 
 
 def test_every_default_minimum_compiles_as_statsguru_qualification() -> None:

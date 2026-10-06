@@ -38,6 +38,16 @@ class Metric:
     def is_derived(self) -> bool:
         return self.numerator_column is not None
 
+    @property
+    def is_count(self) -> bool:
+        return (
+            not self.is_derived
+            and self.direction == BetterDirection.HIGHER
+            and self.qualval is not None
+            and bool(self.default_minimums)
+            and all(minimum.field == self.qualval for minimum in self.default_minimums.values())
+        )
+
     def default_minimum(self, class_id: int) -> DefaultMinimum:
         self.require_supported(class_id)
         try:
