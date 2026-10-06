@@ -57,11 +57,12 @@ Five tools (D14), all read-only.
 1. **`leaderboard`** (golden question 1): "Who has the best or fastest …?"
    - Parameters: format, discipline (batting by default, or bowling), metric, period, filters by name (team, opposition, host country, continent, ground, trophy, home or away, match result), minimum and top N.
    - Metrics can be Statsguru columns (batting: runs, average, strike rate, hundreds, …; bowling: wickets, bowling average, economy rate, bowling strike rate, five-wicket hauls and ten-wicket matches) or derived batting rates (innings per hundred, innings per fifty-plus, balls per dismissal).
+   - Without an explicit minimum, count metrics use a minimum of 1 (D33) and other metrics use their default minimum.
    - For a derived rate it also gives the group's overall figure, for example total innings ÷ total hundreds across all qualifying players.
 2. **`better_than_player`** (golden questions 2 and 3): "Who beats player X on A (and B)?"
    - Parameters: player name, format, discipline (batting by default, or bowling), 1–3 metrics, all or any, period (all time, X's career span, or dates), minimum and filters.
    - Includes X's own row. Proof link (D16): the results query with X's values as extra minimums or maximums for lower-is-better metrics (R2).
-   - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum and the bowling answer uses D32's default minimum.
+   - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum and the bowling answer uses D32's default minimum. Whatever the metric, a default minimum never excludes X (D29, D32), except possibly under a team filter when X has played for more than one team; then the answer asks for an explicit minimum.
 3. **`player_record`** (golden questions 4 and 5): one player's figures in a format.
    - Parameters: player name, format, discipline (batting by default, or bowling), period (whole career, first or last N years of their career, dates or season) and filters (opposition, host country, continent, ground, trophy such as the ODI World Cup, home or away, match result).
    - Proof link: the player's Statsguru batting or bowling page with the same filters (R6).
@@ -84,7 +85,7 @@ Server instructions tell the agent to:
   - which direction is better, and its default minimum, which is stated in answers.
 
   Examples: innings per hundred = innings ÷ hundreds; balls per dismissal = balls faced ÷ dismissals.
-- **Default minimums:** see the metric registry; the code is the single source for the proposed values.
+- **Default minimums:** see the metric registry; the code is the single source for the proposed values. Count leaderboards don't use them (D33).
 - **Ratios:** Statsguru's displayed averages and strike rates are used as they are (D15); the registry's formulas compute only the metrics Statsguru doesn't show.
 - **Derived displays:** derived metrics are shown to 2 decimals with round-half-up rounding; ties are decided on that shown value.
 - **Period resolver:**

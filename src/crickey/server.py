@@ -98,6 +98,7 @@ _DEFAULT_FIND_CLASSES = (1, 2, 3, 6, 11)
 _METADATA_COLUMNS = {"player_name", "player_id", "player_team_codes", "match_id"}
 _BOWLING_RATE_METRICS = {"bowling_average", "economy_rate", "bowling_strike_rate"}
 _FILTERED_BOWLING_RATE_MINIMUMS = {1: 30, 2: 30, 3: 20, 6: 50, 11: 50}
+_COUNT_LEADERBOARD_MINIMUM = 1
 
 
 class AnswerMetric(StrEnum):
@@ -109,6 +110,12 @@ class AnswerMetric(StrEnum):
     INNINGS_PER_HUNDRED = "innings_per_hundred"
     INNINGS_PER_FIFTY_PLUS = "innings_per_fifty_plus"
     BALLS_PER_DISMISSAL = "balls_per_dismissal"
+    WICKETS = "wickets"
+    BOWLING_AVERAGE = "bowling_average"
+    ECONOMY_RATE = "economy_rate"
+    BOWLING_STRIKE_RATE = "bowling_strike_rate"
+    FIVE_WICKETS = "five_wickets"
+    TEN_WICKETS = "ten_wickets"
 
 
 class AnswerDiscipline(StrEnum):
@@ -541,13 +548,19 @@ async def _leaderboard_tool(
     payload_rows = [
         _metric_row_payload(row, metric, class_id, rank) for row, rank in ranked_with_ranks
     ]
+    floor_columns = () if minimum_field == metric.qualval else (minimum_field,)
     answer = render_answer(
         AnswerRenderInput(
             short_answer=_leaderboard_short_answer(metric, payload_rows, group_value),
             table=RenderedTable(
-                headers=("Rank", "Player", metric.label, minimum_field),
+                headers=("Rank", "Player", metric.label, *floor_columns),
                 rows=tuple(
-                    (row["rank"], row["player"], row["value"], row.get(minimum_field))
+                    (
+                        row["rank"],
+                        row["player"],
+                        row["value"],
+                        *(row.get(column) for column in floor_columns),
+                    )
                     for row in payload_rows
                 ),
             ),
@@ -649,13 +662,15 @@ async def _better_than_player_tool(
             )
             if filters.get("needs_clarification"):
                 return _tool_result("A filter needs clarification.", filters)
-            min_field, min_value = _comparison_default_minimum(
+            min_field, default_floor = _comparison_default_minimum(
                 metrics, class_id, period=period_value, filters=filters["query"]
             )
-            if minimum is None and discipline_value == "bowling":
-                target_floor = await _target_filtered_floor(
+            player_id = resolution.match.player_id
+
+            async def target_floor() -> Decimal | None:
+                return await _target_filtered_floor(
                     call,
-                    resolution.match.player_id,
+                    player_id,
                     class_id=class_id,
                     discipline=discipline_value,
                     period=period_value,
@@ -663,34 +678,69 @@ async def _better_than_player_tool(
                     field=min_field,
                     fetcher=fetcher,
                 )
-                if target_floor is not None:
-                    min_value = min(Decimal(min_value), target_floor)
-            query = StatsguruQuery(
-                **{
-                    "class": class_id,
-                    "type": discipline_value,
-                    "period": period_value,
-                    "qualifications": (
-                        Qualification(
-                            field=min_field,
-                            minimum=minimum if minimum is not None else min_value,
-                        ),
-                    ),
-                    "orderby": metrics[0].orderby,
-                    "orderbyad": "",
-                    "size": 200,
-                    **filters["query"],
-                }
-            )
+
+            def comparison_query(floor: int | Decimal) -> StatsguruQuery:
+                return StatsguruQuery(
+                    **{
+                        "class": class_id,
+                        "type": discipline_value,
+                        "period": period_value,
+                        "qualifications": (Qualification(field=min_field, minimum=floor),),
+                        "orderby": metrics[0].orderby,
+                        "orderbyad": "",
+                        "size": 200,
+                        **filters["query"],
+                    }
+                )
+
+            floor_value: int | Decimal = minimum if minimum is not None else default_floor
+            # X always qualifies (D29, D32). Bowling reads X's figures up front; batting reads
+            # them only when X is missing, so comparisons where X qualifies cost no request.
+            # The player page has no team filter (R6), so under one its figure covers all of
+            # X's teams: exact for one team, an upper bound for more.
+            target_floor_read = minimum is None and discipline_value == "bowling"
+            if target_floor_read:
+                floor_value = _floor_for_target(floor_value, await target_floor())
+            query = comparison_query(floor_value)
             pages = await _fetch_all_result_pages(call, query, fetcher, settings)
-            all_rows = [row for page in pages for row in page.table.to_dict("records")]
-            target = next(
-                (row for row in all_rows if _row_id(row) == resolution.match.player_id), None
-            )
+            result_pages_used = len(pages)
+            target = _target_row(pages, player_id)
+            if target is None and minimum is None and not target_floor_read:
+                # The lower-floor table holds every row of this one, so it needs as many pages.
+                if 2 * result_pages_used > settings.max_pages:
+                    raise TooBroadError(
+                        f"That query is too broad: {resolution.match.name} was not in the "
+                        f"qualifying Statsguru rows ({min_field} >= {floor_value}), and a lower "
+                        f"minimum needs at least {result_pages_used} more pages, but this call "
+                        f"has {settings.max_pages - result_pages_used} of its "
+                        f"{settings.max_pages} pages left; pass minimum to set one."
+                    )
+                lowered_floor = _floor_for_target(floor_value, await target_floor())
+                if lowered_floor < floor_value:
+                    floor_value = lowered_floor
+                    query = comparison_query(floor_value)
+                    pages = await _fetch_all_result_pages(
+                        call,
+                        query,
+                        fetcher,
+                        settings,
+                        max_pages=settings.max_pages - result_pages_used,
+                    )
+                    result_pages_used += len(pages)
+                    target = _target_row(pages, player_id)
+            if target is None and minimum is None and "team" in filters["query"]:
+                raise ToolError(
+                    f"{resolution.match.name} was not in the qualifying Statsguru rows "
+                    f"({min_field} >= {floor_value}). {resolution.match.name}'s {min_field} for "
+                    "that team can't be read from the player page, which has no team filter; "
+                    "pass minimum to set a lower one."
+                )
             if target is None:
                 raise ToolError(
                     f"{resolution.match.name} was not in the qualifying Statsguru rows."
                 )
+            floor_lowered = minimum is None and floor_value < default_floor
+            all_rows = [row for page in pages for row in page.table.to_dict("records")]
             target_values = tuple(
                 metric.display_value(metric.value_from_row(target, class_id=class_id))
                 for metric in metrics
@@ -740,7 +790,7 @@ async def _better_than_player_tool(
                 ),
                 call=call,
                 as_of=_today(fetcher),
-                page_allowance=max(0, settings.max_pages - len(pages)),
+                page_allowance=max(0, settings.max_pages - result_pages_used),
                 fallback_reason=(
                     "Statsguru cannot express OR across qualifications"
                     if match_mode == "any"
@@ -771,17 +821,10 @@ async def _better_than_player_tool(
     ]
     as_of = _today(fetcher)
     metric_labels = tuple(metric.label for metric in metrics)
-    beater_count = len([row for row in payload_rows if row["relation"] == "beats"])
-    level_count = len([row for row in payload_rows if row["relation"] == "level"])
-    metrics_text = " and ".join(metric_labels)
-    level_text = (
-        f" {level_count} player(s) were level with {resolution.match.name}." if level_count else ""
-    )
     answer = render_answer(
         AnswerRenderInput(
-            short_answer=(
-                f"{beater_count} player(s) beat {resolution.match.name}'s displayed "
-                f"{metrics_text}.{level_text}"
+            short_answer=_comparison_short_answer(
+                resolution.match.name, metrics, payload_rows, match_mode
             ),
             table=RenderedTable(
                 headers=("Player", *metric_labels, "Relation"),
@@ -800,6 +843,15 @@ async def _better_than_player_tool(
             ),
             assumptions=(
                 f"Minimum: {query.qualifications[0].field} >= {query.qualifications[0].minimum}.",
+                *(
+                    (
+                        f"Lowered from the default {min_field} >= {default_floor} to "
+                        f"{resolution.match.name}'s own figure, so "
+                        f"{resolution.match.name} qualifies.",
+                    )
+                    if floor_lowered
+                    else ()
+                ),
                 f"Period: {_period_text(period_value, as_of=as_of)}.",
             ),
             proof_links=(proof,),
@@ -826,7 +878,7 @@ async def _better_than_player_tool(
                 row for row in payload_rows if row["relation"] == "level" and not row["better_on"]
             ],
             "proof": _jsonable(proof),
-            "request_pages": len(pages),
+            "request_pages": result_pages_used,
         },
     )
 
@@ -1230,6 +1282,15 @@ def _period_text(period: Period, *, as_of: date) -> str:
 def _leaderboard_default_minimum(
     metric: Metric, class_id: int, *, period: Period, filters: Mapping[str, Any]
 ) -> DefaultMinimum:
+    if metric.is_count:
+        assert metric.qualval is not None
+        return DefaultMinimum(metric.qualval, _COUNT_LEADERBOARD_MINIMUM)
+    return _rate_default_minimum(metric, class_id, period=period, filters=filters)
+
+
+def _rate_default_minimum(
+    metric: Metric, class_id: int, *, period: Period, filters: Mapping[str, Any]
+) -> DefaultMinimum:
     if metric.key in _BOWLING_RATE_METRICS and _is_filtered_bowling_query(period, filters):
         return DefaultMinimum("wickets", _FILTERED_BOWLING_RATE_MINIMUMS[class_id])
     return metric.default_minimum(class_id)
@@ -1246,7 +1307,7 @@ def _comparison_default_minimum(
         minimum = batting_metric("runs").default_minimum(class_id)
         return minimum.field, max(Decimal(minimum.minimum), Decimal(1000))
     if _uses_bowling_rate_minimum(metrics):
-        minimum = _leaderboard_default_minimum(
+        minimum = _rate_default_minimum(
             bowling_metric("wickets")
             if not any(metric.key in _BOWLING_RATE_METRICS for metric in metrics)
             else next(metric for metric in metrics if metric.key in _BOWLING_RATE_METRICS),
@@ -1317,6 +1378,22 @@ async def _target_filtered_floor(
     return _decimal(row.get(column))
 
 
+def _floor_for_target(floor: int | Decimal, target_value: Decimal | None) -> int | Decimal:
+    return floor if target_value is None else min(Decimal(floor), target_value)
+
+
+def _target_row(pages: tuple[ResultsPage, ...], player_id: int) -> dict[str, Any] | None:
+    return next(
+        (
+            row
+            for page in pages
+            for row in page.table.to_dict("records")
+            if _row_id(row) == player_id
+        ),
+        None,
+    )
+
+
 def _statsguru_orderbyad(metric: Metric) -> str:
     return "reverse" if metric.is_derived and metric.direction == BetterDirection.LOWER else ""
 
@@ -1337,7 +1414,15 @@ async def _fetch_all_result_pages(
     query: StatsguruQuery,
     fetcher: Fetcher,
     settings: Settings,
+    *,
+    max_pages: int | None = None,
 ) -> tuple[ResultsPage, ...]:
+    limit = settings.max_pages if max_pages is None else max_pages
+    limit_text = (
+        f"the limit is {settings.max_pages}"
+        if limit == settings.max_pages
+        else f"this call has {limit} of its {settings.max_pages} pages left"
+    )
     as_of = _today(fetcher)
     pages = [
         parse_results_page(
@@ -1347,10 +1432,9 @@ async def _fetch_all_result_pages(
         )
     ]
     total_pages = pages[0].totals.pages or 1
-    if total_pages > settings.max_pages:
+    if total_pages > limit:
         raise TooBroadError(
-            f"That query is too broad: it needs {total_pages} pages, "
-            f"but the limit is {settings.max_pages}."
+            f"That query is too broad: it needs {total_pages} pages, but {limit_text}."
         )
     for page_number in range((pages[0].totals.page or 1) + 1, total_pages + 1):
         page_query = query.model_copy(update={"page": page_number})
@@ -1599,11 +1683,36 @@ def _comparison_detail(
     return ", ".join(pieces) if pieces else "level"
 
 
-def _metric_list(labels: Iterable[str]) -> str:
+def _comparison_short_answer(
+    player_name: str,
+    metrics: tuple[Metric, ...],
+    payload_rows: list[dict[str, Any]],
+    match_mode: str,
+) -> str:
+    beaters = [row for row in payload_rows if row["relation"] == "beats"]
+    labels = [metric.label for metric in metrics]
+    if match_mode == "any" and len(metrics) > 1:
+        per_metric = _metric_list(
+            f"{len([row for row in beaters if metric.key in row['better_on']])} on {metric.label}"
+            for metric in metrics
+        )
+        return (
+            f"{len(beaters)} player(s) beat {player_name}'s displayed "
+            f"{_metric_list(labels, conjunction='or')}: {per_metric}."
+        )
+    level_count = len([row for row in payload_rows if row["relation"] == "level"])
+    level_text = f" {level_count} player(s) were level with {player_name}." if level_count else ""
+    return (
+        f"{len(beaters)} player(s) beat {player_name}'s displayed "
+        f"{' and '.join(labels)}.{level_text}"
+    )
+
+
+def _metric_list(labels: Iterable[str], *, conjunction: str = "and") -> str:
     items = tuple(labels)
     if len(items) <= 1:
         return "".join(items)
-    return ", ".join(items[:-1]) + f" and {items[-1]}"
+    return ", ".join(items[:-1]) + f" {conjunction} {items[-1]}"
 
 
 def _player_record_row(page) -> Mapping[str, Any] | None:

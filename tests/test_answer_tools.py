@@ -9,7 +9,7 @@ import pytest
 from mcp import Client
 
 from crickey.fetcher import Fetcher, MemoryPageSource
-from crickey.metrics import batting_metric, bowling_metric
+from crickey.metrics import BATTING_METRICS, BOWLING_METRICS, batting_metric, bowling_metric
 from crickey.query import PlayerPageSpec, Qualification, ResolvedPeriod, StatsguruQuery
 from crickey.server import _comparison_default_minimum, create_server
 from crickey.settings import Settings
@@ -179,6 +179,11 @@ async def client_for(pages: dict[str, str], settings_: Settings | None = None):
     source = MemoryPageSource(pages)
     fetcher = Fetcher(settings_ or settings(), clock=FakeClock(), page_source=source)
     return source, Client(create_server(settings_ or settings(), fetcher=fetcher))
+
+
+def table_headers(answer_markdown: str) -> list[str]:
+    header = next(line for line in answer_markdown.splitlines() if line.startswith("| "))
+    return [cell.strip() for cell in header.strip("|").split("|")]
 
 
 @pytest.mark.parametrize(
@@ -734,6 +739,10 @@ async def test_bowling_count_comparison_floor_caps_to_target_filtered_row() -> N
 
     assert result.structured_content["proof"]["confirmed"] is True
     assert "Minimum: wickets >= 92." in result.structured_content["answer_markdown"]
+    assert (
+        "Lowered from the default wickets >= 100 to Dale Steyn's own figure, "
+        "so Dale Steyn qualifies." in result.structured_content["answer_markdown"]
+    )
     assert [row["player"] for row in result.structured_content["beaters"]] == ["More Wickets"]
 
 
@@ -1700,3 +1709,871 @@ async def test_issue_9_review_follow_up_punctuation_matching_and_refetch_only_on
         player_search_url("Babar"),
         player_search_url("Missing"),
     ]
+
+
+async def test_filtered_wickets_leaderboard_without_minimum_returns_top_rows_with_ties() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 1,
+            "type": "bowling",
+            "team": (1, 3),
+            "continent": 2,
+            "qualifications": (Qualification(field="wickets", minimum=1),),
+            "orderby": "wickets",
+            "size": 10,
+        }
+    )
+    source, client = await client_for(
+        {
+            url(query): bowling_result_page(
+                [
+                    bowling_row(501, "Swing Bowler", "ENG", "2004-2022", 88, "26.10"),
+                    bowling_row(502, "Pace Bowler", "SA", "2005-2019", 88, "23.40"),
+                    bowling_row(503, "Finger Spinner", "ENG", "2017-2024", 71, "31.20"),
+                    bowling_row(504, "Off Spinner", "ENG", "2009-2013", 64, "25.90"),
+                    bowling_row(505, "Slow Left-armer", "ENG", "1969-1982", 64, "26.60"),
+                    bowling_row(506, "Wrist Spinner", "SA", "2016-2024", 55, "29.70"),
+                    bowling_row(507, "Seam Allrounder", "SA", "1996-2008", 55, "23.10"),
+                    bowling_row(508, "Utility Spinner", "ENG", "2014-2023", 49, "35.80"),
+                    bowling_row(509, "Part-timer", "ENG", "1999-2007", 41, "34.90"),
+                    bowling_row(510, "Debut Quick", "SA", "2012-2016", 41, "36.10"),
+                ],
+                pages=25,
+                total=245,
+            )
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard",
+            {
+                "format": "Test",
+                "discipline": "bowling",
+                "metric": "wickets",
+                "team": ["England", "South Africa"],
+                "continent": "Asia",
+                "top_n": 5,
+            },
+        )
+
+    assert result.is_error is False
+    assert source.requests == [url(query)]
+    assert "qualmin1=1;qualval1=wickets" in source.requests[0]
+    assert [
+        (row["rank"], row["player"], row["value"]) for row in result.structured_content["rows"]
+    ] == [
+        (1, "Swing Bowler", "88"),
+        (1, "Pace Bowler", "88"),
+        (3, "Finger Spinner", "71"),
+        (4, "Off Spinner", "64"),
+        (4, "Slow Left-armer", "64"),
+    ]
+    answer = result.structured_content["answer_markdown"]
+    assert answer.startswith("Swing Bowler, Pace Bowler are tied for the lead with 88 wickets.")
+    assert "Minimum: wickets >= 1." in answer
+
+
+async def test_runs_leaderboard_at_ground_without_minimum_returns_top_n() -> None:
+    form_url = (
+        "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;filter=advanced;type=batting"
+    )
+    query = StatsguruQuery(
+        **{
+            "class": 1,
+            "type": "batting",
+            "ground": 2001,
+            "qualifications": (Qualification(field="runs", minimum=1),),
+            "orderby": "runs",
+            "size": 10,
+        }
+    )
+    source, client = await client_for(
+        {
+            form_url: """
+            <form name="gurumenu">
+            <select name="ground"><option value="2001">QQQ: Example Oval</option></select>
+            </form>
+            """,
+            url(query): result_page(
+                [
+                    row(601, "Leader", "AAA", "2001-2015", 14, 812, "62.46", 1400, "58.00", 3, 4),
+                    row(602, "Second", "BBB", "2004-2019", 15, 790, "56.42", 1500, "52.66", 2, 5),
+                    row(603, "Third", "AAA", "2010-2024", 12, 655, "54.58", 1200, "54.58", 2, 3),
+                    row(604, "Fourth", "CCC", "1998-2006", 10, 540, "60.00", 1000, "54.00", 1, 3),
+                ],
+                pages=9,
+                total=86,
+            ),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard",
+            {"format": "Test", "metric": "runs", "ground": "Example Oval", "top_n": 3},
+        )
+
+    assert result.is_error is False
+    assert source.requests == [form_url, url(query)]
+    assert "ground=2001" in source.requests[1]
+    assert "qualmin1=1;qualval1=runs" in source.requests[1]
+    assert [
+        (row["rank"], row["player"], row["value"]) for row in result.structured_content["rows"]
+    ] == [(1, "Leader", "812"), (2, "Second", "790"), (3, "Third", "655")]
+    assert "Minimum: runs >= 1." in result.structured_content["answer_markdown"]
+
+
+@pytest.mark.parametrize(
+    ("discipline", "metric", "field", "label", "minimum"),
+    [
+        ("batting", "runs", "runs", "runs", None),
+        ("batting", "hundreds", "hundreds", "hundreds", None),
+        ("batting", "fifties", "fifty_plus", "fifties (50-99)", None),
+        ("bowling", "wickets", "wickets", "wickets", None),
+        ("bowling", "five_wickets", "five_wickets", "five-wicket hauls", None),
+        ("bowling", "ten_wickets", "ten_wickets", "ten-wicket matches", None),
+        ("bowling", "wickets", "wickets", "wickets", 30),
+    ],
+)
+async def test_count_leaderboards_show_the_ranked_column_once(
+    discipline: str, metric: str, field: str, label: str, minimum: int | None
+) -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 1,
+            "type": discipline,
+            "qualifications": (Qualification(field=field, minimum=minimum or 1),),
+            "orderby": field,
+            "size": 10,
+        }
+    )
+    page = (
+        result_page(
+            [
+                row(1, "First", "AAA", "2000-2010", 40, 900, "45.00", 1500, "60.00", 3, 5),
+                row(2, "Second", "BBB", "2000-2010", 35, 800, "40.00", 1400, "57.14", 2, 4),
+                row(3, "Third", "CCC", "2000-2010", 30, 700, "35.00", 1300, "53.84", 1, 3),
+            ]
+        )
+        if discipline == "batting"
+        else bowling_result_page(
+            [
+                bowling_row(1, "First", "AAA", "2000-2010", 90, "25.00", five=4, ten=3),
+                bowling_row(2, "Second", "BBB", "2000-2010", 80, "26.00", five=3, ten=2),
+                bowling_row(3, "Third", "CCC", "2000-2010", 70, "27.00", five=2, ten=1),
+            ]
+        )
+    )
+    source, client = await client_for({url(query): page})
+    arguments: dict[str, object] = {
+        "format": "Test",
+        "discipline": discipline,
+        "metric": metric,
+        "top_n": 2,
+    }
+    if minimum is not None:
+        arguments["minimum"] = minimum
+
+    async with client:
+        result = await client.call_tool("leaderboard", arguments)
+
+    assert source.requests == [url(query)]
+    answer = result.structured_content["answer_markdown"]
+    assert table_headers(answer) == ["Rank", "Player", label]
+    assert f"Minimum: {field} >= {minimum or 1}." in answer
+    assert [row["player"] for row in result.structured_content["rows"]] == ["First", "Second"]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "query_fields", "headers", "floor"),
+    [
+        (
+            {"format": "Test", "metric": "average"},
+            {"class": 1, "type": "batting", "orderby": "batting_average", "size": 10},
+            ["Rank", "Player", "batting average", "innings"],
+            ("innings", 20),
+        ),
+        (
+            {"format": "ODI", "metric": "strike_rate"},
+            {"class": 2, "type": "batting", "orderby": "batting_strike_rate", "size": 10},
+            ["Rank", "Player", "strike rate", "balls_faced"],
+            ("balls_faced", 500),
+        ),
+        (
+            {"format": "ODI", "metric": "innings_per_hundred"},
+            {"class": 2, "type": "batting", "orderby": "hundreds", "orderbyad": "reverse"},
+            ["Rank", "Player", "innings per hundred", "hundreds"],
+            ("hundreds", 5),
+        ),
+        (
+            {"format": "Test", "metric": "innings_per_fifty_plus"},
+            {"class": 1, "type": "batting", "orderby": "hundreds", "orderbyad": "reverse"},
+            ["Rank", "Player", "innings per fifty-plus score", "hundreds"],
+            ("hundreds", 5),
+        ),
+        (
+            {"format": "ODI", "metric": "balls_per_dismissal"},
+            {"class": 2, "type": "batting", "orderby": "hundreds"},
+            ["Rank", "Player", "balls per dismissal", "hundreds"],
+            ("hundreds", 5),
+        ),
+        (
+            {"format": "Test", "discipline": "bowling", "metric": "average", "continent": "Asia"},
+            {
+                "class": 1,
+                "type": "bowling",
+                "continent": 2,
+                "orderby": "bowling_average",
+                "size": 10,
+            },
+            ["Rank", "Player", "bowling average", "wickets"],
+            ("wickets", 30),
+        ),
+        (
+            {"format": "ODI", "discipline": "bowling", "metric": "economy_rate"},
+            {"class": 2, "type": "bowling", "orderby": "economy_rate", "size": 10},
+            ["Rank", "Player", "economy rate", "wickets"],
+            ("wickets", 100),
+        ),
+        (
+            {
+                "format": "T20I",
+                "discipline": "bowling",
+                "metric": "bowling_strike_rate",
+                "continent": "Asia",
+            },
+            {
+                "class": 3,
+                "type": "bowling",
+                "continent": 2,
+                "orderby": "bowling_strike_rate",
+                "size": 10,
+            },
+            ["Rank", "Player", "bowling strike rate", "wickets"],
+            ("wickets", 20),
+        ),
+    ],
+)
+async def test_rate_and_derived_leaderboards_keep_default_floors(
+    arguments: dict[str, object],
+    query_fields: dict[str, object],
+    headers: list[str],
+    floor: tuple[str, int],
+) -> None:
+    field, minimum = floor
+    query = StatsguruQuery(
+        **{
+            "size": 200,
+            **query_fields,
+            "qualifications": (Qualification(field=field, minimum=minimum),),
+        }
+    )
+    page = (
+        result_page(
+            [
+                row(1, "First", "AAA", "2000-2010", 40, 2400, "60.00", 2000, "120.00", 8, 10),
+                row(2, "Second", "BBB", "2000-2010", 50, 2500, "50.00", 2400, "104.16", 6, 9),
+                row(3, "Third", "CCC", "2000-2010", 60, 2600, "43.33", 2700, "96.29", 5, 12),
+            ]
+        )
+        if query_fields["type"] == "batting"
+        else bowling_result_page(
+            [
+                bowling_row(1, "First", "AAA", "2000-2010", 45, "21.00", econ="2.50", sr="45.0"),
+                bowling_row(2, "Second", "BBB", "2000-2010", 60, "22.00", econ="2.60", sr="50.0"),
+                bowling_row(3, "Third", "CCC", "2000-2010", 75, "23.00", econ="2.70", sr="55.0"),
+            ]
+        )
+    )
+    source, client = await client_for({url(query): page})
+
+    async with client:
+        result = await client.call_tool("leaderboard", {**arguments, "top_n": 2})
+
+    assert source.requests == [url(query)]
+    assert f"qualmin1={minimum};qualval1={field}" in source.requests[0]
+    answer = result.structured_content["answer_markdown"]
+    assert table_headers(answer) == headers
+    assert f"Minimum: {field} >= {minimum}." in answer
+    assert [row["player"] for row in result.structured_content["rows"]] == ["First", "Second"]
+
+
+async def test_batting_comparison_lowers_floor_when_target_is_below_default_under_filter() -> None:
+    period = ResolvedPeriod(start="2016-01-01", end="2024-01-01")
+    default_query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "batting",
+            "period": period,
+            "host": 27,
+            "qualifications": (Qualification(field="runs", minimum=1000),),
+            "orderby": "batting_average",
+            "size": 200,
+        }
+    )
+    lowered_query = default_query.model_copy(
+        update={"qualifications": (Qualification(field="runs", minimum=506),)}
+    )
+    proof_query = default_query.model_copy(
+        update={
+            "qualifications": (
+                Qualification(field="runs", minimum=506),
+                Qualification(field="batting_average", minimum=Decimal("42.16")),
+            )
+        }
+    )
+    form_url, form = career_form(777, 3, "01 Jan 2016", "01 Jan 2024")
+    target_spec = PlayerPageSpec(
+        player_id=777, **{"class": 3, "type": "batting", "period": period, "host": 27}
+    )
+    target_page_url = target_spec.url(as_of=FakeClock().now().date())
+    home_rows = [
+        row(804, "Home Opener", "UAE", "2016-2023", 52, 1450, "31.20", 1200, "120.83", 1, 8),
+        row(805, "Home Captain", "UAE", "2016-2023", 48, 1210, "28.13", 1010, "119.80", 0, 7),
+    ]
+    beat_rows = [
+        row(801, "Visiting Star", "VVV", "2018-2022", 12, 610, "61.00", 450, "135.55", 1, 5),
+        row(777, "Target Batter", "TTT", "2016-2023", 15, 506, "42.16", 400, "126.50", 0, 3),
+        row(803, "Level Batter", "LLL", "2019-2023", 14, 520, "42.16", 420, "123.80", 0, 4),
+    ]
+    source, client = await client_for(
+        {
+            player_search_url("Target Batter"): search_page(
+                search_row("Target Batter", "TTT", 777, 3, "Twenty20 Internationals", "2016 - 2024")
+            ),
+            form_url: form,
+            url(default_query): result_page(home_rows, total=2),
+            target_page_url: player_page(
+                '<tr class="data1"><td>unfiltered</td><td>2016-2024</td><td>60</td><td>58</td><td>8</td><td>1650</td><td>91</td><td>33.00</td><td>1300</td><td>126.92</td><td>0</td><td>10</td><td>3</td></tr>'
+                '<tr class="data1"><td>filtered</td><td>2016-2023</td><td>16</td><td>15</td><td>3</td><td>506</td><td>77*</td><td>42.16</td><td>400</td><td>126.50</td><td>0</td><td>3</td><td>0</td></tr>'
+            ),
+            url(lowered_query): result_page([*beat_rows, *home_rows], total=5),
+            url(proof_query): result_page(beat_rows, total=3),
+        }
+    )
+    arguments = {
+        "player_name": "Target Batter",
+        "format": "T20I",
+        "metrics": ["average"],
+        "host_country": "United Arab Emirates",
+    }
+
+    async with client:
+        result = await client.call_tool("better_than_player", arguments)
+        assert source.requests == [
+            player_search_url("Target Batter"),
+            form_url,
+            url(default_query),
+            target_page_url,
+            url(lowered_query),
+            url(proof_query),
+        ]
+        source.requests.clear()
+        explicit = await client.call_tool("better_than_player", {**arguments, "minimum": 1000})
+
+    assert result.is_error is False
+    rows = result.structured_content["rows"]
+    assert [(row["player"], row["relation"]) for row in rows] == [
+        ("Visiting Star", "beats"),
+        ("Target Batter", "target"),
+        ("Level Batter", "level"),
+    ]
+    assert result.structured_content["proof"]["confirmed"] is True
+    answer = result.structured_content["answer_markdown"]
+    assert "Minimum: runs >= 506." in answer
+    assert (
+        "Lowered from the default runs >= 1000 to Target Batter's own figure, "
+        "so Target Batter qualifies." in answer
+    )
+    assert explicit.is_error is True
+    assert "Target Batter was not in the qualifying Statsguru rows" in explicit.content[0].text
+    assert source.requests == []
+
+
+async def test_batting_comparison_refetch_counts_against_the_page_limit() -> None:
+    period = ResolvedPeriod(start="2016-01-01", end="2024-01-01")
+    default_query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "batting",
+            "period": period,
+            "host": 27,
+            "qualifications": (Qualification(field="runs", minimum=1000),),
+            "orderby": "batting_average",
+            "size": 200,
+        }
+    )
+    lowered_query = default_query.model_copy(
+        update={"qualifications": (Qualification(field="runs", minimum=506),)}
+    )
+    form_url, form = career_form(777, 3, "01 Jan 2016", "01 Jan 2024")
+    target_spec = PlayerPageSpec(
+        player_id=777, **{"class": 3, "type": "batting", "period": period, "host": 27}
+    )
+    home = row(804, "Home Opener", "UAE", "2016-2023", 52, 1450, "31.20", 1200, "120.83", 1, 8)
+    target = row(777, "Target Batter", "TTT", "2016-2023", 15, 506, "42.16", 400, "126.50", 0, 3)
+    source, client = await client_for(
+        {
+            player_search_url("Target Batter"): search_page(
+                search_row("Target Batter", "TTT", 777, 3, "Twenty20 Internationals", "2016 - 2024")
+            ),
+            form_url: form,
+            url(default_query): result_page([home]),
+            target_spec.url(as_of=FakeClock().now().date()): player_page(
+                '<tr class="data1"><td>filtered</td><td>2016-2023</td><td>16</td><td>15</td><td>3</td><td>506</td><td>77*</td><td>42.16</td><td>400</td><td>126.50</td><td>0</td><td>3</td><td>0</td></tr>'
+            ),
+            url(lowered_query): result_page([target], pages=2, total=201),
+        },
+        settings(max_pages=2),
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Target Batter",
+                "format": "T20I",
+                "metrics": ["average"],
+                "host_country": "United Arab Emirates",
+            },
+        )
+
+    assert result.is_error is True
+    assert "it needs 2 pages, but this call has 1 of its 2 pages left" in result.content[0].text
+    assert url(lowered_query.model_copy(update={"page": 2})) not in source.requests
+
+
+def team_filter_case(discipline: str, all_teams_figure: int):
+    batting = discipline == "batting"
+    filters = {"host": 27} if batting else {"continent": 2}
+    base = {
+        "class": 3 if batting else 1,
+        "type": discipline,
+        "team": 6 if batting else 1,
+        "orderby": "batting_average" if batting else "bowling_average",
+        "size": 200,
+        **filters,
+    }
+    field = "runs" if batting else "wickets"
+
+    def query(floor: int, *thresholds: Qualification) -> StatsguruQuery:
+        return StatsguruQuery(
+            **{**base, "qualifications": (Qualification(field=field, minimum=floor), *thresholds)}
+        )
+
+    target_url = PlayerPageSpec(
+        player_id=902, **{"class": base["class"], "type": discipline, **filters}
+    ).url(as_of=FakeClock().now().date())
+    target_page = (
+        player_page(
+            f'<tr class="data1"><td>filtered</td><td>2016-2024</td><td>10</td><td>8</td><td>3</td><td>{all_teams_figure}</td><td>122*</td><td>68.75</td><td>255</td><td>134.90</td><td>1</td><td>3</td><td>1</td></tr>'
+        )
+        if batting
+        else bowling_player_page(
+            f'<tr class="data1"><td>filtered</td><td>2012-2020</td><td>9</td><td>17</td><td>290.0</td><td>40</td><td>750</td><td>{all_teams_figure}</td><td>5/60</td><td>30.00</td><td>2.58</td><td>69.6</td><td>1</td><td>1</td><td>0</td></tr>'
+        )
+    )
+    search = search_page(
+        search_row(
+            "Team Target",
+            "TTT",
+            902,
+            base["class"],
+            "Twenty20 Internationals" if batting else "Test matches",
+            "2010 - 2024",
+        )
+    )
+    arguments = {
+        "player_name": "Team Target",
+        "format": "T20I" if batting else "Test",
+        "discipline": discipline,
+        "metrics": ["average"],
+        "team": "India" if batting else "England",
+        "period": {"kind": "all_time"},
+        **({"host_country": "United Arab Emirates"} if batting else {"continent": "Asia"}),
+    }
+    return arguments, query, {player_search_url("Team Target"): search}, (target_url, target_page)
+
+
+@pytest.mark.parametrize("discipline", ["batting", "bowling"])
+async def test_comparison_under_team_filter_uses_a_one_team_players_figure(
+    discipline: str,
+) -> None:
+    batting = discipline == "batting"
+    figure = 344 if batting else 25
+    arguments, query, pages, (target_url, target_page) = team_filter_case(discipline, figure)
+    if batting:
+        beater = row(903, "Better Batter", "IND", "2016-2024", 9, 400, "70.00", 300, "133.33", 1, 3)
+        target = row(902, "Team Target", "IND", "2016-2024", 8, 344, "68.75", 255, "134.90", 1, 3)
+        other = row(904, "Team Opener", "IND", "2016-2024", 30, 1100, "36.66", 846, "130.02", 1, 8)
+        threshold = Qualification(field="batting_average", minimum=Decimal("68.75"))
+        pages[url(query(1000))] = result_page([other])
+        pages[target_url] = target_page
+        pages[url(query(figure))] = result_page([beater, target, other])
+        pages[url(query(figure, threshold))] = result_page([beater, target])
+    else:
+        beater = bowling_row(903, "Better Bowler", "ENG", "2010-2020", 40, "25.00")
+        target = bowling_row(902, "Team Target", "ENG", "2012-2020", 25, "30.00")
+        other = bowling_row(904, "Costly Bowler", "ENG", "2010-2020", 35, "33.00")
+        threshold = Qualification(field="bowling_average", maximum=Decimal("30.0099"))
+        pages[target_url] = target_page
+        pages[url(query(figure))] = bowling_result_page([beater, target, other])
+        pages[url(query(figure, threshold))] = bowling_result_page([beater, target])
+    source, client = await client_for(pages)
+
+    async with client:
+        result = await client.call_tool("better_than_player", arguments)
+
+    assert result.is_error is False
+    assert source.requests == list(pages)
+    assert [row["player"] for row in result.structured_content["beaters"]] == [
+        "Better Batter" if batting else "Better Bowler"
+    ]
+    assert result.structured_content["proof"]["confirmed"] is True
+    assert (
+        f"Minimum: {'runs' if batting else 'wickets'} >= {figure}."
+        in result.structured_content["answer_markdown"]
+    )
+
+
+@pytest.mark.parametrize("discipline", ["batting", "bowling"])
+async def test_comparison_under_team_filter_asks_for_minimum_when_still_missing(
+    discipline: str,
+) -> None:
+    batting = discipline == "batting"
+    figure = 600 if batting else 25
+    arguments, query, pages, (target_url, target_page) = team_filter_case(discipline, figure)
+    if batting:
+        other = row(904, "Team Opener", "IND", "2016-2024", 30, 1100, "36.66", 846, "130.02", 1, 8)
+        pages[url(query(1000))] = result_page([other])
+        pages[target_url] = target_page
+        pages[url(query(figure))] = result_page([other])
+    else:
+        other = bowling_row(904, "Costly Bowler", "ENG", "2010-2020", 35, "33.00")
+        pages[target_url] = target_page
+        pages[url(query(figure))] = bowling_result_page([other])
+    source, client = await client_for(pages)
+
+    async with client:
+        result = await client.call_tool("better_than_player", arguments)
+        explicit = await client.call_tool("better_than_player", {**arguments, "minimum": figure})
+
+    field = "runs" if batting else "wickets"
+    assert result.is_error is True
+    assert source.requests == list(pages)
+    assert (
+        f"Team Target was not in the qualifying Statsguru rows ({field} >= {figure}). "
+        f"Team Target's {field} for that team can't be read from the player page, which has "
+        "no team filter; pass minimum to set a lower one."
+    ) in result.content[0].text
+    assert explicit.is_error is True
+    assert "Team Target was not in the qualifying Statsguru rows." in explicit.content[0].text
+    assert "team filter" not in explicit.content[0].text
+
+
+async def test_comparison_without_team_filter_reports_a_missing_target_plainly() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 1,
+            "type": "bowling",
+            "continent": 2,
+            "qualifications": (Qualification(field="wickets", minimum=30),),
+            "orderby": "bowling_average",
+            "size": 200,
+        }
+    )
+    target_url = PlayerPageSpec(
+        player_id=902, **{"class": 1, "type": "bowling", "continent": 2}
+    ).url(as_of=FakeClock().now().date())
+    pages = {
+        player_search_url("Team Target"): search_page(
+            search_row("Team Target", "TTT", 902, 1, "Test matches", "2010 - 2024")
+        ),
+        target_url: bowling_player_page(
+            '<tr class="data1"><td>unfiltered</td><td>2012-2020</td><td>9</td><td>17</td><td>290.0</td><td>40</td><td>750</td><td>25</td><td>5/60</td><td>30.00</td><td>2.58</td><td>69.6</td><td>1</td><td>1</td><td>0</td></tr>'
+        ),
+        url(query): bowling_result_page(
+            [bowling_row(904, "Costly Bowler", "ENG", "2010-2020", 35, "33.00")]
+        ),
+    }
+    source, client = await client_for(pages)
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Team Target",
+                "format": "Test",
+                "discipline": "bowling",
+                "metrics": ["average"],
+                "continent": "Asia",
+                "period": {"kind": "all_time"},
+            },
+        )
+
+    assert result.is_error is True
+    assert source.requests == list(pages)
+    assert "Team Target was not in the qualifying Statsguru rows." in result.content[0].text
+    assert "team filter" not in result.content[0].text
+
+
+async def test_comparison_finds_the_target_on_a_later_page_without_the_fallback() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "batting",
+            "host": 27,
+            "qualifications": (Qualification(field="runs", minimum=1000),),
+            "orderby": "batting_average",
+            "size": 200,
+        }
+    )
+    proof_query = query.model_copy(
+        update={
+            "qualifications": (
+                *query.qualifications,
+                Qualification(field="batting_average", minimum=Decimal("42.16")),
+            )
+        }
+    )
+    star = row(801, "Visiting Star", "VVV", "2018-2022", 30, 1830, "61.00", 1350, "135.55", 2, 9)
+    target = row(777, "Target Batter", "TTT", "2016-2023", 40, 1265, "42.16", 1000, "126.50", 1, 8)
+    home = row(804, "Home Opener", "UAE", "2016-2023", 52, 1450, "31.20", 1200, "120.83", 1, 8)
+    pages = {
+        player_search_url("Target Batter"): search_page(
+            search_row("Target Batter", "TTT", 777, 3, "Twenty20 Internationals", "2016 - 2024")
+        ),
+        url(query): result_page([star], pages=2, total=202),
+        url(query.model_copy(update={"page": 2})): result_page(
+            [target, home], page=2, pages=2, total=202
+        ),
+        url(proof_query): result_page([star, target]),
+    }
+    source, client = await client_for(pages)
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Target Batter",
+                "format": "T20I",
+                "metrics": ["average"],
+                "host_country": "United Arab Emirates",
+                "period": {"kind": "all_time"},
+            },
+        )
+
+    assert result.is_error is False
+    assert source.requests == list(pages)
+    assert [(row["player"], row["relation"]) for row in result.structured_content["rows"]] == [
+        ("Visiting Star", "beats"),
+        ("Target Batter", "target"),
+    ]
+    assert result.structured_content["proof"]["confirmed"] is True
+    assert "Minimum: runs >= 1000." in result.structured_content["answer_markdown"]
+
+
+async def test_batting_comparison_refuses_a_lower_floor_that_cannot_fit_the_page_limit() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "batting",
+            "host": 27,
+            "qualifications": (Qualification(field="runs", minimum=1000),),
+            "orderby": "batting_average",
+            "size": 200,
+        }
+    )
+    home = row(804, "Home Opener", "UAE", "2016-2023", 52, 1450, "31.20", 1200, "120.83", 1, 8)
+    pages = {
+        player_search_url("Target Batter"): search_page(
+            search_row("Target Batter", "TTT", 777, 3, "Twenty20 Internationals", "2016 - 2024")
+        ),
+        url(query): result_page([home], pages=3, total=450),
+        url(query.model_copy(update={"page": 2})): result_page([home], page=2, pages=3, total=450),
+        url(query.model_copy(update={"page": 3})): result_page([home], page=3, pages=3, total=450),
+    }
+    source, client = await client_for(pages)
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Target Batter",
+                "format": "T20I",
+                "metrics": ["average"],
+                "host_country": "United Arab Emirates",
+                "period": {"kind": "all_time"},
+            },
+        )
+
+    assert source.requests == list(pages)
+    assert result.is_error is True
+    assert (
+        "That query is too broad: Target Batter was not in the qualifying Statsguru rows "
+        "(runs >= 1000), and a lower minimum needs at least 3 more pages, but this call has "
+        "1 of its 4 pages left; pass minimum to set one."
+    ) in result.content[0].text
+
+
+async def test_batting_comparison_lowered_floor_counts_every_result_page() -> None:
+    default_query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "batting",
+            "host": 27,
+            "qualifications": (Qualification(field="runs", minimum=1000),),
+            "orderby": "batting_average",
+            "size": 200,
+        }
+    )
+    lowered_query = default_query.model_copy(
+        update={"qualifications": (Qualification(field="runs", minimum=506),)}
+    )
+    proof_query = default_query.model_copy(
+        update={
+            "qualifications": (
+                Qualification(field="runs", minimum=506),
+                Qualification(field="batting_average", minimum=Decimal("42.16")),
+            )
+        }
+    )
+    target_page_url = PlayerPageSpec(
+        player_id=777, **{"class": 3, "type": "batting", "host": 27}
+    ).url(as_of=FakeClock().now().date())
+    home = row(804, "Home Opener", "UAE", "2016-2023", 52, 1450, "31.20", 1200, "120.83", 1, 8)
+    star = row(801, "Visiting Star", "VVV", "2018-2022", 12, 610, "61.00", 450, "135.55", 1, 5)
+    target = row(777, "Target Batter", "TTT", "2016-2023", 15, 506, "42.16", 400, "126.50", 0, 3)
+    search_url = player_search_url("Target Batter")
+    source, client = await client_for(
+        {
+            search_url: search_page(
+                search_row("Target Batter", "TTT", 777, 3, "Twenty20 Internationals", "2016 - 2024")
+            ),
+            url(default_query): result_page([home]),
+            target_page_url: player_page(
+                '<tr class="data1"><td>filtered</td><td>2016-2023</td><td>16</td><td>15</td><td>3</td><td>506</td><td>77*</td><td>42.16</td><td>400</td><td>126.50</td><td>0</td><td>3</td><td>0</td></tr>'
+            ),
+            url(lowered_query): result_page([star], pages=2, total=202),
+            url(lowered_query.model_copy(update={"page": 2})): result_page(
+                [target, home], page=2, pages=2, total=202
+            ),
+            url(proof_query): result_page([star], pages=2, total=201),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Target Batter",
+                "format": "T20I",
+                "metrics": ["average"],
+                "host_country": "United Arab Emirates",
+                "period": {"kind": "all_time"},
+            },
+        )
+
+    assert result.is_error is False
+    assert source.requests == [
+        search_url,
+        url(default_query),
+        target_page_url,
+        url(lowered_query),
+        url(lowered_query.model_copy(update={"page": 2})),
+        url(proof_query),
+    ]
+    assert [(row["player"], row["relation"]) for row in result.structured_content["rows"]] == [
+        ("Visiting Star", "beats"),
+        ("Target Batter", "target"),
+    ]
+    assert result.structured_content["request_pages"] == 3
+    proof = result.structured_content["proof"]
+    assert proof["confirmed"] is False
+    assert "confirmation needs 2 proof pages, over the 1-page limit" in proof["label"]
+
+
+async def test_any_mode_short_answer_counts_beaters_on_each_metric() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 3,
+            "type": "batting",
+            "qualifications": (Qualification(field="runs", minimum=1000),),
+            "orderby": "batting_average",
+            "size": 200,
+        }
+    )
+    rows = [
+        row(1, "Average Again", "AAA", "2016-2024", 50, 2500, "50.00", 2777, "90.02", 2, 9),
+        row(2, "Both Better", "BBB", "2016-2024", 40, 1800, "45.00", 1285, "140.07", 1, 9),
+        row(3, "Average Only", "CCC", "2016-2024", 38, 1520, "40.00", 1520, "100.00", 1, 8),
+        row(777, "Target Batter", "TTT", "2016-2024", 40, 1558, "38.94", 1217, "128.02", 1, 8),
+        row(4, "Strike Only", "DDD", "2016-2024", 50, 1500, "30.00", 1000, "150.00", 0, 7),
+        row(5, "Neither", "EEE", "2016-2024", 50, 1000, "20.00", 900, "111.11", 0, 3),
+    ]
+    search_url = player_search_url("Target Batter")
+    source, client = await client_for(
+        {
+            search_url: search_page(
+                search_row("Target Batter", "TTT", 777, 3, "Twenty20 Internationals", "2016 - 2024")
+            ),
+            url(query): result_page(rows),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Target Batter",
+                "format": "T20I",
+                "metrics": ["average", "strike_rate"],
+                "match": "any",
+                "period": {"kind": "all_time"},
+            },
+        )
+        single = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Target Batter",
+                "format": "T20I",
+                "metrics": ["average"],
+                "match": "any",
+                "period": {"kind": "all_time"},
+            },
+        )
+
+    assert source.requests == [search_url, url(query)]
+    assert result.structured_content["answer_markdown"].startswith(
+        "4 player(s) beat Target Batter's displayed batting average or strike rate: "
+        "3 on batting average and 2 on strike rate.\n"
+    )
+    assert single.structured_content["answer_markdown"].startswith(
+        "3 player(s) beat Target Batter's displayed batting average.\n"
+    )
+
+
+async def test_answer_metric_schema_lists_batting_and_bowling_keys() -> None:
+    _source, client = await client_for({})
+
+    async with client:
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+
+    def metric_enum(schema: dict, prop: dict) -> list[str]:
+        ref = next(option["$ref"] for option in prop["anyOf"] if "$ref" in option)
+        return schema["$defs"][ref.rsplit("/", 1)[-1]]["enum"]
+
+    leaderboard = tools["leaderboard"].input_schema
+    comparison = tools["better_than_player"].input_schema
+    expected = [*BATTING_METRICS, *BOWLING_METRICS]
+    assert metric_enum(leaderboard, leaderboard["properties"]["metric"]) == expected
+    assert metric_enum(comparison, comparison["properties"]["metrics"]["items"]) == expected
+    assert {
+        "wickets",
+        "bowling_average",
+        "economy_rate",
+        "bowling_strike_rate",
+        "five_wickets",
+        "ten_wickets",
+    } <= set(expected)
