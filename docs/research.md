@@ -441,6 +441,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 **Filtered count and comparison floors** (fetched 6 Oct 2026 for issue #53):
 - Test bowling in Asia for England or South Africa (`team=1;team=3;continent=2`) with `wickets>=1`: 178 rows. JM Anderson and DW Steyn are tied first with 92 wickets, then MJ Leach 79, and GP Swann and DL Underwood 73 each.
 - T20I batting in the UAE (`host=27`), all time: `runs>=1000` gives 4 rows. V Kohli (ID 253802) has 344 runs there in 8 innings with 3 not outs, average 68.8 and strike rate 134.9; `runs>=344` gives 43 rows.
+- In the same table, Shoaib Malik (ID 42657) has 549 runs, average 27.45 and strike rate 122; `runs>=549` gives 18 rows, and adding `batting_average>=27.45` and `batting_strike_rate>=122` gives 7: Malik and the 6 batters who beat him on both.
 
 **Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
 - Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`

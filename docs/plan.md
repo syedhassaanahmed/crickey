@@ -62,7 +62,7 @@ Five tools (D14), all read-only.
 2. **`better_than_player`** (golden questions 2 and 3): "Who beats player X on A (and B)?"
    - Parameters: player name, format, discipline (batting by default, or bowling), 1–3 metrics, all or any, period (all time, X's career span, or dates), minimum and filters.
    - Includes X's own row. Proof link (D16): the results query with X's values as extra minimums or maximums for lower-is-better metrics (R2).
-   - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum and the bowling answer uses D32's default minimum. Whatever the metric, a default minimum never excludes X (D29, D32).
+   - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum and the bowling answer uses D32's default minimum. Whatever the metric, a default minimum never excludes X (D29, D32), except under a team filter, where the answer asks for an explicit minimum.
 3. **`player_record`** (golden questions 4 and 5): one player's figures in a format.
    - Parameters: player name, format, discipline (batting by default, or bowling), period (whole career, first or last N years of their career, dates or season) and filters (opposition, host country, continent, ground, trophy such as the ODI World Cup, home or away, match result).
    - Proof link: the player's Statsguru batting or bowling page with the same filters (R6).
