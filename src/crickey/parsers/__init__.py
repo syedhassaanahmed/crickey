@@ -9,7 +9,7 @@ from crickey.parsers.convert import (
     parse_span,
 )
 from crickey.parsers.forms import FilterForm, FormControl, FormOption, parse_filter_form
-from crickey.parsers.player import PlayerPage, parse_player_page
+from crickey.parsers.player import PlayerPage, PlayerPageNoRecordsError, parse_player_page
 from crickey.parsers.results import (
     PageTotals,
     PlayerCell,
@@ -30,6 +30,7 @@ __all__ = [
     "PlayerCell",
     "PlayerFormat",
     "PlayerPage",
+    "PlayerPageNoRecordsError",
     "PlayerSearchResult",
     "RecentMatch",
     "ResultsPage",

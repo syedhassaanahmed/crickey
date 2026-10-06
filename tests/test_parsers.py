@@ -8,6 +8,7 @@ import pytest
 
 from crickey.parsers import (
     Overs,
+    PlayerPageNoRecordsError,
     Score,
     Span,
     StatsguruParseError,
@@ -884,6 +885,35 @@ def test_player_page_parses_bowling_innings_and_overs() -> None:
 def test_player_page_missing_career_table_raises_clear_error() -> None:
     with pytest.raises(StatsguruParseError, match="Career averages table is missing"):
         parse_player_page('<table class="engineTable"><caption>Other</caption></table>')
+
+
+def breadcrumb_page(name: str, body: str) -> str:
+    return (
+        '<html><body><div class="icc-home"><a href="/ci/engine/player/1.html">\n'
+        f"Statistics / Statsguru / {name} / One-Day Internationals\n</a></div>{body}</body></html>"
+    )
+
+
+def test_player_page_reads_the_player_name_from_the_breadcrumb() -> None:
+    career = PLAYER_HTML.split("<body>", 1)[1].rsplit("</body>", 1)[0]
+
+    assert parse_player_page(breadcrumb_page("JM Sample", career)).player_name == "JM Sample"
+    assert parse_player_page(breadcrumb_page("", career)).player_name is None
+    assert parse_player_page(PLAYER_HTML).player_name is None
+
+
+def test_player_page_without_records_raises_with_the_player_name() -> None:
+    no_records = (
+        '<table class="engineTable"><caption>Career summary</caption>'
+        '<tr class="data1"><td class="left"><b>No records available to match this query</b>'
+        "</td></tr></table>"
+    )
+
+    with pytest.raises(PlayerPageNoRecordsError) as error:
+        parse_player_page(breadcrumb_page("JM Sample", no_records))
+
+    assert error.value.player_name == "JM Sample"
+    assert isinstance(error.value, StatsguruParseError)
 
 
 SEARCH_HTML = """

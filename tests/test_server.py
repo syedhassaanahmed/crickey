@@ -232,6 +232,33 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert "'qualval1'" in query_schema
 
 
+async def test_player_answer_tools_take_an_optional_player_id() -> None:
+    _, _, client = await call_with_source({})
+
+    async with client:
+        by_name = {tool.name: tool for tool in (await client.list_tools()).tools}
+
+    golden_examples = {
+        "player_record": "ODI World Cups?",
+        "better_than_player": "same period that Babar Azam played?",
+    }
+    for name, example in golden_examples.items():
+        schema = by_name[name].input_schema
+        assert list(schema["properties"])[:2] == ["player_name", "player_id"]
+        assert schema["properties"]["player_id"]["anyOf"] == [
+            {"exclusiveMinimum": 0, "type": "integer"},
+            {"type": "null"},
+        ]
+        assert schema["properties"]["player_id"]["default"] is None
+        assert schema["properties"]["player_name"]["default"] is None
+        assert {"player_name", "player_id"}.isdisjoint(schema["required"])
+        description = by_name[name].description
+        assert description.startswith("Example:")
+        assert description.index(example) < description.index("player_id")
+        assert "player_id from find_player or a clarification" in description
+    assert "player_id" not in by_name["leaderboard"].input_schema["properties"]
+
+
 async def test_query_stats_fetch_false_allows_repeated_team_link() -> None:
     _, _, client = await call_with_source({})
 

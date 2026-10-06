@@ -282,6 +282,30 @@ def _safe_auto_match(query: str, candidate: PlayerCandidate) -> bool:
     return any(all(word in name.split() for word in query_words) for name in names)
 
 
+def names_agree(given: str, fetched: str) -> bool:
+    """Whether `given` could name the player Statsguru calls `fetched`.
+
+    Only a clear clash counts, so surname-like tokens decide: the names agree when the last word
+    of either appears in the other ("Imran Khan Niazi" and "Imran Khan", "Virat Kohli" and
+    "V Kohli"), or when a one-word name starts with one of the fetched name's initials ("Virat"
+    and "V Kohli").
+    """
+    given_words = _normalize(given).split()
+    fetched_words = _normalize(fetched).split()
+    if not given_words or not fetched_words:
+        return True
+    if given_words[-1] in fetched_words or fetched_words[-1] in given_words:
+        return True
+    initials = "".join(
+        word for word in fetched.translate(_PUNCTUATION_TABLE).split() if _is_initials(word)
+    ).casefold()
+    return len(given_words) == 1 and given_words[0][0] in initials
+
+
+def _is_initials(word: str) -> bool:
+    return word.isalpha() and word.isupper() and len(word) <= 4
+
+
 def _normalize(value: str) -> str:
     return _SPACE_RE.sub(" ", value.casefold().translate(_PUNCTUATION_TABLE)).strip()
 
