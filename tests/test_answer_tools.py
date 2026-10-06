@@ -213,7 +213,6 @@ async def test_golden_question_1_odi_innings_per_hundred_leaderboard_requests_an
             "type": "batting",
             "qualifications": (Qualification(field="hundreds", minimum=10),),
             "orderby": "hundreds",
-            "orderbyad": "reverse",
             "size": 200,
         }
     )
@@ -259,6 +258,10 @@ async def test_golden_question_1_odi_innings_per_hundred_leaderboard_requests_an
     assert cold.structured_content["rows"][0]["value"] == "6.67"
     assert len(cold.structured_content["rows"]) == 2
     assert cold.structured_content["group"]["value"] == "7.62"
+    proof = cold.structured_content["proof"]
+    assert ";orderby=hundreds;" in proof["url"]
+    assert "orderbyad" not in proof["url"]
+    assert "reverse" not in proof["label"]
     assert warm.structured_content["answer_markdown"] == cold.structured_content["answer_markdown"]
 
 
@@ -1028,7 +1031,6 @@ async def test_leaderboard_ties_share_rank_and_extend_top_n_boundary() -> None:
             "type": "batting",
             "qualifications": (Qualification(field="hundreds", minimum=5),),
             "orderby": "hundreds",
-            "orderbyad": "reverse",
             "size": 200,
         }
     )
@@ -1297,7 +1299,6 @@ async def test_derived_leaderboard_fetches_later_pages_for_ranks_and_group() -> 
             "type": "batting",
             "qualifications": (Qualification(field="hundreds", minimum=10),),
             "orderby": "hundreds",
-            "orderbyad": "reverse",
             "size": 200,
         }
     )
@@ -1591,7 +1592,6 @@ async def test_answer_tools_clarification_unsupported_ties_and_too_broad() -> No
             "type": "batting",
             "qualifications": (Qualification(field="hundreds", minimum=1),),
             "orderby": "hundreds",
-            "orderbyad": "reverse",
             "size": 200,
         }
     )
@@ -1902,13 +1902,13 @@ async def test_count_leaderboards_show_the_ranked_column_once(
         ),
         (
             {"format": "ODI", "metric": "innings_per_hundred"},
-            {"class": 2, "type": "batting", "orderby": "hundreds", "orderbyad": "reverse"},
+            {"class": 2, "type": "batting", "orderby": "hundreds"},
             ["Rank", "Player", "innings per hundred", "hundreds"],
             ("hundreds", 5),
         ),
         (
             {"format": "Test", "metric": "innings_per_fifty_plus"},
-            {"class": 1, "type": "batting", "orderby": "hundreds", "orderbyad": "reverse"},
+            {"class": 1, "type": "batting", "orderby": "hundreds"},
             ["Rank", "Player", "innings per fifty-plus score", "hundreds"],
             ("hundreds", 5),
         ),

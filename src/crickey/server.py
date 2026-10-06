@@ -514,7 +514,6 @@ async def _leaderboard_tool(
                     "period": resolved_period,
                     "qualifications": (Qualification(field=minimum_field, minimum=minimum_value),),
                     "orderby": metric.orderby or minimum_field,
-                    "orderbyad": _statsguru_orderbyad(metric),
                     "size": 200 if metric.is_derived else _page_size_for_top_n(top_n),
                     **filters["query"],
                 }
@@ -1392,10 +1391,6 @@ def _target_row(pages: tuple[ResultsPage, ...], player_id: int) -> dict[str, Any
         ),
         None,
     )
-
-
-def _statsguru_orderbyad(metric: Metric) -> str:
-    return "reverse" if metric.is_derived and metric.direction == BetterDirection.LOWER else ""
 
 
 def _direction_method(*metrics: Metric) -> str:
