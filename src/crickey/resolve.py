@@ -282,6 +282,38 @@ def _safe_auto_match(query: str, candidate: PlayerCandidate) -> bool:
     return any(all(word in name.split() for word in query_words) for name in names)
 
 
+def names_agree(given: str, fetched: str) -> bool:
+    """Whether a given name could be the player Statsguru names `fetched`.
+
+    Each given word must match a word of the fetched name. Initials such as "JM" also match a
+    word starting with one of their letters, except for the given name's last word, so
+    "James Anderson" agrees with "JM Anderson" but "Imran Khan" does not with "IK Pathan".
+    """
+    given_words = _name_words(given)
+    fetched_words = _name_words(fetched)
+    last = len(given_words) - 1
+    return all(
+        any(_words_agree(word, other, allow_initials=index < last) for other in fetched_words)
+        for index, word in enumerate(given_words)
+    )
+
+
+def _name_words(value: str) -> list[tuple[str, bool]]:
+    return [
+        (word.casefold(), len(word) == 1 or (word.isalpha() and word.isupper() and len(word) <= 4))
+        for word in value.translate(_PUNCTUATION_TABLE).split()
+    ]
+
+
+def _words_agree(word: tuple[str, bool], other: tuple[str, bool], *, allow_initials: bool) -> bool:
+    (text, initials), (other_text, other_initials) = word, other
+    if text == other_text:
+        return True
+    if not allow_initials:
+        return False
+    return (other_initials and text[0] in other_text) or (initials and other_text[0] in text)
+
+
 def _normalize(value: str) -> str:
     return _SPACE_RE.sub(" ", value.casefold().translate(_PUNCTUATION_TABLE)).strip()
 

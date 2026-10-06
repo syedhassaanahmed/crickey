@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 from datetime import date
 from decimal import Decimal
@@ -14,7 +15,14 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, Field, PositiveInt, ValidationError
 
-from crickey.fetcher import Fetcher, FetcherError, Freshness, TooBroadError, freshness_from_end_date
+from crickey.fetcher import (
+    Fetcher,
+    FetcherError,
+    Freshness,
+    TooBroadError,
+    UnavailableUrlError,
+    freshness_from_end_date,
+)
 from crickey.ids import LookupResult, lookup_continent, lookup_host
 from crickey.metrics import (
     BetterDirection,
@@ -27,6 +35,7 @@ from crickey.metrics import (
 from crickey.parsers import (
     Overs,
     PlayerFormat,
+    PlayerPageNoRecordsError,
     ResultsPage,
     Span,
     StatsguruParseError,
@@ -36,6 +45,7 @@ from crickey.parsers import (
 )
 from crickey.proof import ProofLink, Threshold, build_proof_link
 from crickey.query import (
+    CLASS_LABELS,
     SINGLE_VALUE_LIST_FIELDS,
     Period,
     PlayerPageSpec,
@@ -55,7 +65,7 @@ from crickey.render import (
     freshness_line,
     render_answer,
 )
-from crickey.resolve import NameResolver, PeriodResolver, PlayerCandidate
+from crickey.resolve import NameResolver, PeriodResolver, PlayerCandidate, names_agree
 from crickey.resolve import _country_codes as country_codes
 from crickey.resolve import _normalize as normalize_country
 from crickey.resolve import _player_resolution_from_html as player_resolution_from_html
@@ -369,11 +379,14 @@ def create_server(
             "Babar Azam? Which batters had better average and strike rate in T20 "
             "than Babar Azam, in the same period that Babar Azam played? Bowling example: "
             "Which Test bowlers had a better bowling average than Dale Steyn in Asia? "
-            "Compare players."
+            "Compare players. Name the player with player_name, or with player_id from "
+            "find_player or a clarification when names clash."
         ),
     )
     async def better_than_player(
-        player_name: str,
+        *,
+        player_name: str | None = None,
+        player_id: PositiveInt | None = None,
         format: str | int,
         metrics: list[AnswerMetric | str],
         discipline: AnswerDiscipline | str = AnswerDiscipline.BATTING,
@@ -394,6 +407,7 @@ def create_server(
             fetcher,
             fetcher.settings,
             player_name=player_name,
+            player_id=player_id,
             format=format,
             discipline=discipline,
             metric_keys=metrics,
@@ -417,11 +431,15 @@ def create_server(
             "Example: What was Babar Azam's Test batting average in the last Y years "
             "of his career? How many hundreds has Babar Azam scored in ODI World Cups? "
             "Bowling example: What was James Anderson's Test bowling record in Asia? "
-            "Return one player's batting or bowling record with a proof link."
+            "Return one player's batting or bowling record with a proof link. Name the "
+            "player with player_name, or with player_id from find_player or a clarification "
+            "when names clash."
         ),
     )
     async def player_record(
-        player_name: str,
+        *,
+        player_name: str | None = None,
+        player_id: PositiveInt | None = None,
         format: str | int,
         discipline: AnswerDiscipline | str = AnswerDiscipline.BATTING,
         period: AnswerPeriod | dict[str, Any] | None = None,
@@ -437,6 +455,7 @@ def create_server(
         return await _player_record_tool(
             fetcher,
             player_name=player_name,
+            player_id=player_id,
             format=format,
             discipline=discipline,
             period=period,
@@ -606,7 +625,8 @@ async def _better_than_player_tool(
     fetcher: Fetcher,
     settings: Settings,
     *,
-    player_name: str,
+    player_name: str | None,
+    player_id: int | None,
     format: str | int,
     discipline: AnswerDiscipline | str,
     metric_keys: list[AnswerMetric | str],
@@ -623,6 +643,7 @@ async def _better_than_player_tool(
     minimum: int | Decimal | None,
     ctx: Context | None,
 ) -> CallToolResult:
+    query_name = _require_player(player_name, player_id)
     if not 1 <= len(metric_keys) <= 3:
         raise ToolError("metrics must contain 1 to 3 metrics.")
     if match_mode not in {"all", "any"}:
@@ -637,15 +658,27 @@ async def _better_than_player_tool(
     except ValueError as error:
         raise ToolError(str(error)) from error
     progress = _progress_callback(ctx)
+    by_id = player_id is not None
+    page_name: str | None = None
     try:
         async with fetcher.call(budget=FETCH_BUDGET_SECONDS, progress=progress) as call:
-            names = NameResolver(fetcher)
-            resolution = await names.resolve_player(player_name, class_id=class_id, call=call)
-            if resolution.needs_clarification or resolution.match is None:
-                return _clarification_result(player_name, resolution)
-            period_value = await _comparison_period(
-                fetcher, resolution.match.player_id, class_id, period, call
-            )
+            if player_id is not None:
+                target_id = player_id
+                matched: PlayerCandidate | None = None
+            else:
+                names = NameResolver(fetcher)
+                resolution = await names.resolve_player(query_name, class_id=class_id, call=call)
+                if resolution.needs_clarification or resolution.match is None:
+                    return _clarification_result(
+                        query_name, resolution, class_id=class_id, tool="better_than_player"
+                    )
+                matched = resolution.match
+                target_id = matched.player_id
+            known_name = matched.name if matched is not None else None
+            with _target_page_errors(
+                target_id, class_id, discipline_value, name=known_name, by_id=by_id
+            ):
+                period_value = await _comparison_period(fetcher, target_id, class_id, period, call)
             filters = await _answer_filters(
                 fetcher,
                 class_id,
@@ -664,19 +697,37 @@ async def _better_than_player_tool(
             min_field, default_floor = _comparison_default_minimum(
                 metrics, class_id, period=period_value, filters=filters["query"]
             )
-            player_id = resolution.match.player_id
 
             async def target_floor() -> Decimal | None:
-                return await _target_filtered_floor(
-                    call,
-                    player_id,
-                    class_id=class_id,
-                    discipline=discipline_value,
-                    period=period_value,
-                    filters=filters["player_page"],
-                    field=min_field,
-                    fetcher=fetcher,
-                )
+                nonlocal page_name
+                with _target_page_errors(
+                    target_id, class_id, discipline_value, name=known_name, by_id=by_id
+                ):
+                    value, page_name = await _target_filtered_floor(
+                        call,
+                        target_id,
+                        class_id=class_id,
+                        discipline=discipline_value,
+                        period=period_value,
+                        filters=filters["player_page"],
+                        field=min_field,
+                        fetcher=fetcher,
+                    )
+                return value
+
+            def target_label(*, start: bool = False) -> str:
+                if known_name is not None:
+                    return known_name
+                if page_name is not None:
+                    return f"{page_name} (player ID {target_id})"
+                return f"{'Player' if start else 'player'} ID {target_id}"
+
+            # By ID, X's name is unknown until X's row or page is read, so name the format.
+            rows_text = (
+                f"the qualifying Statsguru {CLASS_LABELS[class_id]} rows"
+                if by_id
+                else "the qualifying Statsguru rows"
+            )
 
             def comparison_query(floor: int | Decimal) -> StatsguruQuery:
                 return StatsguruQuery(
@@ -703,13 +754,13 @@ async def _better_than_player_tool(
             query = comparison_query(floor_value)
             pages = await _fetch_all_result_pages(call, query, fetcher, settings)
             result_pages_used = len(pages)
-            target = _target_row(pages, player_id)
+            target = _target_row(pages, target_id)
             if target is None and minimum is None and not target_floor_read:
                 # The lower-floor table holds every row of this one, so it needs as many pages.
                 if 2 * result_pages_used > settings.max_pages:
                     raise TooBroadError(
-                        f"That query is too broad: {resolution.match.name} was not in the "
-                        f"qualifying Statsguru rows ({min_field} >= {floor_value}), and a lower "
+                        f"That query is too broad: {target_label()} was not in "
+                        f"{rows_text} ({min_field} >= {floor_value}), and a lower "
                         f"minimum needs at least {result_pages_used} more pages, but this call "
                         f"has {settings.max_pages - result_pages_used} of its "
                         f"{settings.max_pages} pages left; pass minimum to set one."
@@ -726,18 +777,17 @@ async def _better_than_player_tool(
                         max_pages=settings.max_pages - result_pages_used,
                     )
                     result_pages_used += len(pages)
-                    target = _target_row(pages, player_id)
+                    target = _target_row(pages, target_id)
             if target is None and minimum is None and "team" in filters["query"]:
                 raise ToolError(
-                    f"{resolution.match.name} was not in the qualifying Statsguru rows "
-                    f"({min_field} >= {floor_value}). {resolution.match.name}'s {min_field} for "
-                    "that team can't be read from the player page, which has no team filter; "
+                    f"{target_label(start=True)} was not in {rows_text} "
+                    f"({min_field} >= {floor_value}). {target_label(start=True)}'s {min_field} "
+                    "for that team can't be read from the player page, which has no team filter; "
                     "pass minimum to set a lower one."
                 )
             if target is None:
-                raise ToolError(
-                    f"{resolution.match.name} was not in the qualifying Statsguru rows."
-                )
+                raise ToolError(f"{target_label(start=True)} was not in {rows_text}.")
+            player = matched or _player_by_id(target_id, target.get("player_name") or page_name)
             floor_lowered = minimum is None and floor_value < default_floor
             all_rows = [row for page in pages for row in page.table.to_dict("records")]
             target_values = tuple(
@@ -750,7 +800,7 @@ async def _better_than_player_tool(
                     metric.compare(metric.value_from_row(row, class_id=class_id), target_value)
                     for metric, target_value in zip(metrics, target_values, strict=True)
                 ]
-                if _row_id(row) == resolution.match.player_id:
+                if _row_id(row) == player.player_id:
                     comparison_rows.append((row, "target", []))
                     continue
                 beats = (
@@ -812,7 +862,7 @@ async def _better_than_player_tool(
             row,
             metrics,
             class_id,
-            resolution.match.player_id,
+            player.player_id,
             relation,
             comparisons,
         )
@@ -820,11 +870,10 @@ async def _better_than_player_tool(
     ]
     as_of = _today(fetcher)
     metric_labels = tuple(metric.label for metric in metrics)
+    name_note = _name_mismatch_note(player_name, player_id, player.name)
     answer = render_answer(
         AnswerRenderInput(
-            short_answer=_comparison_short_answer(
-                resolution.match.name, metrics, payload_rows, match_mode
-            ),
+            short_answer=_comparison_short_answer(player.name, metrics, payload_rows, match_mode),
             table=RenderedTable(
                 headers=("Player", *metric_labels, "Relation"),
                 rows=tuple(
@@ -841,12 +890,12 @@ async def _better_than_player_tool(
                 ),
             ),
             assumptions=(
+                *((name_note,) if name_note else ()),
                 f"Minimum: {query.qualifications[0].field} >= {query.qualifications[0].minimum}.",
                 *(
                     (
                         f"Lowered from the default {min_field} >= {default_floor} to "
-                        f"{resolution.match.name}'s own figure, so "
-                        f"{resolution.match.name} qualifies.",
+                        f"{player.name}'s own figure, so {player.name} qualifies.",
                     )
                     if floor_lowered
                     else ()
@@ -868,7 +917,7 @@ async def _better_than_player_tool(
         {
             "status": "ok",
             "answer_markdown": answer,
-            "player": _candidate_payload(resolution.match),
+            "player": _candidate_payload(player),
             "metrics": [metric.key for metric in metrics],
             "rows": payload_rows,
             "beaters": [row for row in payload_rows if row["relation"] == "beats"],
@@ -885,7 +934,8 @@ async def _better_than_player_tool(
 async def _player_record_tool(
     fetcher: Fetcher,
     *,
-    player_name: str,
+    player_name: str | None,
+    player_id: int | None,
     format: str | int,
     discipline: AnswerDiscipline | str,
     period: AnswerPeriod | dict[str, Any] | None,
@@ -898,6 +948,7 @@ async def _player_record_tool(
     match_result: str | int | None,
     ctx: Context | None,
 ) -> CallToolResult:
+    query_name = _require_player(player_name, player_id)
     try:
         class_id = _format_class(format)
         discipline_value = _answer_discipline(discipline)
@@ -905,15 +956,26 @@ async def _player_record_tool(
     except ValueError as error:
         raise ToolError(str(error)) from error
     progress = _progress_callback(ctx)
+    by_id = player_id is not None
     try:
         async with fetcher.call(budget=FETCH_BUDGET_SECONDS, progress=progress) as call:
-            names = NameResolver(fetcher)
-            resolution = await names.resolve_player(player_name, class_id=class_id, call=call)
-            if resolution.needs_clarification or resolution.match is None:
-                return _clarification_result(player_name, resolution)
-            period_value = await _record_period(
-                fetcher, resolution.match.player_id, class_id, period, call
-            )
+            if player_id is not None:
+                target_id = player_id
+                matched: PlayerCandidate | None = None
+            else:
+                names = NameResolver(fetcher)
+                resolution = await names.resolve_player(query_name, class_id=class_id, call=call)
+                if resolution.needs_clarification or resolution.match is None:
+                    return _clarification_result(
+                        query_name, resolution, class_id=class_id, tool="player_record"
+                    )
+                matched = resolution.match
+                target_id = matched.player_id
+            known_name = matched.name if matched is not None else None
+            with _target_page_errors(
+                target_id, class_id, discipline_value, name=known_name, by_id=by_id
+            ):
+                period_value = await _record_period(fetcher, target_id, class_id, period, call)
             filters = await _answer_filters(
                 fetcher,
                 class_id,
@@ -929,7 +991,7 @@ async def _player_record_tool(
             if filters.get("needs_clarification"):
                 return _tool_result("A filter needs clarification.", filters)
             spec = PlayerPageSpec(
-                player_id=resolution.match.player_id,
+                player_id=target_id,
                 **{
                     "class": class_id,
                     "type": discipline_value,
@@ -939,16 +1001,19 @@ async def _player_record_tool(
             )
             as_of = _today(fetcher)
             url = spec.url(as_of=as_of)
-            html = await call.fetch(
-                url,
-                freshness=_freshness_for_query(
-                    StatsguruQuery(
-                        **{"class": class_id, "type": discipline_value, "period": period_value}
+            with _target_page_errors(
+                target_id, class_id, discipline_value, name=known_name, by_id=by_id
+            ):
+                html = await call.fetch(
+                    url,
+                    freshness=_freshness_for_query(
+                        StatsguruQuery(
+                            **{"class": class_id, "type": discipline_value, "period": period_value}
+                        ),
+                        as_of,
                     ),
-                    as_of,
-                ),
-            )
-            page = parse_player_page(html)
+                )
+                page = parse_player_page(html)
             row = _player_record_row(page)
             recent = parse_current_or_recent_matches(html)
     except (
@@ -962,20 +1027,26 @@ async def _player_record_tool(
             _validation_message(error) if isinstance(error, ValidationError) else str(error)
         ) from error
 
+    player = matched or _player_by_id(target_id, page.player_name)
+    name_note = _name_mismatch_note(player_name, player_id, player.name)
+    assumptions = (
+        *((name_note,) if name_note else ()),
+        f"Period: {_period_text(period_value, as_of=as_of)}.",
+    )
     proof = ProofLink(spec.label(as_of=as_of), url, True, True, row_count=len(page.career_averages))
     if row is None:
         answer = render_answer(
             AnswerRenderInput(
-                short_answer=f"No matches found for {resolution.match.name} with those filters.",
+                short_answer=f"No matches found for {player.name} with those filters.",
                 table=RenderedTable(
-                    headers=("Player", "Result"), rows=((resolution.match.name, "No matches"),)
+                    headers=("Player", "Result"), rows=((player.name, "No matches"),)
                 ),
                 method=(
                     f"Read the player's Statsguru {discipline_value} page with the same filters.",
                 ),
-                assumptions=(f"Period: {_period_text(period_value, as_of=as_of)}.",),
+                assumptions=assumptions,
                 proof_links=(proof,),
-                players=(RenderPlayer(resolution.match.name, resolution.match.player_id),),
+                players=(RenderPlayer(player.name, player.player_id),),
                 as_of=as_of,
                 current_or_recent_matches=recent,
             )
@@ -985,7 +1056,7 @@ async def _player_record_tool(
             {
                 "status": "no_matches",
                 "answer_markdown": answer,
-                "player": _candidate_payload(resolution.match),
+                "player": _candidate_payload(player),
                 "row": None,
                 "proof": _jsonable(proof),
             },
@@ -993,7 +1064,7 @@ async def _player_record_tool(
 
     columns = _player_record_columns(page)
     values = {column: _display_value(row, column) for column in columns}
-    summary_values = _player_record_summary(resolution.match.name, values, discipline_value)
+    summary_values = _player_record_summary(player.name, values, discipline_value)
     answer = render_answer(
         AnswerRenderInput(
             short_answer=summary_values,
@@ -1001,9 +1072,9 @@ async def _player_record_tool(
                 headers=tuple(columns), rows=(tuple(values[column] for column in columns),)
             ),
             method=(f"Read the player's Statsguru {discipline_value} page with the same filters.",),
-            assumptions=(f"Period: {_period_text(period_value, as_of=as_of)}.",),
+            assumptions=assumptions,
             proof_links=(proof,),
-            players=(RenderPlayer(resolution.match.name, resolution.match.player_id),),
+            players=(RenderPlayer(player.name, player.player_id),),
             as_of=as_of,
             current_or_recent_matches=recent,
         )
@@ -1013,7 +1084,7 @@ async def _player_record_tool(
         {
             "status": "ok",
             "answer_markdown": answer,
-            "player": _candidate_payload(resolution.match),
+            "player": _candidate_payload(player),
             "row": values,
             "proof": _jsonable(proof),
         },
@@ -1349,10 +1420,10 @@ async def _target_filtered_floor(
     filters: Mapping[str, Any],
     field: str,
     fetcher: Fetcher,
-) -> Decimal | None:
+) -> tuple[Decimal | None, str | None]:
     column = _FIELD_COLUMNS[discipline].get(field)
     if column is None:
-        return None
+        return None, None
     spec = PlayerPageSpec(
         player_id=player_id,
         **{
@@ -1373,8 +1444,8 @@ async def _target_filtered_floor(
     page = parse_player_page(html)
     row = _player_record_row(page)
     if row is None:
-        return None
-    return _decimal(row.get(column))
+        return None, page.player_name
+    return _decimal(row.get(column)), page.player_name
 
 
 def _floor_for_target(floor: int | Decimal, target_value: Decimal | None) -> int | Decimal:
@@ -1788,14 +1859,78 @@ def _leaderboard_fetch_method(
     )
 
 
-def _clarification_result(name: str, resolution) -> CallToolResult:
-    return _tool_result(
-        f"Found possible player candidates for {name!r}; please choose one.",
-        {
-            "status": "needs_clarification",
-            "query": name,
-            "candidates": [_candidate_payload(candidate) for candidate in resolution.candidates],
-        },
+def _clarification_result(name: str, resolution, *, class_id: int, tool: str) -> CallToolResult:
+    summary = f"Found possible player candidates for {name!r}; please choose one."
+    payload: dict[str, Any] = {
+        "status": "needs_clarification",
+        "query": name,
+        "candidates": [_candidate_payload(candidate) for candidate in resolution.candidates],
+    }
+    if not payload["candidates"]:
+        return _tool_result(summary, payload)
+    payload["hint"] = f"Call {tool} again with player_id set to the chosen candidate's ID."
+    label = CLASS_LABELS[class_id]
+    rows = []
+    for candidate in payload["candidates"]:
+        fmt = next((fmt for fmt in candidate["formats"] if fmt["class"] == class_id), {})
+        rows.append(
+            (
+                candidate["id"],
+                candidate["name"],
+                "/".join(candidate["country"]),
+                fmt.get("span"),
+                fmt.get("matches"),
+            )
+        )
+    table = _markdown_table(("ID", "Name", "Country", f"{label} span", f"{label} matches"), rows)
+    return _tool_result(summary, payload, text="\n".join([summary, payload["hint"], "", table]))
+
+
+def _require_player(player_name: str | None, player_id: int | None) -> str:
+    if player_id is None and not (player_name or "").strip():
+        raise ToolError(
+            "player_name or player_id is required; player_id is the ID from find_player "
+            "or a needs_clarification candidate."
+        )
+    return player_name or ""
+
+
+def _player_by_id(player_id: int, name: str | None) -> PlayerCandidate:
+    return PlayerCandidate(player_id, name or f"Player ID {player_id}", None, (), ())
+
+
+@contextmanager
+def _target_page_errors(
+    player_id: int, class_id: int, discipline: str, *, name: str | None, by_id: bool
+) -> Iterator[None]:
+    # Reading the target's own pages: a page with no records means the player has no record
+    # in this format; by ID, a missing page means the same thing.
+    try:
+        yield
+    except PlayerPageNoRecordsError as error:
+        raise ToolError(
+            _no_record_message(player_id, error.player_name or name, class_id, discipline)
+        ) from error
+    except UnavailableUrlError as error:
+        if not by_id:
+            raise
+        raise ToolError(_no_record_message(player_id, name, class_id, discipline)) from error
+
+
+def _no_record_message(player_id: int, name: str | None, class_id: int, discipline: str) -> str:
+    who = f"Player ID {player_id}" + (f" ({name})" if name else "")
+    return f"{who} has no {CLASS_LABELS[class_id]} {discipline} record on Statsguru."
+
+
+def _name_mismatch_note(
+    player_name: str | None, player_id: int | None, fetched_name: str
+) -> str | None:
+    given = (player_name or "").strip()
+    if player_id is None or not given or names_agree(given, fetched_name):
+        return None
+    return (
+        f"Player: player_id {player_id} is {fetched_name} on Statsguru, not {given!r}; "
+        "the answer follows player_id."
     )
 
 
@@ -2097,12 +2232,17 @@ def _tool_result(
     structured_content: Mapping[str, Any],
     *,
     text_required_columns: Iterable[str] = (),
+    text: str | None = None,
 ) -> CallToolResult:
     return CallToolResult(
         content=[
             TextContent(
                 type="text",
-                text=_text_content(summary, structured_content, text_required_columns),
+                text=(
+                    _text_content(summary, structured_content, text_required_columns)
+                    if text is None
+                    else text
+                ),
             )
         ],
         structured_content=_jsonable(dict(structured_content)),

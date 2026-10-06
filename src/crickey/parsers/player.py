@@ -12,20 +12,34 @@ from crickey.parsers.common import (
 )
 from crickey.parsers.results import _rows_to_frame, _usable_headers
 
+_BREADCRUMB_PREFIX = "Statistics / Statsguru /"
+
+
+class PlayerPageNoRecordsError(StatsguruParseError):
+    """Raised when a player page says it has no records, as for a format the player never played."""
+
+    def __init__(self, player_name: str | None) -> None:
+        super().__init__("Statsguru has no records for this player page")
+        self.player_name = player_name
+
 
 @dataclass(frozen=True)
 class PlayerPage:
     career_averages: pd.DataFrame
     innings: pd.DataFrame | None
     profile_id: int | None
+    player_name: str | None = None
 
 
 def parse_player_page(page: str) -> PlayerPage:
     doc = document_from_html(page)
+    player_name = _player_name(doc)
     career_tables = doc.xpath(
         '//caption[contains(normalize-space(.), "Career averages")]/ancestor::table[1]'
     )
     if not career_tables:
+        if doc.xpath('//td[contains(normalize-space(.), "No records available")]'):
+            raise PlayerPageNoRecordsError(player_name)
         raise StatsguruParseError("Career averages table is missing")
     career = _table_to_frame(career_tables[0], default_blank="Grouping")
     profile_id = _profile_id(career_tables[0])
@@ -36,7 +50,19 @@ def parse_player_page(page: str) -> PlayerPage:
     innings = None
     if innings_tables:
         innings = _table_to_frame(innings_tables[0], default_blank="Scorecard")
-    return PlayerPage(career_averages=career, innings=innings, profile_id=profile_id)
+    return PlayerPage(
+        career_averages=career, innings=innings, profile_id=profile_id, player_name=player_name
+    )
+
+
+def _player_name(doc) -> str | None:
+    # The breadcrumb reads "Statistics / Statsguru / <name> / <format>" (R6).
+    for link in doc.xpath('//a[contains(@href, "/ci/engine/player/")]'):
+        text = element_text(link)
+        if text.startswith(_BREADCRUMB_PREFIX):
+            name, separator, _format = text.removeprefix(_BREADCRUMB_PREFIX).rpartition(" / ")
+            return (name.strip() or None) if separator else None
+    return None
 
 
 def _table_to_frame(table, default_blank: str) -> pd.DataFrame:
