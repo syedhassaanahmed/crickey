@@ -283,35 +283,27 @@ def _safe_auto_match(query: str, candidate: PlayerCandidate) -> bool:
 
 
 def names_agree(given: str, fetched: str) -> bool:
-    """Whether a given name could be the player Statsguru names `fetched`.
+    """Whether `given` could name the player Statsguru calls `fetched`.
 
-    Each given word must match a word of the fetched name. Initials such as "JM" also match a
-    word starting with one of their letters, except for the given name's last word, so
-    "James Anderson" agrees with "JM Anderson" but "Imran Khan" does not with "IK Pathan".
+    Only a clear clash counts, so surname-like tokens decide: the names agree when the last word
+    of either appears in the other ("Imran Khan Niazi" and "Imran Khan", "Virat Kohli" and
+    "V Kohli"), or when a one-word name starts with one of the fetched name's initials ("Virat"
+    and "V Kohli").
     """
-    given_words = _name_words(given)
-    fetched_words = _name_words(fetched)
-    last = len(given_words) - 1
-    return all(
-        any(_words_agree(word, other, allow_initials=index < last) for other in fetched_words)
-        for index, word in enumerate(given_words)
-    )
-
-
-def _name_words(value: str) -> list[tuple[str, bool]]:
-    return [
-        (word.casefold(), len(word) == 1 or (word.isalpha() and word.isupper() and len(word) <= 4))
-        for word in value.translate(_PUNCTUATION_TABLE).split()
-    ]
-
-
-def _words_agree(word: tuple[str, bool], other: tuple[str, bool], *, allow_initials: bool) -> bool:
-    (text, initials), (other_text, other_initials) = word, other
-    if text == other_text:
+    given_words = _normalize(given).split()
+    fetched_words = _normalize(fetched).split()
+    if not given_words or not fetched_words:
         return True
-    if not allow_initials:
-        return False
-    return (other_initials and text[0] in other_text) or (initials and other_text[0] in text)
+    if given_words[-1] in fetched_words or fetched_words[-1] in given_words:
+        return True
+    initials = "".join(
+        word for word in fetched.translate(_PUNCTUATION_TABLE).split() if _is_initials(word)
+    ).casefold()
+    return len(given_words) == 1 and given_words[0][0] in initials
+
+
+def _is_initials(word: str) -> bool:
+    return word.isalpha() and word.isupper() and len(word) <= 4
 
 
 def _normalize(value: str) -> str:

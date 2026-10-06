@@ -329,16 +329,15 @@ async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache
         row(2002, "Average Only", "BBB", "2016-2026", 60, 1200, "38.94", 1000, "120.00", 1, 8),
     ]
     form_url, form = career_form(348144, 3, "07 Sep 2016", "24 Feb 2026")
-    source, client = await client_for(
-        {
-            player_search_url("Babar Azam"): search_page(
-                search_row("Babar Azam", "PAK", 348144, 3, "Twenty20 Internationals", "2016 - 2026")
-            ),
-            form_url: form,
-            url(base_query): result_page(rows, total=182),
-            url(proof_query): result_page(rows[:9], total=9),
-        }
-    )
+    pages = {
+        player_search_url("Babar Azam"): search_page(
+            search_row("Babar Azam", "PAK", 348144, 3, "Twenty20 Internationals", "2016 - 2026")
+        ),
+        form_url: form,
+        url(base_query): result_page(rows, total=182),
+        url(proof_query): result_page(rows[:9], total=9),
+    }
+    source, client = await client_for(pages)
 
     async with client:
         cold = await client.call_tool(
@@ -389,6 +388,22 @@ async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache
     assert "level with Babar Azam" in cold.structured_content["answer_markdown"]
     assert cold.structured_content["proof"]["confirmed"] is True
     assert "qualval2=batting_average" in cold.structured_content["proof"]["url"]
+
+    # Golden question 3 by ID: the same career span, comparison and proof, with no search.
+    by_id_source, by_id_client = await client_for(pages)
+    async with by_id_client:
+        by_id = await by_id_client.call_tool(
+            "better_than_player",
+            {"player_id": 348144, "format": "T20I", "metrics": ["average", "strike_rate"]},
+        )
+
+    assert by_id_source.requests == [form_url, url(base_query), url(proof_query)]
+    assert by_id.structured_content["beaters"] == cold.structured_content["beaters"]
+    assert by_id.structured_content["proof"] == cold.structured_content["proof"]
+    period_line = "\n- Period: 2016-09-07 to 2026-02-24.\n"
+    assert period_line in cold.structured_content["answer_markdown"]
+    assert period_line in by_id.structured_content["answer_markdown"]
+    assert by_id.structured_content["answer_markdown"] == cold.structured_content["answer_markdown"]
 
 
 async def test_golden_question_2_test_hundreds_more_frequently_requests_and_cache() -> None:
@@ -2758,26 +2773,55 @@ async def test_same_name_clarification_then_player_id_returns_that_players_recor
 
 
 async def test_player_record_by_id_names_the_player_from_the_page_and_flags_a_clash() -> None:
-    page_url = khan_spec(40560).url(as_of=FakeClock().now().date())
-    source, client = await client_for({page_url: khan_page()})
+    as_of = FakeClock().now().date()
+    page_url = khan_spec(40560).url(as_of=as_of)
+    kohli_url = PlayerPageSpec(player_id=253802, **{"class": 3, "type": "batting"}).url(as_of=as_of)
+    unnamed_url = PlayerPageSpec(player_id=40560, **{"class": 2, "type": "batting"}).url(
+        as_of=as_of
+    )
+    rows = (
+        '<tr class="data1"><td>unfiltered</td><td>2010-2020</td><td>90</td><td>85</td><td>10</td><td>2500</td><td>94*</td><td>33.33</td><td>2000</td><td>125.00</td><td>0</td><td>20</td><td>3</td></tr>'
+        '<tr class="data1"><td>filtered</td><td>2010-2020</td><td>90</td><td>85</td><td>10</td><td>2500</td><td>94*</td><td>33.33</td><td>2000</td><td>125.00</td><td>0</td><td>20</td><td>3</td></tr>'
+    )
+    source, client = await client_for(
+        {
+            page_url: khan_page(),
+            kohli_url: named(player_page(rows), 253802, "V Kohli", "Twenty20 Internationals"),
+            unnamed_url: player_page(rows),
+        }
+    )
     arguments = {"player_id": 40560, "format": "Test", "period": KHAN_DATES}
 
     async with client:
-        clash = await client.call_tool("player_record", {**arguments, "player_name": "Majid Khan"})
-        same = await client.call_tool("player_record", {**arguments, "player_name": "imran khan"})
-        partial = await client.call_tool("player_record", {**arguments, "player_name": "Imran"})
+        clash = await client.call_tool("player_record", {**arguments, "player_name": "Babar Azam"})
+        variants = [
+            await client.call_tool("player_record", {**arguments, "player_name": name})
+            for name in ("imran khan", "Imran", "Imran Khan Niazi")
+        ]
+        initials = await client.call_tool(
+            "player_record", {"player_id": 253802, "player_name": "Virat Kohli", "format": "T20I"}
+        )
+        unnamed = await client.call_tool(
+            "player_record", {"player_id": 40560, "player_name": "Imran Khan", "format": "ODI"}
+        )
 
-    assert source.requests == [page_url]
+    assert source.requests == [page_url, kohli_url, unnamed_url]
     assert clash.structured_content["player"]["name"] == "Imran Khan"
     clash_answer = clash.structured_content["answer_markdown"]
     assert clash_answer.startswith("Imran Khan's record: matches 40,")
     assert (
-        "- Player: player_id 40560 is Imran Khan on Statsguru, not 'Majid Khan'; "
+        "- Player: player_id 40560 is Imran Khan on Statsguru, not 'Babar Azam'; "
         "the answer follows player_id.\n- Period: 1981-09-17 to 1992-12-31."
     ) in clash_answer
-    for result in (same, partial):
+    for result in variants:
         assert result.structured_content["player"]["name"] == "Imran Khan"
         assert "follows player_id" not in result.structured_content["answer_markdown"]
+    assert initials.structured_content["answer_markdown"].startswith("V Kohli's record:")
+    assert "follows player_id" not in initials.structured_content["answer_markdown"]
+    # Without a breadcrumb the ID labels the player, and there's no Statsguru name to clash with.
+    assert unnamed.structured_content["player"]["name"] == "Player ID 40560"
+    assert unnamed.structured_content["answer_markdown"].startswith("Player ID 40560's record:")
+    assert "follows player_id" not in unnamed.structured_content["answer_markdown"]
 
 
 @pytest.mark.parametrize(
@@ -2786,16 +2830,18 @@ async def test_player_record_by_id_names_the_player_from_the_page_and_flags_a_cl
         ("Imran Khan", "Imran Khan", True),
         ("imran  khan", "Imran Khan", True),
         ("Imran", "Imran Khan", True),
+        ("Imran Khan Niazi", "Imran Khan", True),
         ("James Anderson", "JM Anderson", True),
         ("Virat Kohli", "V Kohli", True),
+        ("Virat", "V Kohli", True),
         ("Mahendra Singh Dhoni", "MS Dhoni", True),
         ("Inzamam", "Inzamam-ul-Haq", True),
-        ("Majid Khan", "Imran Khan", False),
+        ("Babar Azam", "Imran Khan", False),
+        ("Joe Root", "JM Anderson", False),
         ("Imran Khan", "IK Pathan", False),
-        ("Graeme Smith", "SPD Smith", False),
     ],
 )
-def test_names_agree_allows_case_initials_and_partial_names_only(
+def test_names_agree_unless_no_surname_like_token_is_shared(
     given: str, fetched: str, agree: bool
 ) -> None:
     assert names_agree(given, fetched) is agree
@@ -2859,7 +2905,7 @@ async def test_better_than_player_by_id_finds_the_target_row_without_a_search() 
             "better_than_player",
             {
                 "player_id": 40560,
-                "player_name": "Majid Khan",
+                "player_name": "Babar Azam",
                 "format": "Test",
                 "metrics": ["average"],
                 "period": KHAN_DATES,
@@ -2884,7 +2930,7 @@ async def test_better_than_player_by_id_finds_the_target_row_without_a_search() 
     assert "follows player_id" not in structured["answer_markdown"]
     assert clash.structured_content["player"]["name"] == "Imran Khan"
     assert (
-        "## Assumptions\n- Player: player_id 40560 is Imran Khan on Statsguru, not 'Majid Khan'; "
+        "## Assumptions\n- Player: player_id 40560 is Imran Khan on Statsguru, not 'Babar Azam'; "
         "the answer follows player_id.\n- Minimum: runs >= 1000."
     ) in clash.structured_content["answer_markdown"]
 
@@ -2986,6 +3032,10 @@ async def test_player_id_without_a_record_in_the_format_is_a_clear_error() -> No
         gone = await client.call_tool(
             "player_record", {"player_id": 999999998, "format": "Test", "discipline": "bowling"}
         )
+        career_record = await client.call_tool(
+            "player_record",
+            {"player_id": 316363, "format": "ODI", "period": {"kind": "last_years", "years": 2}},
+        )
         career = await client.call_tool(
             "better_than_player", {"player_id": 316363, "format": "ODI", "metrics": ["average"]}
         )
@@ -2994,11 +3044,14 @@ async def test_player_id_without_a_record_in_the_format_is_a_clear_error() -> No
             {"player_id": 316363, "format": "ODI", "metrics": ["average"], "period": KHAN_DATES},
         )
 
-    assert [result.is_error for result in (record, unknown, gone, career, dated)] == [True] * 5
+    results = (record, unknown, gone, career_record, career, dated)
+    assert [result.is_error for result in results] == [True] * 6
     no_odi_record = "Player ID 316363 (Imran Khan) has no ODI batting record on Statsguru."
     assert no_odi_record in record.content[0].text
     assert "Player ID 999999999 has no Test batting record on Statsguru." in unknown.content[0].text
     assert "Player ID 999999998 has no Test bowling record on Statsguru." in gone.content[0].text
+    # Career-based periods read the form page (no spanmin0 for ODIs), then the innings list.
+    assert no_odi_record in career_record.content[0].text
     assert no_odi_record in career.content[0].text
     assert no_odi_record in dated.content[0].text
     assert source.requests == [
@@ -3010,6 +3063,51 @@ async def test_player_id_without_a_record_in_the_format_is_a_clear_error() -> No
         url(dated_query),
         dated_url,
     ]
+
+
+async def test_errors_by_id_never_name_the_player_from_player_name() -> None:
+    as_of = FakeClock().now().date()
+    odi_url = PlayerPageSpec(player_id=316363, **{"class": 2, "type": "batting"}).url(as_of=as_of)
+    gone_url = PlayerPageSpec(player_id=999999998, **{"class": 1, "type": "bowling"}).url(
+        as_of=as_of
+    )
+    arguments, query, _pages, (target_url, target_page) = team_filter_case("batting", 600)
+    other = row(904, "Team Opener", "IND", "2016-2024", 30, 1100, "36.66", 846, "130.02", 1, 8)
+    pages = {
+        odi_url: no_records_player_page(316363, "Imran Khan", "One-Day Internationals"),
+        gone_url: FetchResponse(url=gone_url, status_code=404, headers={}, text=""),
+        url(query(1000)): result_page([other]),
+        target_url: named(target_page, 902, "Team Target", "Twenty20 Internationals"),
+        url(query(600)): result_page([other]),
+    }
+    comparison = {**arguments, "player_name": "Babar Azam", "player_id": 902}
+    source, client = await client_for(pages)
+
+    async with client:
+        no_odis = await client.call_tool(
+            "player_record", {"player_name": "Babar Azam", "player_id": 316363, "format": "ODI"}
+        )
+        gone = await client.call_tool(
+            "player_record",
+            {
+                "player_name": "Babar Azam",
+                "player_id": 999999998,
+                "format": "Test",
+                "discipline": "bowling",
+            },
+        )
+        team = await client.call_tool("better_than_player", comparison)
+        explicit = await client.call_tool("better_than_player", {**comparison, "minimum": 600})
+
+    results = (no_odis, gone, team, explicit)
+    assert [result.is_error for result in results] == [True] * 4
+    texts = [result.content[0].text for result in results]
+    assert "Player ID 316363 (Imran Khan) has no ODI batting record on Statsguru." in texts[0]
+    assert "Player ID 999999998 has no Test bowling record on Statsguru." in texts[1]
+    assert "Team Target (player ID 902) was not in the qualifying Statsguru T20I rows" in texts[2]
+    assert "Player ID 902 was not in the qualifying Statsguru T20I rows." in texts[3]
+    assert not any("Babar" in text for text in texts)
+    assert source.requests == list(pages)
 
 
 async def test_answer_tools_need_a_player_name_or_player_id() -> None:

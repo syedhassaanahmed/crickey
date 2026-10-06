@@ -674,6 +674,7 @@ async def _better_than_player_tool(
                     )
                 matched = resolution.match
                 target_id = matched.player_id
+            # By ID, errors name the player only from Statsguru's pages, never from player_name.
             known_name = matched.name if matched is not None else None
             with _target_page_errors(
                 target_id, class_id, discipline_value, name=known_name, by_id=by_id
@@ -787,7 +788,8 @@ async def _better_than_player_tool(
                 )
             if target is None:
                 raise ToolError(f"{target_label(start=True)} was not in {rows_text}.")
-            player = matched or _player_by_id(target_id, target.get("player_name") or page_name)
+            fetched_name = target.get("player_name") or page_name
+            player = matched or _player_by_id(target_id, fetched_name)
             floor_lowered = minimum is None and floor_value < default_floor
             all_rows = [row for page in pages for row in page.table.to_dict("records")]
             target_values = tuple(
@@ -870,7 +872,7 @@ async def _better_than_player_tool(
     ]
     as_of = _today(fetcher)
     metric_labels = tuple(metric.label for metric in metrics)
-    name_note = _name_mismatch_note(player_name, player_id, player.name)
+    name_note = _name_mismatch_note(player_name, player_id, fetched_name)
     answer = render_answer(
         AnswerRenderInput(
             short_answer=_comparison_short_answer(player.name, metrics, payload_rows, match_mode),
@@ -971,6 +973,7 @@ async def _player_record_tool(
                     )
                 matched = resolution.match
                 target_id = matched.player_id
+            # By ID, errors name the player only from Statsguru's pages, never from player_name.
             known_name = matched.name if matched is not None else None
             with _target_page_errors(
                 target_id, class_id, discipline_value, name=known_name, by_id=by_id
@@ -1028,7 +1031,7 @@ async def _player_record_tool(
         ) from error
 
     player = matched or _player_by_id(target_id, page.player_name)
-    name_note = _name_mismatch_note(player_name, player_id, player.name)
+    name_note = _name_mismatch_note(player_name, player_id, page.player_name)
     assumptions = (
         *((name_note,) if name_note else ()),
         f"Period: {_period_text(period_value, as_of=as_of)}.",
@@ -1923,10 +1926,11 @@ def _no_record_message(player_id: int, name: str | None, class_id: int, discipli
 
 
 def _name_mismatch_note(
-    player_name: str | None, player_id: int | None, fetched_name: str
+    player_name: str | None, player_id: int | None, fetched_name: str | None
 ) -> str | None:
+    # Only a by-ID call can clash, and only with a name Statsguru showed, not the ID fallback.
     given = (player_name or "").strip()
-    if player_id is None or not given or names_agree(given, fetched_name):
+    if player_id is None or not given or not fetched_name or names_agree(given, fetched_name):
         return None
     return (
         f"Player: player_id {player_id} is {fetched_name} on Statsguru, not {given!r}; "
