@@ -157,7 +157,6 @@ def leaderboard_query(minimum: int = 10) -> StatsguruQuery:
             "type": "batting",
             "qualifications": (Qualification(field="hundreds", minimum=minimum),),
             "orderby": "hundreds",
-            "orderbyad": "reverse",
             "size": 200,
         }
     )
