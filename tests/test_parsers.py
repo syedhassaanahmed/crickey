@@ -13,6 +13,7 @@ from crickey.parsers import (
     Span,
     StatsguruParseError,
     parse_filter_form,
+    parse_grouped_rows,
     parse_overs,
     parse_player_page,
     parse_player_search,
@@ -914,6 +915,136 @@ def test_player_page_without_records_raises_with_the_player_name() -> None:
 
     assert error.value.player_name == "JM Sample"
     assert isinstance(error.value, StatsguruParseError)
+
+
+def grouped_page(page_query: str, groups: list[list[tuple[str, str, str]]]) -> str:
+    """A "Career summary" table shaped like Statsguru's (R6): a blank row between groupings, and
+    each row's innings link is the page's own query with the row's filter set."""
+    path = "/ci/engine/player/1.html"
+    params = page_query.split(";")
+
+    def link(setting: str) -> str:
+        settings = setting.split(";")
+        keys = {item.split("=", 1)[0] for item in settings}
+        kept = [param for param in params if param.split("=", 1)[0] not in keys]
+        return f"{path}?{';'.join(sorted([*kept, *settings, 'view=innings']))}"
+
+    rows = '<tr class="data1"><td colspan="6"><br></td></tr>'.join(
+        "".join(
+            f'<tr class="data1"><td class="left" nowrap><b>{label}</b></td>'
+            + "".join(f"<td>{value}</td>" for value in values.split("|"))
+            + f'<td><a href="{link(setting)}" title="view all innings for this row"><img alt="view innings"></a></td></tr>'
+            for label, setting, values in group
+        )
+        for group in groups
+    )
+    sort = f"{path}?{';'.join(sorted([*params, 'orderby=default', 'orderbyad=reverse']))}"
+    return f"""
+    <html><body>
+    <table class="engineTable"><caption>Career summary</caption>
+    <thead><tr class="headlinks"><th><a href="{sort}">Grouping</a></th><th>Span</th><th>Mat</th><th>HS</th><th>100</th><th></th></tr></thead>
+    <tbody>{rows}</tbody>
+    </table></body></html>
+    """
+
+
+def test_grouped_rows_take_each_grouping_from_the_row_link() -> None:
+    page = grouped_page(
+        "class=1;template=results;type=batting",
+        [
+            [
+                ("v England", "opposition=1", "2001-2010|3|120*|1"),
+                ("v India", "opposition=6", "2003-2011|4|95|0"),
+            ],
+            [
+                ("in England", "host=1", "2001-2010|3|120*|1"),
+                ("in U.A.E.", "host=27", "2003-2011|4|95|0"),
+            ],
+            [
+                ("in Asia", "continent=2", "2003-2011|4|95|0"),
+                ("in Europe", "continent=4", "2001-2010|3|120*|1"),
+            ],
+            [("year 2005", "year=2005", "|7|120*|1")],
+            [("season 2004/05", "season=2004%2F05", "|7|120*|1")],
+            [("*Sample Captain", "captain_involve=99", "2001-2011|7|120*|1")],
+            [("won batting first", "batting_fielding_first=1;result=1", "2001-2011|2|120*|1")],
+        ],
+    )
+
+    rows = parse_grouped_rows(page).to_dict("records")
+
+    assert [
+        (row["Grouping"], row["grouping_key"], row["grouping_value"], row["grouping_name"])
+        for row in rows
+    ] == [
+        ("v England", "opposition", "1", "England"),
+        ("v India", "opposition", "6", "India"),
+        ("in England", "host", "1", "England"),
+        ("in U.A.E.", "host", "27", "U.A.E."),
+        ("in Asia", "continent", "2", "Asia"),
+        ("in Europe", "continent", "4", "Europe"),
+        ("year 2005", "year", "2005", "2005"),
+        ("season 2004/05", "season", "2004/05", "2004/05"),
+        ("*Sample Captain", "captain_involve", "99", "*Sample Captain"),
+        ("won batting first", None, None, "won batting first"),
+    ]
+    assert rows[0]["Span"] == Span("2001", "2010")
+    assert rows[0]["Mat"] == 3
+    assert rows[0]["HS"] == 120
+    assert rows[0]["HS_not_out"] is True
+    assert rows[6]["Span"] is None
+
+
+@pytest.mark.parametrize(
+    ("page_query", "rows", "expected"),
+    [
+        # One host: the U.A.E. row's link is the page's own query, so its "in " label decides.
+        (
+            "class=1;host=27;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=batting",
+            [("v India", "opposition=6"), ("in U.A.E.", "host=27"), ("in Asia", "continent=2")],
+            [("opposition", "6"), ("host", "27"), ("continent", "2")],
+        ),
+        # Two hosts: each host row sets only its own host.
+        (
+            "class=1;host=6;host=7;template=results;type=bowling",
+            [("in India", "host=6"), ("in Pakistan", "host=7"), ("in Asia", "continent=2")],
+            [("host", "6"), ("host", "7"), ("continent", "2")],
+        ),
+        # One continent: the Asia row's link is the page's own query.
+        (
+            "class=1;continent=2;template=results;type=bowling",
+            [("in India", "host=6"), ("in Asia", "continent=2")],
+            [("host", "6"), ("continent", "2")],
+        ),
+        # Dates: every link carries them.
+        (
+            "class=1;spanmax1=31+Dec+1992;spanmin1=17+Sep+1981;spanval1=span;template=results;type=batting",
+            [("year 1981", "year=1981"), ("in Pakistan", "host=7")],
+            [("year", "1981"), ("host", "7")],
+        ),
+        # One host and one continent: "in India" could be either, so it gets no key.
+        (
+            "class=1;continent=2;host=6;template=results;type=batting",
+            [("in India", "host=6"), ("v Sri Lanka", "opposition=8")],
+            [(None, None), ("opposition", "8")],
+        ),
+    ],
+)
+def test_grouped_rows_on_filtered_pages_tell_the_row_filter_from_the_page_filters(
+    page_query: str, rows: list[tuple[str, str]], expected: list[tuple[str | None, str | None]]
+) -> None:
+    page = grouped_page(
+        page_query, [[(label, setting, "2001-2010|3|120|1") for label, setting in rows]]
+    )
+
+    frame = parse_grouped_rows(page)
+
+    assert list(zip(frame["grouping_key"], frame["grouping_value"], strict=True)) == expected
+
+
+def test_grouped_rows_need_the_career_summary_table() -> None:
+    with pytest.raises(StatsguruParseError, match="Career summary table is missing"):
+        parse_grouped_rows(PLAYER_HTML)
 
 
 SEARCH_HTML = """

@@ -259,6 +259,40 @@ async def test_player_answer_tools_take_an_optional_player_id() -> None:
     assert "player_id" not in by_name["leaderboard"].input_schema["properties"]
 
 
+async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
+    _, _, client = await call_with_source({})
+
+    async with client:
+        tool = next(
+            tool for tool in (await client.list_tools()).tools if tool.name == "player_record"
+        )
+
+    schema = tool.input_schema
+    split_by = schema["properties"]["split_by"]
+    ref = next(option["$ref"] for option in split_by["anyOf"] if "$ref" in option)
+    assert schema["$defs"][ref.rsplit("/", 1)[-1]]["enum"] == [
+        "host",
+        "opposition",
+        "year",
+        "continent",
+    ]
+    assert {"type": "null"} in split_by["anyOf"]
+    assert split_by["default"] is None
+    assert "split_by" not in schema["required"]
+    description = tool.description
+    assert description.startswith("Example:")
+    assert (
+        description.index("ODI World Cups?")
+        < description.index("Bowling example:")
+        < description.index(
+            "Split example: In which countries has Younis Khan scored Test hundreds?"
+        )
+        < description.index("split_by")
+        < description.index("player_id")
+    )
+    assert "player-by-player checks" in description
+
+
 async def test_query_stats_fetch_false_allows_repeated_team_link() -> None:
     _, _, client = await call_with_source({})
 
