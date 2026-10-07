@@ -3301,6 +3301,9 @@ async def test_split_by_host_counts_hundreds_in_host_countries_not_continents() 
     assert structured["row"]["Mat"] == 30
     assert structured["proof"]["url"] == page_url
     assert structured["proof"]["confirmed"] is True
+    assert structured["proof"]["formula"] is None
+    # Like the plain record, the proof counts the page's "Career averages" rows.
+    assert structured["proof"]["row_count"] == 2
     answer = structured["answer_markdown"]
     assert answer.startswith(
         "Sample Centurion's Test batting split by host country: at least one hundred in 3 of 4 "
@@ -3420,13 +3423,19 @@ async def test_split_by_host_for_bowling_counts_five_wicket_hauls() -> None:
     assert source.requests == [page_url]
 
 
-async def test_split_by_with_player_id_reads_only_the_player_page() -> None:
+@pytest.mark.parametrize(
+    "arguments",
+    [{"player_id": CENTURION_ID}, {"player_id": CENTURION_ID, "player_name": "Sample Centurion"}],
+)
+async def test_split_by_with_player_id_reads_only_the_player_page(
+    arguments: dict[str, object],
+) -> None:
     page_url = split_spec().url(as_of=FakeClock().now().date())
     source, client = await client_for(centurion_pages())
 
     async with client:
         result = await client.call_tool(
-            "player_record", {"player_id": CENTURION_ID, "format": "Test", "split_by": "host"}
+            "player_record", {**arguments, "format": "Test", "split_by": "host"}
         )
 
     assert source.requests == [page_url]
@@ -3454,7 +3463,13 @@ async def test_split_by_makes_no_extra_request() -> None:
 
     assert split_requests == plain_source.requests == list(pages)
     assert split_source.requests == []
-    assert split.structured_content["proof"]["url"] == plain.structured_content["proof"]["url"]
+    split_proof = dict(split.structured_content["proof"])
+    plain_proof = dict(plain.structured_content["proof"])
+    assert (
+        split_proof.pop("label")
+        == f"{plain_proof.pop('label')}, Career summary rows by host country"
+    )
+    assert split_proof == plain_proof
     assert split.structured_content["row"] == plain.structured_content["row"]
     assert again.structured_content["row"] == plain.structured_content["row"]
     assert "split" not in plain.structured_content

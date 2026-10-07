@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
@@ -1134,8 +1134,7 @@ async def _player_record_tool(
             grouped=grouped,
             record=values,
             assumptions=assumptions,
-            proof_label=spec.label(as_of=as_of),
-            url=url,
+            record_proof=proof,
             as_of=as_of,
             recent=recent,
             max_pages=fetcher.settings.max_pages,
@@ -1950,8 +1949,7 @@ def _player_split_result(
     grouped: pd.DataFrame,
     record: Mapping[str, Any],
     assumptions: tuple[str, ...],
-    proof_label: str,
-    url: str,
+    record_proof: ProofLink,
     as_of: date,
     recent: tuple[RecentMatch, ...],
     max_pages: int,
@@ -1982,8 +1980,10 @@ def _player_split_result(
         if count.column in grouped.columns
         else None
     )
-    proof = ProofLink(
-        f"{proof_label}, Career summary rows by {split.noun}", url, True, True, len(rows)
+    # The record's own page proves the split too, so the proof keeps the record's row count, the
+    # page's "Career averages" rows; "groups" counts the split's rows.
+    proof = replace(
+        record_proof, label=f"{record_proof.label}, Career summary rows by {split.noun}"
     )
     method = [
         f"Read the player's Statsguru {discipline} page with the same filters.",
