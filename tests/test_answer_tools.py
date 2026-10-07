@@ -3130,3 +3130,557 @@ async def test_answer_tools_need_a_player_name_or_player_id() -> None:
     assert zero.is_error is True
     assert "player_id" in zero.content[0].text
     assert source.requests == []
+
+
+# Issue #59: a summary page's "Career summary" table groups the page's matches by opposition, host
+# country, continent, year and more, with a blank row between groupings. Each row's innings link
+# is the page's own query with that grouping's filter set to the row's value (R6). The players,
+# IDs and figures below are synthetic.
+SPLIT_BATTING_COLUMNS = tuple("Span Mat Inns NO Runs HS Ave BF SR 100 50 0".split())
+SPLIT_BOWLING_COLUMNS = tuple("Span Mat Inns Overs Mdns Runs Wkts BBI BBM Ave Econ SR 5 10".split())
+CENTURION_ID = 900001
+SWINGER_ID = 900002
+CENTURION_CAREER = "2001-2012|30|52|4|2400|210|50|4800|50|7|10|3"
+CENTURION_GROUPS = [
+    [
+        ("v England", "opposition=1", "2001-2012|10|18|1|850|210|50|1700|50|3|3|1"),
+        ("v India", "opposition=6", "2003-2011|12|20|2|900|150|50|1800|50|2|4|1"),
+        ("v Sri Lanka", "opposition=8", "2002-2012|8|14|1|650|120*|50|1300|50|2|3|1"),
+    ],
+    [
+        ("in England", "host=1", "2001-2011|6|11|0|500|210|45.45|1000|50|2|2|1"),
+        ("in India", "host=6", "2003-2011|9|15|1|420|95|30|900|46.66|0|4|1"),
+        ("in Sri Lanka", "host=8", "2002-2012|5|9|1|380|120*|47.5|760|50|1|2|0"),
+        ("in U.A.E.", "host=27", "2004-2012|10|17|2|1100|180|73.33|2140|51.4|4|2|1"),
+    ],
+    [
+        ("in Asia", "continent=2", "2002-2012|24|41|4|1900|180|51.35|3800|50|5|8|2"),
+        ("in Europe", "continent=4", "2001-2011|6|11|0|500|210|45.45|1000|50|2|2|1"),
+    ],
+    [
+        ("home", "home_or_away=1", "2002-2012|5|9|1|380|120*|47.5|760|50|1|2|0"),
+        ("away", "home_or_away=2", "2001-2011|15|26|1|920|210|36.8|1900|48.42|2|6|2"),
+        ("neutral", "home_or_away=3", "2004-2012|10|17|2|1100|180|73.33|2140|51.4|4|2|1"),
+    ],
+    [
+        ("year 2001", "year=2001", "|10|17|1|800|210|50|1600|50|3|3|1"),
+        ("year 2005", "year=2005", "|12|21|2|700|99|36.84|1500|46.66|0|5|1"),
+        ("year 2012", "year=2012", "|8|14|1|900|180|69.23|1700|52.94|4|2|1"),
+    ],
+    [
+        ("season 2001", "season=2001", "|10|17|1|800|210|50|1600|50|3|3|1"),
+        ("season 2004/05", "season=2004%2F05", "|20|35|3|1600|180|50|3200|50|4|7|2"),
+    ],
+    [
+        (
+            "won batting first",
+            "batting_fielding_first=1;result=1",
+            "2001-2012|9|16|2|900|210|64.28|1700|52.94|3|3|1",
+        )
+    ],
+]
+
+
+def split_spec(player_id: int = CENTURION_ID, **fields: object) -> PlayerPageSpec:
+    return PlayerPageSpec(player_id=player_id, **{"class": 1, "type": "batting", **fields})
+
+
+def split_cells(values: str) -> str:
+    return "".join(f"<td>{value}</td>" for value in values.split("|"))
+
+
+def summary_page(
+    spec: PlayerPageSpec,
+    name: str,
+    career: list[tuple[str, str]],
+    groups: list[list[tuple[str, str, str]]],
+    columns: tuple[str, ...] = SPLIT_BATTING_COLUMNS,
+) -> str:
+    path, query = (
+        spec.url(as_of=FakeClock().now().date()).split("stats.cricinfo.com", 1)[1].split("?", 1)
+    )
+    params = query.split(";")
+
+    def innings_link(setting: str) -> str:
+        settings = setting.split(";")
+        keys = {item.split("=", 1)[0] for item in settings}
+        kept = [param for param in params if param.split("=", 1)[0] not in keys]
+        return f"{path}?{';'.join(sorted([*kept, *settings, 'view=innings']))}"
+
+    heads = "".join(f"<th>{column}</th>" for column in columns)
+    grouped = f'<tr class="data1"><td colspan="{len(columns) + 2}"><br></td></tr>'.join(
+        "".join(
+            f'<tr class="data1"><td class="left" nowrap><b>{label}</b></td>{split_cells(values)}'
+            f'<td><a href="{innings_link(setting)}" title="view all innings for this row"><img alt="view innings"></a></td></tr>'
+            for label, setting, values in group
+        )
+        for group in groups
+    )
+    sort = f"{path}?{';'.join(sorted([*params, 'orderby=default', 'orderbyad=reverse']))}"
+    averages = "".join(
+        f'<tr class="data1"><td>{label}</td>{split_cells(values)}</tr>' for label, values in career
+    )
+    return named(
+        f"""
+        <html><body>
+        <table class="engineTable"><caption>Career averages</caption>
+        <tr class="head"><th></th>{heads}</tr>
+        {averages}
+        </table>
+        <table class="engineTable"><caption>Career summary</caption>
+        <thead><tr class="headlinks"><th><a href="{sort}">Grouping</a></th>{heads}<th></th></tr></thead>
+        <tbody>{grouped}</tbody>
+        </table>
+        </body></html>
+        """,
+        spec.player_id,
+        name,
+        "Test matches",
+    )
+
+
+def centurion_pages() -> dict[str, str]:
+    spec = split_spec()
+    return {
+        player_search_url("Sample Centurion"): search_page(
+            search_row(
+                "Sample Centurion", "PAK", CENTURION_ID, 1, "Test matches", "2001 - 2012", 30
+            )
+        ),
+        spec.url(as_of=FakeClock().now().date()): summary_page(
+            spec,
+            "Sample Centurion",
+            [("unfiltered", CENTURION_CAREER), ("filtered", CENTURION_CAREER)],
+            CENTURION_GROUPS,
+        ),
+    }
+
+
+async def test_split_by_host_counts_hundreds_in_host_countries_not_continents() -> None:
+    page_url = split_spec().url(as_of=FakeClock().now().date())
+    source, client = await client_for(centurion_pages())
+
+    async with client:
+        result = await client.call_tool(
+            "player_record",
+            {"player_name": "Sample Centurion", "format": "Test", "split_by": "host"},
+        )
+
+    structured = result.structured_content
+    split = structured["split"]
+    assert [(row["name"], row["host"], row["Mat"], row["100"]) for row in split["rows"]] == [
+        ("England", 1, 6, 2),
+        ("India", 6, 9, 0),
+        ("Sri Lanka", 8, 5, 1),
+        ("U.A.E.", 27, 10, 4),
+    ]
+    assert split["rows"][2] == {
+        "name": "Sri Lanka",
+        "label": "in Sri Lanka",
+        "host": 8,
+        "Span": "2002-2012",
+        "Mat": 5,
+        "Inns": 9,
+        "NO": 1,
+        "Runs": 380,
+        "HS": "120*",
+        "Ave": "47.5",
+        "BF": 760,
+        "SR": 50,
+        "100": 1,
+        "50": 2,
+        "0": 0,
+    }
+    assert {key: value for key, value in split.items() if key != "rows"} == {
+        "by": "host",
+        "groups": 4,
+        "with_hundreds": 3,
+        "without_hundreds": ["India"],
+        "matches": 30,
+    }
+    assert structured["row"]["Mat"] == 30
+    assert structured["proof"]["url"] == page_url
+    assert structured["proof"]["confirmed"] is True
+    assert structured["proof"]["formula"] is None
+    # Like the plain record, the proof counts the page's "Career averages" rows.
+    assert structured["proof"]["row_count"] == 2
+    answer = structured["answer_markdown"]
+    assert answer.startswith(
+        "Sample Centurion's Test batting split by host country: at least one hundred in 3 of 4 "
+        "host countries; none in India.\n"
+    )
+    assert markdown_rows(answer) == [
+        ["Host country", "Mat", "Inns", "Runs", "Ave", "SR", "100", "50"],
+        ["England", "6", "11", "500", "45.45", "50", "2", "2"],
+        ["India", "9", "15", "420", "30", "46.66", "0", "4"],
+        ["Sri Lanka", "5", "9", "380", "47.5", "50", "1", "2"],
+        ["U.A.E.", "10", "17", "1100", "73.33", "51.4", "4", "2"],
+    ]
+    assert "Asia" not in answer
+    assert "- Split: the 4 rows by host country add up to the record's 30 matches" in answer
+    assert "check players one at a time" in answer
+    assert f"- Answer proof: [Test player batting for {CENTURION_ID}," in answer
+    assert source.requests == [player_search_url("Sample Centurion"), page_url]
+
+
+async def test_split_by_opposition_and_year_read_their_own_grouped_rows() -> None:
+    _source, client = await client_for(centurion_pages())
+
+    async with client:
+        opposition, year, continent = [
+            await client.call_tool(
+                "player_record",
+                {"player_name": "Sample Centurion", "format": "Test", "split_by": split_by},
+            )
+            for split_by in ("opposition", "year", "continent")
+        ]
+
+    rows = opposition.structured_content["split"]["rows"]
+    assert [(row["name"], row["opposition"], row["100"]) for row in rows] == [
+        ("England", 1, 3),
+        ("India", 6, 2),
+        ("Sri Lanka", 8, 2),
+    ]
+    assert opposition.structured_content["answer_markdown"].startswith(
+        "Sample Centurion's Test batting split by opposition: at least one hundred against all 3 "
+        "oppositions.\n"
+    )
+    rows = year.structured_content["split"]["rows"]
+    assert [(row["name"], row["year"], row["Span"], row["100"]) for row in rows] == [
+        ("2001", 2001, None, 3),
+        ("2005", 2005, None, 0),
+        ("2012", 2012, None, 4),
+    ]
+    assert year.structured_content["split"]["without_hundreds"] == ["2005"]
+    assert year.structured_content["answer_markdown"].startswith(
+        "Sample Centurion's Test batting split by year: at least one hundred in 2 of 3 years; "
+        "none in 2005.\n"
+    )
+    assert markdown_rows(year.structured_content["answer_markdown"])[0][0] == "Year"
+    rows = continent.structured_content["split"]["rows"]
+    assert [(row["name"], row["continent"], row["Mat"]) for row in rows] == [
+        ("Asia", 2, 24),
+        ("Europe", 4, 6),
+    ]
+
+
+async def test_split_by_host_for_bowling_counts_five_wicket_hauls() -> None:
+    spec = split_spec(SWINGER_ID, type="bowling")
+    page_url = spec.url(as_of=FakeClock().now().date())
+    career = "2005-2015|20|38|700.0|150|2000|80|6/40|9/90|25|2.85|52.5|4|1"
+    england = "2005-2015|12|23|420.0|100|1100|50|6/40|9/90|22|2.61|50.4|3|1"
+    india = "2008-2012|4|8|150.0|25|450|10|3/50|4/90|45|3|90|0|0"
+    new_zealand = "2007-2013|4|7|130.0|25|450|20|5/60|7/100|22.5|3.46|39|1|0"
+    page = summary_page(
+        spec,
+        "Sample Swinger",
+        [("unfiltered", career), ("filtered", career)],
+        [
+            [
+                ("in England", "host=1", england),
+                ("in India", "host=6", india),
+                ("in New Zealand", "host=5", new_zealand),
+            ],
+            [
+                ("in Asia", "continent=2", india),
+                ("in Europe", "continent=4", england),
+                ("in Oceania", "continent=5", new_zealand),
+            ],
+        ],
+        SPLIT_BOWLING_COLUMNS,
+    )
+    source, client = await client_for({page_url: page})
+
+    async with client:
+        result = await client.call_tool(
+            "player_record",
+            {
+                "player_id": SWINGER_ID,
+                "format": "Test",
+                "discipline": "bowling",
+                "split_by": "host",
+            },
+        )
+
+    split = result.structured_content["split"]
+    assert [(row["name"], row["Wkts"], row["5"]) for row in split["rows"]] == [
+        ("England", 50, 3),
+        ("India", 10, 0),
+        ("New Zealand", 20, 1),
+    ]
+    assert split["with_five_wicket_hauls"] == 2
+    assert split["without_five_wicket_hauls"] == ["India"]
+    answer = result.structured_content["answer_markdown"]
+    assert answer.startswith(
+        "Sample Swinger's Test bowling split by host country: at least one five-wicket haul in "
+        "2 of 3 host countries; none in India.\n"
+    )
+    assert markdown_rows(answer)[:2] == [
+        ["Host country", "Mat", "Wkts", "Ave", "Econ", "SR", "5"],
+        ["England", "12", "50", "22", "2.61", "50.4", "3"],
+    ]
+    assert "Counted the host countries with at least one five-wicket haul" in answer
+    assert source.requests == [page_url]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [{"player_id": CENTURION_ID}, {"player_id": CENTURION_ID, "player_name": "Sample Centurion"}],
+)
+async def test_split_by_with_player_id_reads_only_the_player_page(
+    arguments: dict[str, object],
+) -> None:
+    page_url = split_spec().url(as_of=FakeClock().now().date())
+    source, client = await client_for(centurion_pages())
+
+    async with client:
+        result = await client.call_tool(
+            "player_record", {**arguments, "format": "Test", "split_by": "host"}
+        )
+
+    assert source.requests == [page_url]
+    assert result.structured_content["player"]["name"] == "Sample Centurion"
+    assert result.structured_content["split"]["with_hundreds"] == 3
+    assert result.structured_content["answer_markdown"].startswith(
+        "Sample Centurion's Test batting split by host country:"
+    )
+
+
+async def test_split_by_makes_no_extra_request() -> None:
+    pages = centurion_pages()
+    arguments = {"player_name": "Sample Centurion", "format": "Test"}
+    plain_source, plain_client = await client_for(pages)
+    split_source, split_client = await client_for(pages)
+
+    async with plain_client:
+        plain = await plain_client.call_tool("player_record", arguments)
+    async with split_client:
+        split = await split_client.call_tool("player_record", {**arguments, "split_by": "host"})
+        split_requests = list(split_source.requests)
+        split_source.requests.clear()
+        # The record without split_by then comes from the page the split already read.
+        again = await split_client.call_tool("player_record", arguments)
+
+    assert split_requests == plain_source.requests == list(pages)
+    assert split_source.requests == []
+    split_proof = dict(split.structured_content["proof"])
+    plain_proof = dict(plain.structured_content["proof"])
+    assert (
+        split_proof.pop("label")
+        == f"{plain_proof.pop('label')}, Career summary rows by host country"
+    )
+    assert split_proof == plain_proof
+    assert split.structured_content["row"] == plain.structured_content["row"]
+    assert again.structured_content["row"] == plain.structured_content["row"]
+    assert "split" not in plain.structured_content
+
+
+async def test_split_by_on_filtered_pages_uses_the_filtered_grouped_rows() -> None:
+    as_of = FakeClock().now().date()
+    dated = split_spec(period=ResolvedPeriod(start="2005-01-01", end="2012-12-31"))
+    uae = split_spec(host=27)
+    filtered = "2005-2012|20|35|3|1600|180|50|3200|50|4|7|2"
+    in_uae = "2004-2012|10|17|2|1100|180|73.33|2140|51.4|4|2|1"
+    pages = {
+        dated.url(as_of=as_of): summary_page(
+            dated,
+            "Sample Centurion",
+            [("unfiltered", CENTURION_CAREER), ("filtered", filtered)],
+            [
+                [
+                    ("in India", "host=6", "2005-2011|9|15|1|420|95|30|900|46.66|0|4|1"),
+                    ("in U.A.E.", "host=27", "2005-2012|11|20|2|1180|180|65.55|2300|51.3|4|3|1"),
+                ],
+                [
+                    ("year 2005", "year=2005", "|12|21|2|700|99|36.84|1500|46.66|0|5|1"),
+                    ("year 2012", "year=2012", "|8|14|1|900|180|69.23|1700|52.94|4|2|1"),
+                ],
+            ],
+        ),
+        # Filtered to one host, the U.A.E. row's link is the page's own query.
+        uae.url(as_of=as_of): summary_page(
+            uae,
+            "Sample Centurion",
+            [("unfiltered", CENTURION_CAREER), ("filtered", in_uae)],
+            [
+                [
+                    ("v England", "opposition=1", "2004-2012|4|7|1|500|180|83.33|900|55.55|2|1|0"),
+                    ("v India", "opposition=6", "2006-2011|6|10|1|600|150|66.66|1240|48.38|2|1|1"),
+                ],
+                [("in U.A.E.", "host=27", in_uae)],
+                [("in Asia", "continent=2", in_uae)],
+            ],
+        ),
+    }
+    source, client = await client_for(pages)
+
+    async with client:
+        years = await client.call_tool(
+            "player_record",
+            {
+                "player_id": CENTURION_ID,
+                "format": "Test",
+                "period": {"kind": "dates", "start": "2005-01-01", "end": "2012-12-31"},
+                "split_by": "year",
+            },
+        )
+        hosts = await client.call_tool(
+            "player_record",
+            {
+                "player_id": CENTURION_ID,
+                "format": "Test",
+                "host_country": "UAE",
+                "split_by": "host",
+            },
+        )
+        continents = await client.call_tool(
+            "player_record",
+            {
+                "player_id": CENTURION_ID,
+                "format": "Test",
+                "host_country": "UAE",
+                "split_by": "continent",
+            },
+        )
+
+    assert source.requests == list(pages)
+    assert [row["year"] for row in years.structured_content["split"]["rows"]] == [2005, 2012]
+    assert years.structured_content["split"]["matches"] == 20
+    answer = years.structured_content["answer_markdown"]
+    assert answer.startswith(
+        "Sample Centurion's Test batting split by year: at least one hundred in 1 of 2 years; "
+        "none in 2005.\n"
+    )
+    assert "- Period: 2005-01-01 to 2012-12-31." in answer
+    assert "- Split: the 2 rows by year add up to the record's 20 matches" in answer
+    assert [row["name"] for row in hosts.structured_content["split"]["rows"]] == ["U.A.E."]
+    assert hosts.structured_content["answer_markdown"].startswith(
+        "Sample Centurion's Test batting split by host country: at least one hundred in the "
+        "only host country, U.A.E.\n"
+    )
+    assert [row["name"] for row in continents.structured_content["split"]["rows"]] == ["Asia"]
+
+
+async def test_split_by_refuses_grouped_rows_that_do_not_add_up_to_the_record() -> None:
+    dated = split_spec(period=ResolvedPeriod(start="2005-01-01", end="2012-12-31"))
+    # The record is filtered to 20 matches, but these grouped rows cover all 30.
+    page = summary_page(
+        dated,
+        "Sample Centurion",
+        [
+            ("unfiltered", CENTURION_CAREER),
+            ("filtered", "2005-2012|20|35|3|1600|180|50|3200|50|4|7|2"),
+        ],
+        CENTURION_GROUPS,
+    )
+    source, client = await client_for({dated.url(as_of=FakeClock().now().date()): page})
+
+    async with client:
+        result = await client.call_tool(
+            "player_record",
+            {
+                "player_id": CENTURION_ID,
+                "format": "Test",
+                "period": {"kind": "dates", "start": "2005-01-01", "end": "2012-12-31"},
+                "split_by": "host",
+            },
+        )
+
+    assert result.is_error is True
+    assert (
+        "Statsguru's rows by host country add up to 30 matches, not the record's 20, so crickey "
+        "can't confirm they cover the same filters and period. Call player_record without "
+        "split_by, or once per host country with host_country."
+    ) in result.content[0].text
+    assert len(source.requests) == 1
+
+
+async def test_split_by_rejects_unknown_groupings_before_any_request() -> None:
+    source, client = await client_for(centurion_pages())
+
+    async with client:
+        results = [
+            await client.call_tool(
+                "player_record",
+                {"player_name": "Sample Centurion", "format": "Test", "split_by": value},
+            )
+            for value in ("ground", "season", "country")
+        ]
+
+    for value, result in zip(("ground", "season", "country"), results, strict=True):
+        assert result.is_error is True
+        assert (
+            f"split_by must be host, opposition, year or continent (got '{value}')."
+            in result.content[0].text
+        )
+    assert source.requests == []
+
+
+async def test_split_by_with_no_matching_record_reports_no_matches() -> None:
+    spec = split_spec(host=6)
+    page_url = spec.url(as_of=FakeClock().now().date())
+    # Filtered to a host the player never played in: no filtered row and no grouped rows.
+    page = named(
+        player_page(
+            '<tr class="data1"><td>unfiltered</td><td>2001-2012</td><td>30</td><td>52</td><td>4</td><td>2400</td><td>210</td><td>50</td><td>4800</td><td>50</td><td>7</td><td>10</td><td>3</td></tr>'
+        ),
+        CENTURION_ID,
+        "Sample Centurion",
+        "Test matches",
+    )
+    source, client = await client_for({page_url: page})
+
+    async with client:
+        result = await client.call_tool(
+            "player_record",
+            {
+                "player_id": CENTURION_ID,
+                "format": "Test",
+                "host_country": "India",
+                "split_by": "year",
+            },
+        )
+
+    assert result.structured_content["status"] == "no_matches"
+    assert result.structured_content["split"] is None
+    assert source.requests == [page_url]
+
+
+async def test_split_by_without_the_counted_column_does_not_claim_a_count() -> None:
+    spec = split_spec(SWINGER_ID, type="bowling")
+    page_url = spec.url(as_of=FakeClock().now().date())
+    career = "2005-2015|20|80|25"
+    page = summary_page(
+        spec,
+        "Sample Swinger",
+        [("unfiltered", career), ("filtered", career)],
+        [
+            [
+                ("in England", "host=1", "2005-2015|12|50|22"),
+                ("in India", "host=6", "2008-2012|8|30|30"),
+            ]
+        ],
+        ("Span", "Mat", "Wkts", "Ave"),
+    )
+    _source, client = await client_for({page_url: page})
+
+    async with client:
+        result = await client.call_tool(
+            "player_record",
+            {
+                "player_id": SWINGER_ID,
+                "format": "Test",
+                "discipline": "bowling",
+                "split_by": "host",
+            },
+        )
+
+    split = result.structured_content["split"]
+    assert "with_five_wicket_hauls" not in split
+    assert split["groups"] == 2
+    answer = result.structured_content["answer_markdown"]
+    assert answer.startswith(
+        "Sample Swinger's Test bowling split by host country: 2 host countries.\n"
+    )
+    assert "Counted" not in answer
+    assert markdown_rows(answer)[0] == ["Host country", "Mat", "Wkts", "Ave"]

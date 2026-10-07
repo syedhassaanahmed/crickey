@@ -9,7 +9,13 @@ from crickey.parsers.convert import (
     parse_span,
 )
 from crickey.parsers.forms import FilterForm, FormControl, FormOption, parse_filter_form
-from crickey.parsers.player import PlayerPage, PlayerPageNoRecordsError, parse_player_page
+from crickey.parsers.player import (
+    GROUPING_COLUMNS,
+    PlayerPage,
+    PlayerPageNoRecordsError,
+    parse_grouped_rows,
+    parse_player_page,
+)
 from crickey.parsers.results import (
     PageTotals,
     PlayerCell,
@@ -25,6 +31,7 @@ __all__ = [
     "FilterForm",
     "FormControl",
     "FormOption",
+    "GROUPING_COLUMNS",
     "Overs",
     "PageTotals",
     "PlayerCell",
@@ -40,6 +47,7 @@ __all__ = [
     "parse_current_or_recent_matches",
     "parse_date",
     "parse_filter_form",
+    "parse_grouped_rows",
     "parse_overs",
     "parse_player_cell",
     "parse_player_page",

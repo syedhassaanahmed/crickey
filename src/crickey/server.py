@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 from math import ceil
 from typing import Annotated, Any, Literal
 
+import pandas as pd
 from mcp.server import MCPServer
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ToolError
@@ -33,13 +34,16 @@ from crickey.metrics import (
     rank_key,
 )
 from crickey.parsers import (
+    GROUPING_COLUMNS,
     Overs,
     PlayerFormat,
     PlayerPageNoRecordsError,
+    RecentMatch,
     ResultsPage,
     Span,
     StatsguruParseError,
     parse_current_or_recent_matches,
+    parse_grouped_rows,
     parse_player_page,
     parse_results_page,
 )
@@ -131,6 +135,49 @@ class AnswerMetric(StrEnum):
 class AnswerDiscipline(StrEnum):
     BATTING = "batting"
     BOWLING = "bowling"
+
+
+class SplitBy(StrEnum):
+    HOST = "host"
+    OPPOSITION = "opposition"
+    YEAR = "year"
+    CONTINENT = "continent"
+
+
+@dataclass(frozen=True)
+class _Split:
+    noun: str
+    plural: str
+    preposition: str
+    title: str
+    filter_hint: str
+
+
+@dataclass(frozen=True)
+class _SplitCount:
+    column: str
+    singular: str
+    plural: str
+    key: str
+
+
+# How answers name each grouping of the summary page's "Career summary" table (R6, D34).
+_SPLITS = {
+    "host": _Split("host country", "host countries", "in", "Host country", "host_country"),
+    "opposition": _Split("opposition", "oppositions", "against", "Opposition", "opposition"),
+    "year": _Split("year", "years", "in", "Year", "period"),
+    "continent": _Split("continent", "continents", "in", "Continent", "continent"),
+}
+_SPLIT_ALIASES = {"host_country": "host", "opponent": "opposition"}
+# Columns each split's table shows, in Statsguru's order, and the column whose groups it counts.
+_SPLIT_COLUMNS = {
+    "batting": ("Mat", "Inns", "Runs", "Ave", "SR", "100", "50"),
+    "bowling": ("Mat", "Wkts", "Ave", "Econ", "SR", "5"),
+}
+_SPLIT_COUNTS = {
+    "batting": _SplitCount("100", "hundred", "hundreds", "hundreds"),
+    "bowling": _SplitCount("5", "five-wicket haul", "five-wicket hauls", "five_wicket_hauls"),
+}
 
 
 class AllTimePeriod(BaseModel):
@@ -431,9 +478,13 @@ def create_server(
             "Example: What was Babar Azam's Test batting average in the last Y years "
             "of his career? How many hundreds has Babar Azam scored in ODI World Cups? "
             "Bowling example: What was James Anderson's Test bowling record in Asia? "
-            "Return one player's batting or bowling record with a proof link. Name the "
-            "player with player_name, or with player_id from find_player or a clarification "
-            "when names clash."
+            "Split example: In which countries has Younis Khan scored Test hundreds? "
+            "Return one player's batting or bowling record with a proof link; split_by "
+            "(host, opposition, year or continent) splits it into Statsguru's grouped rows "
+            "from the same page and counts the groups with a hundred, or a five-wicket haul "
+            "for bowling. One player per call: a question about every player needs "
+            "player-by-player checks. Name the player with player_name, or with player_id "
+            "from find_player or a clarification when names clash."
         ),
     )
     async def player_record(
@@ -450,6 +501,7 @@ def create_server(
         trophy: str | list[str] | None = None,
         home_or_away: str | int | None = None,
         match_result: str | int | None = None,
+        split_by: SplitBy | str | None = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
         return await _player_record_tool(
@@ -466,6 +518,7 @@ def create_server(
             trophy=trophy,
             home_or_away=home_or_away,
             match_result=match_result,
+            split_by=split_by,
             ctx=ctx,
         )
 
@@ -948,12 +1001,14 @@ async def _player_record_tool(
     trophy: str | list[str] | None,
     home_or_away: str | int | None,
     match_result: str | int | None,
+    split_by: SplitBy | str | None,
     ctx: Context | None,
 ) -> CallToolResult:
     query_name = _require_player(player_name, player_id)
     try:
         class_id = _format_class(format)
         discipline_value = _answer_discipline(discipline)
+        split_key = _split_by(split_by)
         _validate_period_shape(period)
     except ValueError as error:
         raise ToolError(str(error)) from error
@@ -1018,6 +1073,8 @@ async def _player_record_tool(
                 )
                 page = parse_player_page(html)
             row = _player_record_row(page)
+            # A split reads the grouped rows on the same page, so it costs no request (D34).
+            grouped = parse_grouped_rows(html) if split_key and row is not None else None
             recent = parse_current_or_recent_matches(html)
     except (
         FetcherError,
@@ -1061,12 +1118,27 @@ async def _player_record_tool(
                 "answer_markdown": answer,
                 "player": _candidate_payload(player),
                 "row": None,
+                **({"split": None} if split_key else {}),
                 "proof": _jsonable(proof),
             },
         )
 
     columns = _player_record_columns(page)
     values = {column: _display_value(row, column) for column in columns}
+    if split_key and grouped is not None:
+        return _player_split_result(
+            player,
+            class_id=class_id,
+            discipline=discipline_value,
+            split_key=split_key,
+            grouped=grouped,
+            record=values,
+            assumptions=assumptions,
+            record_proof=proof,
+            as_of=as_of,
+            recent=recent,
+            max_pages=fetcher.settings.max_pages,
+        )
     summary_values = _player_record_summary(player.name, values, discipline_value)
     answer = render_answer(
         AnswerRenderInput(
@@ -1829,6 +1901,167 @@ def _player_record_summary(player_name: str, values: Mapping[str, Any], discipli
     if "HS" in values:
         pieces.append(f"highest score {values['HS']}")
     return f"{player_name}'s record: {', '.join(pieces)}."
+
+
+def _split_by(value: SplitBy | str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value.value if isinstance(value, SplitBy) else value)
+    normalized = "_".join(text.casefold().replace("-", " ").split())
+    if not normalized:
+        return None
+    normalized = _SPLIT_ALIASES.get(normalized, normalized)
+    if normalized not in _SPLITS:
+        raise ValueError(f"split_by must be host, opposition, year or continent (got {text!r}).")
+    return normalized
+
+
+def _split_rows(grouped: pd.DataFrame, split_key: str) -> list[dict[str, Any]]:
+    columns = [
+        column
+        for column in grouped.columns
+        if column != "Grouping"
+        and column not in GROUPING_COLUMNS
+        and not column.endswith("_not_out")
+    ]
+    rows = []
+    for row in grouped.to_dict("records"):
+        if row["grouping_key"] != split_key:
+            continue
+        value = row["grouping_value"]
+        rows.append(
+            {
+                "name": row["grouping_name"],
+                "label": row["Grouping"],
+                split_key: int(value) if value.isdigit() else value,
+                **{column: _display_value(row, column) for column in columns},
+            }
+        )
+    return rows
+
+
+def _player_split_result(
+    player: PlayerCandidate,
+    *,
+    class_id: int,
+    discipline: str,
+    split_key: str,
+    grouped: pd.DataFrame,
+    record: Mapping[str, Any],
+    assumptions: tuple[str, ...],
+    record_proof: ProofLink,
+    as_of: date,
+    recent: tuple[RecentMatch, ...],
+    max_pages: int,
+) -> CallToolResult:
+    split = _SPLITS[split_key]
+    count = _SPLIT_COUNTS[discipline]
+    rows = _split_rows(grouped, split_key)
+    matches = sum(row["Mat"] for row in rows if isinstance(row.get("Mat"), int))
+    if not rows:
+        raise ToolError(
+            f"Statsguru's player page has no rows grouped by {split.noun} for this record, "
+            "so crickey can't split it."
+        )
+    # Every match has one host, opposition, continent and year, so the grouped rows must add up to
+    # the record. They do on every saved page, filtered or not (R6); if they don't, they may not
+    # cover the same filters, and showing them would be wrong.
+    if matches != record.get("Mat"):
+        raise ToolError(
+            f"Statsguru's rows by {split.noun} add up to {matches} matches, not the record's "
+            f"{record.get('Mat')}, so crickey can't confirm they cover the same filters and "
+            f"period. Call player_record without split_by, or once per {split.noun} with "
+            f"{split.filter_hint}."
+        )
+    shown = [column for column in _SPLIT_COLUMNS[discipline] if column in grouped.columns]
+    # Groups without the counted figure, or None when the page has no such column.
+    without = (
+        [row["name"] for row in rows if not row.get(count.column)]
+        if count.column in grouped.columns
+        else None
+    )
+    # The record's own page proves the split too, so the proof keeps the record's row count, the
+    # page's "Career averages" rows; "groups" counts the split's rows.
+    proof = replace(
+        record_proof, label=f"{record_proof.label}, Career summary rows by {split.noun}"
+    )
+    method = [
+        f"Read the player's Statsguru {discipline} page with the same filters.",
+        f"Took the rows its Career summary groups by {split.noun}"
+        + (", which leaves out continents, a separate grouping." if split_key == "host" else "."),
+    ]
+    if without is not None:
+        method.append(
+            f"Counted the {split.plural} with at least one {count.singular} "
+            f"(Statsguru's {count.column} column)."
+        )
+    lead = f"{player.name}'s {CLASS_LABELS[class_id]} {discipline} split by {split.noun}:"
+    summary = _split_summary(split, count, rows, without)
+    answer = render_answer(
+        AnswerRenderInput(
+            # Names such as "U.A.E." already end the sentence.
+            short_answer=f"{lead} {summary}" + ("" if summary.endswith(".") else "."),
+            table=RenderedTable(
+                headers=(split.title, *shown),
+                rows=tuple((row["name"], *(row.get(column) for column in shown)) for row in rows),
+            ),
+            method=tuple(method),
+            assumptions=(
+                *assumptions,
+                f"Split: the {len(rows)} rows by {split.noun} add up to the record's {matches} "
+                "matches, so they cover the same filters and period.",
+                f"Scope: this player only. Finding every player with a {count.singular} "
+                f"{split.preposition} every {split.noun} would need every player's page, beyond "
+                f"the {max_pages}-page limit per call, so check players one at a time.",
+            ),
+            proof_links=(proof,),
+            players=(RenderPlayer(player.name, player.player_id),),
+            as_of=as_of,
+            current_or_recent_matches=recent,
+        )
+    )
+    counts = (
+        {}
+        if without is None
+        else {f"with_{count.key}": len(rows) - len(without), f"without_{count.key}": without}
+    )
+    return _tool_result(
+        "Built player record split.",
+        {
+            "status": "ok",
+            "answer_markdown": answer,
+            "player": _candidate_payload(player),
+            "row": dict(record),
+            "split": {
+                "by": split_key,
+                "rows": rows,
+                "groups": len(rows),
+                **counts,
+                "matches": matches,
+            },
+            "proof": _jsonable(proof),
+        },
+    )
+
+
+def _split_summary(
+    split: _Split, count: _SplitCount, rows: list[dict[str, Any]], without: list[str] | None
+) -> str:
+    total = len(rows)
+    where = split.preposition
+    if without is None:
+        return f"{total} {split.plural if total != 1 else split.noun}"
+    if total == 1:
+        found = f"no {count.plural}" if without else f"at least one {count.singular}"
+        return f"{found} {where} the only {split.noun}, {rows[0]['name']}"
+    if not without:
+        return f"at least one {count.singular} {where} all {total} {split.plural}"
+    if len(without) == total:
+        return f"no {count.plural} {where} any of the {total} {split.plural}"
+    return (
+        f"at least one {count.singular} {where} {total - len(without)} of {total} "
+        f"{split.plural}; none {where} {_metric_list(without)}"
+    )
 
 
 def _leaderboard_short_answer(
