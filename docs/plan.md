@@ -9,6 +9,10 @@
   3. Which batters had better average and strike rate in T20 than player X, in the same period that player X played?
   4. What was player X's Test batting average in the last Y years of his career?
   5. How many hundreds has player X scored in ODI World Cups?
+  6. Which bowler between X and Y performed better in Asia in Tests?
+  7. Who has taken more catches across all formats compared to player X?
+  8. Who has scored at least 1 Test hundred in every country they've played in?
+  9. Take the records of players X, Y and Z against country A. Curious to see who did better in terms of wickets, average and strike rates.
 
 ## Overview
 This plan says how to build crickey to meet the goal. It refers to decisions and research instead of repeating them:
@@ -53,21 +57,23 @@ Five tools (D14), all read-only.
 - **Answer tools** return `answer_markdown` plus structured data. The markdown has a short answer, a table, the method and assumptions, labelled pinned links and profile links (D16), the "as of" date and the freshness line (D17). Fielding answers also say that Statsguru's fielding figures leave out run-outs (D35).
 - **Ambiguous names** (players, teams, grounds, trophies) return `needs_clarification` with the candidates. Player candidates list each one's ID, country, span and match count in the requested format, and the text says to call again with `player_id`.
 - **Players by ID:** `better_than_player` and `player_record` take the player's name or `player_id`, the ID from `find_player` or a player clarification; players with the same name and country can only be told apart by ID (R7). An ID skips the name search, and the name shown comes from the pages the tool reads anyway (X's results row or player page, R6). If `player_name` clearly names someone else (no surname-like word in common), the ID wins and the assumptions say so. An ID with no record in the format is an error naming the ID and the format; errors by ID name the player only as Statsguru does, or by ID.
-- **Descriptions** for answer tools start with example questions taken from the golden questions, followed by bowling and fielding examples where applicable and, for `player_record`, a split example; `better_than_player` and `player_record` then mention `player_id`. `find_player` and `query_stats` start with their own example question.
+- **Descriptions** for answer tools start with example questions, followed by bowling and fielding examples where applicable and, for `player_record`, a split example. Every golden question appears in the description of the tool that answers it, with real players and countries filled in; the other examples cover what no golden question asks. `better_than_player` and `player_record` then mention `player_id`. `find_player` and `query_stats` start with their own example question.
 
 1. **`leaderboard`** (golden question 1): "Who has the best or fastest …?"
    - Parameters: format, discipline (batting by default, bowling or fielding), metric, period, filters by name (team, opposition, host country, continent, ground, trophy, home or away, match result), minimum and top N.
    - Metrics can be Statsguru columns (batting: runs, average, strike rate, hundreds, …; bowling: wickets, bowling average, economy rate, bowling strike rate, five-wicket hauls and ten-wicket matches; fielding: catches, catches as a fielder, catches as a wicketkeeper, stumpings, dismissals and dismissals per innings) or derived batting rates (innings per hundred, innings per fifty-plus, balls per dismissal).
    - Without an explicit minimum, count metrics use a minimum of 1 (D33) and other metrics use their default minimum (D32 for bowling rates, D35 for dismissals per innings).
    - For a derived rate it also gives the group's overall figure, for example total innings ÷ total hundreds across all qualifying players.
-2. **`better_than_player`** (golden questions 2 and 3): "Who beats player X on A (and B)?"
+2. **`better_than_player`** (golden questions 2, 3 and 7): "Who beats player X on A (and B)?"
    - Parameters: player name or `player_id`, format, discipline (batting by default, bowling or fielding), 1–3 metrics, all or any, period (all time, X's career span, or dates), minimum and filters.
    - Includes X's own row. Proof link (D16): the results query with X's values as extra minimums or maximums for lower-is-better metrics (R2). A value on a field the query already qualifies, such as a count's own floor, tightens that qualification instead, because Statsguru misreads a field repeated across minimums (R2).
    - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum, the bowling answer D32's and the fielding answer D35's. Whatever the metric, a default minimum never excludes X (D29, D32, D35), except possibly under a team filter when X has played for more than one team; then the answer asks for an explicit minimum.
-3. **`player_record`** (golden questions 4 and 5): one player's figures in a format.
+   - Golden question 7 uses `discipline=fielding` in combined internationals, which the format "all formats" also names (D36). Its known answer (R10) compares whole careers, so it needs an all-time period; without a period, the comparison covers X's career span.
+3. **`player_record`** (golden questions 4, 5, 6, 8 and 9): one player's figures in a format.
    - Parameters: player name or `player_id`, format, discipline (batting by default, or bowling; not fielding yet, D35), period (whole career, first or last N years of their career, dates or season), filters (opposition, host country, continent, ground, trophy such as the ODI World Cup, home or away, match result) and an optional `split_by`.
    - Proof link: the player's Statsguru batting or bowling page with the same filters (R6).
-   - **Splits (D34):** `split_by` (host, opposition, year or continent) answers with the same page's grouped rows (R6). `host` gives host countries only. The answer counts the groups with at least one hundred, or a five-wicket haul for bowling, and names those without. The rows must add up to the record's matches, or the call fails rather than show rows that may not cover the filters. One call covers one player: a question about every player would need every player's page, beyond D10's page limit, so answers suggest checking players one at a time.
+   - Golden questions 6 and 9 compare two or three players, so they take one call per player, and per format when the question names none; the answers are read side by side.
+   - **Splits (D34):** `split_by` (host, opposition, year or continent) answers with the same page's grouped rows (R6). `host` gives host countries only. The answer counts the groups with at least one hundred, or a five-wicket haul for bowling, and names those without. The rows must add up to the record's matches, or the call fails rather than show rows that may not cover the filters. One call covers one player: a question about every player, such as golden question 8, would need every player's page, beyond D10's page limit, so answers suggest checking players one at a time.
 4. **`find_player`**: candidates with ID, country, formats and career spans (R7).
 5. **`query_stats`**: any Statsguru query (see coverage above).
    - Returns up to `limit` rows (default 50, maximum 200), the total row count, the table's columns and the pinned link.
@@ -178,10 +184,10 @@ The work is split into [GitHub issues #1–#18](https://github.com/syedhassaanah
   - Metric formulas, and ties between equal displayed values.
   - Name resolution and clarification, and the period resolver (career span; first or last N years).
   - The fetcher: rate limiter, page cap, retries (`Retry-After`, jitter limits, time budget), pauses after a block, unavailable URLs, the cache size cap and the freshness rules.
-- **Answer tools:** each one against synthetic pages, with expected answers and proof links.
+- **Answer tools:** each one against synthetic pages, with expected answers and proof links. Each golden question has a test named after it.
 - **HTTP tests:** Host and Origin checks (localhost on any port), loopback-only binding natively, binding in container mode, and SSE progress.
 - **End to end:** tests over HTTP and stdio using the synthetic-page hook, a check that no files are written, and the `--read-only` container smoke test. CI runs on Ubuntu. Live smoke tests run only when explicitly enabled.
-- **Acceptance:** the five golden questions are answered correctly with both models, every pinned link shows matching numbers, and the public image works on a machine without the source.
+- **Acceptance:** every golden question is answered correctly with both models, every pinned link shows matching numbers, and the public image works on a machine without the source.
 
 ## Risks and open items
 - **Small tool set (D14):** questions outside the three answer tools go through `query_stats`, which a weak model may struggle with.

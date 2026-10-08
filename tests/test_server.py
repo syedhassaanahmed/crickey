@@ -269,8 +269,62 @@ async def test_comparison_and_leaderboard_descriptions_add_a_fielding_example() 
         description = by_name[name].description
         assert description.index("Bowling example:") < description.index("Fielding example:")
     assert "batting, bowling or fielding leaderboard" in by_name["leaderboard"].description
-    assert "than Jonty Rhodes" in by_name["better_than_player"].description
+    assert "compared to Jonty Rhodes?" in by_name["better_than_player"].description
     assert "Fielding example:" not in by_name["player_record"].description
+
+
+# Each golden question (plan.md › Goal), with real players and countries filled in, and the tool
+# whose description quotes it.
+GOLDEN_QUESTION_EXAMPLES = {
+    1: (
+        "leaderboard",
+        "Average number of innings taken per ODI century (minimum X number of centuries).",
+    ),
+    2: (
+        "better_than_player",
+        "Which players have scored Test hundreds more frequently than Babar Azam?",
+    ),
+    3: (
+        "better_than_player",
+        "Which batters had better average and strike rate in T20 than Babar Azam, in the same "
+        "period that Babar Azam played?",
+    ),
+    4: (
+        "player_record",
+        "What was Babar Azam's Test batting average in the last Y years of his career?",
+    ),
+    5: ("player_record", "How many hundreds has Babar Azam scored in ODI World Cups?"),
+    6: (
+        "player_record",
+        "Which bowler between James Anderson and Dale Steyn performed better in Asia in Tests?",
+    ),
+    7: (
+        "better_than_player",
+        "Who has taken more catches across all formats compared to Jonty Rhodes?",
+    ),
+    8: (
+        "player_record",
+        "Who has scored at least 1 Test hundred in every country they've played in?",
+    ),
+    9: (
+        "player_record",
+        "Take the records of Wasim Akram, Waqar Younis and Imran Khan against India. Curious to "
+        "see who did better in terms of wickets, average and strike rates.",
+    ),
+}
+
+
+@pytest.mark.parametrize("number", sorted(GOLDEN_QUESTION_EXAMPLES))
+async def test_answer_tool_descriptions_quote_the_golden_questions_they_answer(
+    number: int,
+) -> None:
+    _, _, client = await call_with_source({})
+
+    async with client:
+        descriptions = {tool.name: tool.description for tool in (await client.list_tools()).tools}
+
+    tool_name, question = GOLDEN_QUESTION_EXAMPLES[number]
+    assert [name for name, text in descriptions.items() if question in text] == [tool_name]
 
 
 async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
@@ -297,9 +351,10 @@ async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
     assert description.startswith("Example:")
     assert (
         description.index("ODI World Cups?")
-        < description.index("Bowling example:")
+        < description.index("Bowling examples:")
         < description.index(
-            "Split example: In which countries has Younis Khan scored Test hundreds?"
+            "Split example: Who has scored at least 1 Test hundred in every country they've "
+            "played in?"
         )
         < description.index("split_by")
         < description.index("player_id")

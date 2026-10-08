@@ -107,6 +107,7 @@ _FORMAT_CLASSES = {
     "all t20": 6,
     "twenty20": 6,
     "all internationals": 11,
+    "all formats": 11,
     "test/odi/t20i": 11,
     "combined internationals": 11,
 }
@@ -455,8 +456,8 @@ def create_server(
             "Babar Azam? Which batters had better average and strike rate in T20 "
             "than Babar Azam, in the same period that Babar Azam played? Bowling example: "
             "Which Test bowlers had a better bowling average than Dale Steyn in Asia? "
-            "Fielding example: Who has taken more catches as a fielder than Jonty Rhodes "
-            "across all internationals? "
+            "Fielding example: Who has taken more catches across all formats compared to "
+            "Jonty Rhodes? "
             "Compare players. Name the player with player_name, or with player_id from "
             "find_player or a clarification when names clash."
         ),
@@ -508,13 +509,18 @@ def create_server(
         description=(
             "Example: What was Babar Azam's Test batting average in the last Y years "
             "of his career? How many hundreds has Babar Azam scored in ODI World Cups? "
-            "Bowling example: What was James Anderson's Test bowling record in Asia? "
-            "Split example: In which countries has Younis Khan scored Test hundreds? "
+            "Bowling examples: Which bowler between James Anderson and Dale Steyn performed "
+            "better in Asia in Tests? Take the records of Wasim Akram, Waqar Younis and Imran "
+            "Khan against India. Curious to see who did better in terms of wickets, average "
+            "and strike rates. "
+            "Split example: Who has scored at least 1 Test hundred in every country they've "
+            "played in? "
             "Return one player's batting or bowling record with a proof link; split_by "
             "(host, opposition, year or continent) splits it into Statsguru's grouped rows "
             "from the same page and counts the groups with a hundred, or a five-wicket haul "
-            "for bowling. One player per call: a question about every player needs "
-            "player-by-player checks. Name the player with player_name, or with player_id "
+            "for bowling. One player per call: compare players with one call each, and a "
+            "question about every player, such as the split example, needs player-by-player "
+            "checks. Name the player with player_name, or with player_id "
             "from find_player or a clarification when names clash."
         ),
     )

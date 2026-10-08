@@ -993,7 +993,8 @@ async def test_golden_question_5_babar_odi_world_cup_record_requests_and_cache()
     assert "hundreds 20" not in short_answer
 
 
-async def test_player_record_bowling_in_asia_for_two_players() -> None:
+# Golden question 6: two bowlers' Test records in Asia, one player_record call each (R6).
+async def test_golden_question_6_two_bowlers_in_asia_in_tests() -> None:
     anderson_spec = PlayerPageSpec(
         player_id=8608, **{"class": 1, "type": "bowling", "continent": 2}
     )
@@ -1043,6 +1044,106 @@ async def test_player_record_bowling_in_asia_for_two_players() -> None:
     assert "continent=2" in anderson.structured_content["proof"]["url"]
     assert "type=bowling" in steyn.structured_content["proof"]["url"]
     assert "wickets 92" in anderson.structured_content["answer_markdown"].split("\n", 1)[0]
+
+
+# Golden question 9: three bowlers' Test records against one opposition, one player_record call
+# each. "Imran Khan" names two Pakistan Test players (R7), so his record is read by player_id. The
+# filtered rows echo R10's known answers; the rest of each page is synthetic.
+async def test_golden_question_9_three_bowlers_against_one_opposition() -> None:
+    as_of = FakeClock().now().date()
+
+    def page_url(player_id: int) -> str:
+        return PlayerPageSpec(
+            player_id=player_id, **{"class": 1, "type": "bowling", "opposition": 6}
+        ).url(as_of=as_of)
+
+    def bowling_page(player_id: int, name: str, unfiltered: str, filtered: str) -> str:
+        return named(
+            bowling_player_page(
+                f'<tr class="data1"><td>unfiltered</td>{split_cells(unfiltered)}</tr>'
+                f'<tr class="data1"><td>filtered</td>{split_cells(filtered)}</tr>'
+            ),
+            player_id,
+            name,
+            "Test matches",
+        )
+
+    # Span|Mat|Inns|Overs|Mdns|Runs|Wkts|BBI|Ave|Econ|SR|4|5|10
+    pages = {
+        player_search_url("Wasim Akram"): search_page(
+            search_row("Wasim Akram", "PAK", 43547, 1, "Test matches", "1984/85 - 2001/02", 104)
+        ),
+        page_url(43547): bowling_page(
+            43547,
+            "Wasim Akram",
+            "1985-2002|104|181|3771.1|871|9779|414|7/119|23.62|2.59|54.6|20|25|5",
+            "1987-1999|12|21|488|104|1299|45|5/96|28.86|2.66|65|3|2|0",
+        ),
+        player_search_url("Waqar Younis"): search_page(
+            search_row("Waqar Younis", "PAK", 43543, 1, "Test matches", "1989/90 - 2002/03", 87)
+        ),
+        page_url(43543): bowling_page(
+            43543,
+            "Waqar Younis",
+            "1989-2003|87|154|2626.1|516|8788|373|7/76|23.56|3.34|43.4|28|22|5",
+            "1989-1999|4|8|107|19|390|8|4/80|48.75|3.64|80.2|1|0|0",
+        ),
+        player_search_url("Imran Khan"): search_page(
+            search_row("Imran Khan", "PAK", 40560, 1, "Test matches", "1971 - 1991/92", 88),
+            search_row("Imran Khan", "PAK", 316363, 1, "Test matches", "2014/15 - 2019/20", 10),
+        ),
+        page_url(40560): bowling_page(
+            40560,
+            "Imran Khan",
+            "1971-1992|88|142|3062.4|727|8258|362|8/58|22.81|2.69|53.7|17|23|6",
+            "1978-1989|23|38|846.2|216|2260|94|8/60|24.04|2.67|54|5|6|2",
+        ),
+    }
+    source, client = await client_for(pages)
+    arguments = {"format": "Test", "discipline": "bowling", "opposition": "India"}
+
+    async with client:
+        wasim = await client.call_tool("player_record", {"player_name": "Wasim Akram", **arguments})
+        waqar = await client.call_tool(
+            "player_record", {"player_name": "Waqar Younis", **arguments}
+        )
+        clarify = await client.call_tool(
+            "player_record", {"player_name": "Imran Khan", **arguments}
+        )
+        imran = await client.call_tool("player_record", {"player_id": 40560, **arguments})
+
+    assert source.requests == list(pages)
+    assert clarify.structured_content["status"] == "needs_clarification"
+    assert {candidate["id"] for candidate in clarify.structured_content["candidates"]} == {
+        40560,
+        316363,
+    }
+    records = (wasim, waqar, imran)
+    assert [
+        record.structured_content["answer_markdown"].split("\n", 1)[0] for record in records
+    ] == [
+        "Wasim Akram's record: matches 12, innings 21, wickets 45, average 28.86, economy 2.66, "
+        "strike rate 65, five-wicket hauls 2, ten-wicket matches 0, best innings 5/96.",
+        "Waqar Younis's record: matches 4, innings 8, wickets 8, average 48.75, economy 3.64, "
+        "strike rate 80.2, five-wicket hauls 0, ten-wicket matches 0, best innings 4/80.",
+        "Imran Khan's record: matches 23, innings 38, wickets 94, average 24.04, economy 2.67, "
+        "strike rate 54, five-wicket hauls 6, ten-wicket matches 2, best innings 8/60.",
+    ]
+    # The comparison reads the three records side by side: no arithmetic across rows.
+    assert {
+        record.structured_content["player"]["name"]: tuple(
+            record.structured_content["row"][column] for column in ("Wkts", "Ave", "SR")
+        )
+        for record in records
+    } == {
+        "Wasim Akram": (45, "28.86", 65),
+        "Waqar Younis": (8, "48.75", "80.2"),
+        "Imran Khan": (94, "24.04", 54),
+    }
+    for record, player_id in zip(records, (43547, 43543, 40560), strict=True):
+        assert record.structured_content["proof"]["url"] == page_url(player_id)
+        assert "opposition=6" in record.structured_content["proof"]["url"]
+        assert record.structured_content["proof"]["confirmed"] is True
 
 
 async def test_player_record_without_filtered_row_reports_no_matches() -> None:
@@ -3265,7 +3366,9 @@ def centurion_pages() -> dict[str, str]:
     }
 
 
-async def test_split_by_host_counts_hundreds_in_host_countries_not_continents() -> None:
+# Golden question 8, checked one player at a time (D34): has the player scored a Test hundred in
+# every host country? Continents are a separate grouping, so they don't count.
+async def test_golden_question_8_counts_hundreds_in_host_countries_not_continents() -> None:
     page_url = split_spec().url(as_of=FakeClock().now().date())
     source, client = await client_for(centurion_pages())
 
@@ -3980,33 +4083,65 @@ async def test_fielding_rate_leaderboard_keeps_its_dismissals_floor(
     assert result.structured_content["rows"][0]["dismissals"] == 157
 
 
-async def test_rhodes_fielder_catches_comparison_reports_level_players_and_confirms_proof() -> None:
+# Golden question 7: "Who has taken more catches across all formats compared to player X?" Rhodes
+# never kept wicket, so all his catches are as a fielder. `catches` also counts wicketkeepers'
+# catches, and the answer says so; R10 has both counts (146 and 85).
+@pytest.mark.parametrize(
+    ("metric", "field", "label", "beaters", "proof_count", "keeper_note"),
+    [
+        (
+            "fielder_catches",
+            "caught_fielder",
+            "catches as a fielder",
+            ["DPMD Jayawardene", "Part-time Keeper"],
+            4,
+            False,
+        ),
+        (
+            "catches",
+            "caught",
+            "catches",
+            ["DPMD Jayawardene", "Part-time Keeper", "Keeper Fielder"],
+            5,
+            True,
+        ),
+    ],
+    ids=["fielder_catches", "catches"],
+)
+async def test_golden_question_7_catches_across_all_formats_compared_to_rhodes(
+    metric: str,
+    field: str,
+    label: str,
+    beaters: list[str],
+    proof_count: int,
+    keeper_note: bool,
+) -> None:
     base_query = StatsguruQuery(
         **{
             "class": 11,
             "type": "fielding",
-            "qualifications": (Qualification(field="caught_fielder", minimum=100),),
-            "orderby": "caught_fielder",
+            "qualifications": (Qualification(field=field, minimum=100),),
+            "orderby": field,
             "size": 200,
         }
     )
     # Rhodes's 139 tightens the floor on the same field rather than repeating it (R2).
     proof_query = base_query.model_copy(
-        update={"qualifications": (Qualification(field="caught_fielder", minimum=139),)}
+        update={"qualifications": (Qualification(field=field, minimum=139),)}
     )
     rows = [
         fielding_row(49289, "DPMD Jayawardene", "Asia/SL", ct_fi=440, di="0.572"),
         fielding_row(28114, "Part-time Keeper", "IND", ct_fi=150, ct_wk=72, st=14, di="0.653"),
         fielding_row(RHODES_ID, "JN Rhodes", "SA", ct_fi=139, di="0.411"),
         fielding_row(2, "Level Catcher", "BBB", ct_fi=139, di="0.400"),
-        # More catches in all (160) than Rhodes, but fewer as a fielder, so not a beater.
+        # More catches in all (160) than Rhodes, but fewer as a fielder (120).
         fielding_row(3, "Keeper Fielder", "CCC", ct_fi=120, ct_wk=40, di="0.500"),
     ]
     source, client = await client_for(
         {
             **rhodes_search(),
             url(base_query): fielding_result_page(rows),
-            url(proof_query): fielding_result_page(rows[:4]),
+            url(proof_query): fielding_result_page(rows[:proof_count]),
         }
     )
 
@@ -4015,9 +4150,9 @@ async def test_rhodes_fielder_catches_comparison_reports_level_players_and_confi
             "better_than_player",
             {
                 "player_name": "Jonty Rhodes",
-                "format": "all internationals",
+                "format": "all formats",
                 "discipline": "fielding",
-                "metrics": ["fielder_catches"],
+                "metrics": [metric],
                 "period": {"kind": "all_time"},
             },
         )
@@ -4025,25 +4160,22 @@ async def test_rhodes_fielder_catches_comparison_reports_level_players_and_confi
     assert result.is_error is False
     assert source.requests == list(source.pages)
     content = result.structured_content
-    assert [row["player"] for row in content["beaters"]] == [
-        "DPMD Jayawardene",
-        "Part-time Keeper",
-    ]
+    assert [row["player"] for row in content["beaters"]] == beaters
     assert [row["player"] for row in content["ties"]] == ["Level Catcher"]
     proof_url = content["proof"]["url"]
     assert proof_url == url(proof_query)
-    assert "qualmin1=139;qualval1=caught_fielder" in proof_url
+    assert f"qualmin1=139;qualval1={field}" in proof_url
     assert "qualval2" not in proof_url
     assert content["proof"]["confirmed"] is True
     answer = content["answer_markdown"]
     assert answer.startswith(
-        "2 player(s) beat Jonty Rhodes's displayed catches as a fielder. "
+        f"{len(beaters)} player(s) beat Jonty Rhodes's displayed {label}. "
         "1 player(s) were level with Jonty Rhodes.\n"
     )
-    assert "Minimum: caught_fielder >= 100." in answer
+    assert f"Minimum: {field} >= 100." in answer
     assert "Lowered from the default" not in answer
     assert RUN_OUT_NOTE in answer
-    assert CATCHES_NOTE not in answer
+    assert (CATCHES_NOTE in answer) is keeper_note
 
 
 async def test_fielding_rate_comparison_uses_the_displayed_rate_as_an_exact_minimum() -> None:
