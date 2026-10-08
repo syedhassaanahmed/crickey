@@ -124,8 +124,7 @@ _FIELDING_NOTE = "Statsguru's fielding figures count catches and stumpings, not 
 _DISMISSALS_NOTE = "Dismissals are catches plus stumpings, including those taken as a wicketkeeper."
 _FIELDING_METRIC_NOTES = {
     "catches": (
-        "Catches include catches taken as a wicketkeeper; fielder_catches counts outfield "
-        "catches only."
+        "Catches include catches taken as a wicketkeeper; catches as a fielder leave those out."
     ),
     "dismissals": _DISMISSALS_NOTE,
     "dismissals_per_innings": _DISMISSALS_NOTE,
