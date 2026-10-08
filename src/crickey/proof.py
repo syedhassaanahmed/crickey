@@ -55,9 +55,7 @@ async def build_proof_link(
                 formula=fallback_formula,
                 reason="confirmation needs expected player IDs",
             )
-        qualifications = query.qualifications + tuple(
-            _threshold_qualification(threshold) for threshold in thresholds
-        )
+        qualifications = _proof_qualifications(query, thresholds)
         proof_query = query.model_copy(update={"qualifications": qualifications})
         url = proof_query.results_url(as_of=as_of)
         if call is None:
@@ -133,8 +131,36 @@ async def build_proof_link(
 def _can_express(query: StatsguruQuery, thresholds: tuple[Threshold, ...]) -> bool:
     return (
         bool(thresholds)
-        and len(query.qualifications) + len(thresholds) <= 3
         and all(threshold.metric.qualval for threshold in thresholds)
+        and len(_proof_qualifications(query, thresholds)) <= 3
+    )
+
+
+def _proof_qualifications(
+    query: StatsguruQuery, thresholds: tuple[Threshold, ...]
+) -> tuple[Qualification, ...]:
+    # Statsguru misreads a field repeated across qualifications (R2), so a threshold on a field
+    # the query already qualifies, such as a count comparison's own floor, tightens that one.
+    qualifications = list(query.qualifications)
+    for threshold in thresholds:
+        extra = _threshold_qualification(threshold)
+        index = next(
+            (i for i, current in enumerate(qualifications) if current.field == extra.field), None
+        )
+        if index is None:
+            qualifications.append(extra)
+        else:
+            qualifications[index] = _tightened(qualifications[index], extra)
+    return tuple(qualifications)
+
+
+def _tightened(current: Qualification, extra: Qualification) -> Qualification:
+    minimums = [value for value in (current.minimum, extra.minimum) if value is not None]
+    maximums = [value for value in (current.maximum, extra.maximum) if value is not None]
+    return Qualification(
+        field=current.field,
+        minimum=max(minimums) if minimums else None,
+        maximum=min(maximums) if maximums else None,
     )
 
 

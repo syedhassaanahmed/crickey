@@ -50,22 +50,22 @@ flowchart LR
 
 ## MCP tools (v1)
 Five tools (D14), all read-only.
-- **Answer tools** return `answer_markdown` plus structured data. The markdown has a short answer, a table, the method and assumptions, labelled pinned links and profile links (D16), the "as of" date and the freshness line (D17).
+- **Answer tools** return `answer_markdown` plus structured data. The markdown has a short answer, a table, the method and assumptions, labelled pinned links and profile links (D16), the "as of" date and the freshness line (D17). Fielding answers also say that Statsguru's fielding figures leave out run-outs (D35).
 - **Ambiguous names** (players, teams, grounds, trophies) return `needs_clarification` with the candidates. Player candidates list each one's ID, country, span and match count in the requested format, and the text says to call again with `player_id`.
 - **Players by ID:** `better_than_player` and `player_record` take the player's name or `player_id`, the ID from `find_player` or a player clarification; players with the same name and country can only be told apart by ID (R7). An ID skips the name search, and the name shown comes from the pages the tool reads anyway (X's results row or player page, R6). If `player_name` clearly names someone else (no surname-like word in common), the ID wins and the assumptions say so. An ID with no record in the format is an error naming the ID and the format; errors by ID name the player only as Statsguru does, or by ID.
-- **Descriptions** for answer tools start with example questions taken from the golden questions, followed by a bowling example where applicable and, for `player_record`, a split example; `better_than_player` and `player_record` then mention `player_id`. `find_player` and `query_stats` start with their own example question.
+- **Descriptions** for answer tools start with example questions taken from the golden questions, followed by bowling and fielding examples where applicable and, for `player_record`, a split example; `better_than_player` and `player_record` then mention `player_id`. `find_player` and `query_stats` start with their own example question.
 
 1. **`leaderboard`** (golden question 1): "Who has the best or fastest …?"
-   - Parameters: format, discipline (batting by default, or bowling), metric, period, filters by name (team, opposition, host country, continent, ground, trophy, home or away, match result), minimum and top N.
-   - Metrics can be Statsguru columns (batting: runs, average, strike rate, hundreds, …; bowling: wickets, bowling average, economy rate, bowling strike rate, five-wicket hauls and ten-wicket matches) or derived batting rates (innings per hundred, innings per fifty-plus, balls per dismissal).
-   - Without an explicit minimum, count metrics use a minimum of 1 (D33) and other metrics use their default minimum.
+   - Parameters: format, discipline (batting by default, bowling or fielding), metric, period, filters by name (team, opposition, host country, continent, ground, trophy, home or away, match result), minimum and top N.
+   - Metrics can be Statsguru columns (batting: runs, average, strike rate, hundreds, …; bowling: wickets, bowling average, economy rate, bowling strike rate, five-wicket hauls and ten-wicket matches; fielding: catches, catches as a fielder, catches as a wicketkeeper, stumpings, dismissals and dismissals per innings) or derived batting rates (innings per hundred, innings per fifty-plus, balls per dismissal).
+   - Without an explicit minimum, count metrics use a minimum of 1 (D33) and other metrics use their default minimum (D32 for bowling rates, D35 for dismissals per innings).
    - For a derived rate it also gives the group's overall figure, for example total innings ÷ total hundreds across all qualifying players.
 2. **`better_than_player`** (golden questions 2 and 3): "Who beats player X on A (and B)?"
-   - Parameters: player name or `player_id`, format, discipline (batting by default, or bowling), 1–3 metrics, all or any, period (all time, X's career span, or dates), minimum and filters.
-   - Includes X's own row. Proof link (D16): the results query with X's values as extra minimums or maximums for lower-is-better metrics (R2).
-   - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum and the bowling answer uses D32's default minimum. Whatever the metric, a default minimum never excludes X (D29, D32), except possibly under a team filter when X has played for more than one team; then the answer asks for an explicit minimum.
+   - Parameters: player name or `player_id`, format, discipline (batting by default, bowling or fielding), 1–3 metrics, all or any, period (all time, X's career span, or dates), minimum and filters.
+   - Includes X's own row. Proof link (D16): the results query with X's values as extra minimums or maximums for lower-is-better metrics (R2). A value on a field the query already qualifies, such as a count's own floor, tightens that qualification instead, because Statsguru misreads a field repeated across minimums (R2).
+   - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum, the bowling answer D32's and the fielding answer D35's. Whatever the metric, a default minimum never excludes X (D29, D32, D35), except possibly under a team filter when X has played for more than one team; then the answer asks for an explicit minimum.
 3. **`player_record`** (golden questions 4 and 5): one player's figures in a format.
-   - Parameters: player name or `player_id`, format, discipline (batting by default, or bowling), period (whole career, first or last N years of their career, dates or season), filters (opposition, host country, continent, ground, trophy such as the ODI World Cup, home or away, match result) and an optional `split_by`.
+   - Parameters: player name or `player_id`, format, discipline (batting by default, or bowling; not fielding yet, D35), period (whole career, first or last N years of their career, dates or season), filters (opposition, host country, continent, ground, trophy such as the ODI World Cup, home or away, match result) and an optional `split_by`.
    - Proof link: the player's Statsguru batting or bowling page with the same filters (R6).
    - **Splits (D34):** `split_by` (host, opposition, year or continent) answers with the same page's grouped rows (R6). `host` gives host countries only. The answer counts the groups with at least one hundred, or a five-wicket haul for bowling, and names those without. The rows must add up to the record's matches, or the call fails rather than show rows that may not cover the filters. One call covers one player: a question about every player would need every player's page, beyond D10's page limit, so answers suggest checking players one at a time.
 4. **`find_player`**: candidates with ID, country, formats and career spans (R7).
@@ -80,7 +80,7 @@ Server instructions tell the agent to:
 - read "T20" as D3 says.
 
 ## Calculations (inside the answer tools)
-- **Metric registry (batting and bowling):** for each metric it records:
+- **Metric registry (batting, bowling and fielding):** for each metric it records:
   - the label;
   - the Statsguru column, sort field and qualification field, if Statsguru has the metric;
   - the formula from totals, if it's derived;
@@ -99,7 +99,7 @@ Server instructions tell the agent to:
 The proof-link builder implements D16, and the answer renderer D17.
 - **Pinned dates:** `spanmin1` is the format's first match date (from the built-in tables) and `spanmax1` is today, unless the question's period is narrower.
 - **Unresolved career-relative periods:** query specs can carry them, but proof links are built only after they have been resolved to concrete dates.
-- **Final filter in the link:** added through `qualval2` and `qualval3` (R2).
+- **Final filter in the link:** added through `qualval2` and `qualval3` (R2). A filter on a field the query already qualifies tightens that qualification instead of repeating the field (R2).
 - **Freshness line:** from the results page's list of current or recent matches (R8).
 - **Profile links:** built from the player ID in Statsguru's format (R6).
 
