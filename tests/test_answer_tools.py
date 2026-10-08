@@ -9,10 +9,22 @@ import pytest
 from mcp import Client
 
 from crickey.fetcher import Fetcher, FetchResponse, MemoryPageSource
-from crickey.metrics import BATTING_METRICS, BOWLING_METRICS, batting_metric, bowling_metric
+from crickey.metrics import (
+    BATTING_METRICS,
+    BOWLING_METRICS,
+    FIELDING_METRICS,
+    batting_metric,
+    bowling_metric,
+    fielding_metric,
+)
 from crickey.query import PlayerPageSpec, Qualification, ResolvedPeriod, StatsguruQuery
 from crickey.resolve import names_agree
-from crickey.server import _comparison_default_minimum, create_server
+from crickey.server import (
+    _answer_metric,
+    _comparison_default_minimum,
+    _metric_row_payload,
+    create_server,
+)
 from crickey.settings import Settings
 
 pytestmark = pytest.mark.anyio
@@ -740,14 +752,9 @@ async def test_bowling_count_comparison_floor_caps_to_target_filtered_row() -> N
             "size": 200,
         }
     )
-    proof_query = base_query.model_copy(
-        update={
-            "qualifications": (
-                Qualification(field="wickets", minimum=92),
-                Qualification(field="wickets", minimum=92),
-            )
-        }
-    )
+    # Steyn's figure is the floor, so his threshold tightens it to the same value (R2): the proof
+    # is the comparison table itself.
+    proof_query = base_query
     form_url, form = career_form(47492, 1, "17 Dec 2004", "21 Feb 2019")
     target_spec = PlayerPageSpec(
         player_id=47492, **{"class": 1, "type": "bowling", "period": period, "continent": 2}
@@ -767,7 +774,6 @@ async def test_bowling_count_comparison_floor_caps_to_target_filtered_row() -> N
                 '<tr class="data1"><td>filtered</td><td>2006-2018</td><td>22</td><td>38</td><td>659.1</td><td>120</td><td>2219</td><td>92</td><td>7/51</td><td>24.11</td><td>3.36</td><td>42.9</td><td>5</td><td>1</td><td>0</td></tr>'
             ),
             url(base_query): bowling_result_page(rows, total=2),
-            url(proof_query): bowling_result_page(rows, total=2),
         }
     )
 
@@ -783,6 +789,8 @@ async def test_bowling_count_comparison_floor_caps_to_target_filtered_row() -> N
             },
         )
 
+    assert source.requests == list(source.pages)
+    assert result.structured_content["proof"]["url"] == url(proof_query)
     assert result.structured_content["proof"]["confirmed"] is True
     assert "Minimum: wickets >= 92." in result.structured_content["answer_markdown"]
     assert (
@@ -805,14 +813,8 @@ async def test_bowling_five_wickets_floor_caps_to_filtered_row() -> None:
             "size": 200,
         }
     )
-    proof_query = base_query.model_copy(
-        update={
-            "qualifications": (
-                Qualification(field="five_wickets", minimum=2),
-                Qualification(field="five_wickets", minimum=2),
-            )
-        }
-    )
+    # Anderson's figure is the floor, so the proof is the comparison table itself (R2).
+    proof_query = base_query
     form_url, form = career_form(8608, 1, "22 May 2003", "10 Jul 2024")
     target_spec = PlayerPageSpec(
         player_id=8608, **{"class": 1, "type": "bowling", "period": period, "continent": 2}
@@ -832,7 +834,6 @@ async def test_bowling_five_wickets_floor_caps_to_filtered_row() -> None:
                 '<tr class="data1"><td>filtered</td><td>2003-2024</td><td>32</td><td>58</td><td>976.2</td><td>251</td><td>2531</td><td>92</td><td>6/40</td><td>27.51</td><td>2.59</td><td>63.6</td><td>2</td><td>2</td><td>0</td></tr>'
             ),
             url(base_query): bowling_result_page(rows, total=2),
-            url(proof_query): bowling_result_page(rows, total=2),
         }
     )
 
@@ -848,6 +849,8 @@ async def test_bowling_five_wickets_floor_caps_to_filtered_row() -> None:
             },
         )
 
+    assert source.requests == list(source.pages)
+    assert result.structured_content["proof"]["url"] == url(proof_query)
     assert result.structured_content["proof"]["confirmed"] is True
     assert "Minimum: five_wickets >= 2." in result.structured_content["answer_markdown"]
     assert [row["player"] for row in result.structured_content["beaters"]] == ["Five-for Bowler"]
@@ -2597,7 +2600,7 @@ async def test_any_mode_short_answer_counts_beaters_on_each_metric() -> None:
     )
 
 
-async def test_answer_metric_schema_lists_batting_and_bowling_keys() -> None:
+async def test_answer_metric_schema_lists_batting_bowling_and_fielding_keys() -> None:
     _source, client = await client_for({})
 
     async with client:
@@ -2609,7 +2612,7 @@ async def test_answer_metric_schema_lists_batting_and_bowling_keys() -> None:
 
     leaderboard = tools["leaderboard"].input_schema
     comparison = tools["better_than_player"].input_schema
-    expected = [*BATTING_METRICS, *BOWLING_METRICS]
+    expected = [*BATTING_METRICS, *BOWLING_METRICS, *FIELDING_METRICS]
     assert metric_enum(leaderboard, leaderboard["properties"]["metric"]) == expected
     assert metric_enum(comparison, comparison["properties"]["metrics"]["items"]) == expected
     assert {
@@ -2619,6 +2622,12 @@ async def test_answer_metric_schema_lists_batting_and_bowling_keys() -> None:
         "bowling_strike_rate",
         "five_wickets",
         "ten_wickets",
+        "catches",
+        "fielder_catches",
+        "keeper_catches",
+        "stumpings",
+        "dismissals",
+        "dismissals_per_innings",
     } <= set(expected)
 
 
@@ -3684,3 +3693,508 @@ async def test_split_by_without_the_counted_column_does_not_claim_a_count() -> N
     )
     assert "Counted" not in answer
     assert markdown_rows(answer)[0] == ["Host country", "Mat", "Wkts", "Ave"]
+
+
+# Issue #61: fielding answers. The columns follow R6 and R8; the figures are synthetic, apart
+# from Jonty Rhodes's 139 catches (all as a fielder) and D/I of 0.411 (R10).
+RHODES_ID = 46973
+FIELDING_HEADERS = ("Span", "Mat", "Inns", "Dis", "Ct", "St", "Ct Wk", "Ct Fi", "MD", "D/I")
+RUN_OUT_NOTE = "Statsguru's fielding figures count catches and stumpings, not run-outs."
+CATCHES_NOTE = "Catches include catches taken as a wicketkeeper"
+DISMISSALS_NOTE = "Dismissals are catches plus stumpings, including those taken as a wicketkeeper."
+
+
+def fielding_result_page(rows: list[str]) -> str:
+    headers = "".join(f"<th>{header}</th>" for header in ("Player", *FIELDING_HEADERS))
+    return f"""
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr>{headers}</tr>
+    {"".join(rows)}
+    </table>
+    <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>{1 if rows else 0}</b> - <b>{len(rows)}</b> of <b>{len(rows)}</b></td></tr></table>
+    </body></html>
+    """
+
+
+def fielding_cells(*, ct_fi: int, di: str, ct_wk: int = 0, st: int = 0, inns: int = 338) -> str:
+    ct = ct_wk + ct_fi
+    cells = ("1992-2014", 297, inns, ct + st, ct, st, ct_wk, ct_fi, "5 (5ct 0st)", di)
+    return "".join(f"<td>{cell}</td>" for cell in cells)
+
+
+def fielding_row(player_id: int, name: str, team: str, **figures: object) -> str:
+    return (
+        f'<tr class="data1"><td><a href="/ci/content/player/{player_id}.html">{name}</a> '
+        f"({team})</td>{fielding_cells(**figures)}</tr>"
+    )
+
+
+def fielding_player_page(*rows: tuple[str, dict[str, object]]) -> str:
+    headers = "".join(f"<th>{header}</th>" for header in ("", *FIELDING_HEADERS))
+    body = "".join(
+        f'<tr class="data1"><td>{grouping}</td>{fielding_cells(**figures)}</tr>'
+        for grouping, figures in rows
+    )
+    return f"""
+    <html><body>
+    <table class="engineTable"><caption>Career averages</caption>
+    <tr>{headers}</tr>
+    {body}
+    </table></body></html>
+    """
+
+
+def rhodes_search() -> dict[str, str]:
+    return {
+        player_search_url("Jonty Rhodes"): search_page(
+            search_row(
+                "Jonty Rhodes",
+                "SA",
+                RHODES_ID,
+                11,
+                "Combined Test, ODI and T20I",
+                "1991/92 - 2002/03",
+                297,
+            )
+        )
+    }
+
+
+@pytest.mark.parametrize(
+    ("class_id", "expected"),
+    [(1, 50), (2, 50), (3, 25), (6, 100), (11, 100)],
+)
+def test_unfiltered_fielding_default_minimums(class_id: int, expected: int) -> None:
+    catches = fielding_metric("fielder_catches")
+    rate = fielding_metric("dismissals_per_innings")
+
+    assert _comparison_default_minimum((catches,), class_id, period=None, filters={}) == (
+        "caught_fielder",
+        expected,
+    )
+    assert _comparison_default_minimum((catches, rate), class_id, period=None, filters={}) == (
+        "dismissals",
+        expected,
+    )
+
+
+@pytest.mark.parametrize(
+    ("class_id", "expected"),
+    [(1, 20), (2, 20), (3, 20), (6, 50), (11, 30)],
+)
+def test_filtered_fielding_default_minimums(class_id: int, expected: int) -> None:
+    ten_years = ResolvedPeriod(start="2016-10-08", end="2026-10-08")
+
+    assert _comparison_default_minimum(
+        (fielding_metric("stumpings"),), class_id, period=None, filters={"opposition": 6}
+    ) == ("stumped", expected)
+    assert _comparison_default_minimum(
+        (fielding_metric("dismissals_per_innings"),), class_id, period=ten_years, filters={}
+    ) == ("dismissals", expected)
+
+
+@pytest.mark.parametrize(
+    ("value", "key"),
+    [
+        ("catches", "catches"),
+        ("caught", "catches"),
+        ("fielder_catches", "fielder_catches"),
+        ("catches as a fielder", "fielder_catches"),
+        ("Outfield catches", "fielder_catches"),
+        ("caught_fielder", "fielder_catches"),
+        ("wicket-keeper catches", "keeper_catches"),
+        ("caught_keeper", "keeper_catches"),
+        ("stumped", "stumpings"),
+        ("dismissals", "dismissals"),
+        ("D/I", "dismissals_per_innings"),
+        ("dismissals_per_inns", "dismissals_per_innings"),
+    ],
+)
+def test_fielding_metric_names_and_statsguru_fields_resolve(value: str, key: str) -> None:
+    assert _answer_metric("fielding", value).key == key
+
+
+def test_unknown_fielding_metric_lists_the_fielding_keys() -> None:
+    with pytest.raises(ValueError) as error:
+        _answer_metric("fielding", "run outs")
+
+    assert str(error.value).startswith(
+        "unknown fielding metric 'run outs'; valid keys: catches, fielder_catches, "
+        "keeper_catches, stumpings, dismissals, dismissals_per_innings;"
+    )
+
+
+def test_leaderboard_rows_name_only_the_columns_their_table_has() -> None:
+    batting = _metric_row_payload(
+        {"Player": "A Batter", "player_id": 1, "Inns": 140, "Runs": 7000, "100": 20},
+        batting_metric("runs"),
+        1,
+        1,
+    )
+    fielding = _metric_row_payload(
+        {
+            "Player": "JN Rhodes",
+            "player_id": RHODES_ID,
+            "Inns": 338,
+            "Dis": 139,
+            "Ct": 139,
+            "St": 0,
+            "Ct Wk": 0,
+            "Ct Fi": 139,
+            "D/I": "0.411",
+        },
+        fielding_metric("fielder_catches"),
+        11,
+        1,
+    )
+
+    assert set(batting) == {
+        *("rank", "player", "player_id", "value", "metric"),
+        *("Inns", "Runs", "100", "innings", "runs", "hundreds"),
+    }
+    assert {"dismissals", "caught", "stumped", "caught_keeper", "dismissals_per_inns"} <= set(
+        fielding
+    )
+    assert (fielding["innings"], fielding["caught_fielder"]) == (338, 139)
+    assert "innings_fielded" not in fielding
+
+
+@pytest.mark.parametrize(
+    ("metric", "field", "label", "notes"),
+    [
+        ("catches", "caught", "catches", (CATCHES_NOTE,)),
+        ("fielder_catches", "caught_fielder", "catches as a fielder", ()),
+        ("keeper_catches", "caught_keeper", "catches as a wicketkeeper", ()),
+        ("stumpings", "stumped", "stumpings", ()),
+        ("dismissals", "dismissals", "dismissals", (DISMISSALS_NOTE,)),
+    ],
+)
+async def test_fielding_count_leaderboards_use_a_minimum_of_one_and_say_what_is_counted(
+    metric: str, field: str, label: str, notes: tuple[str, ...]
+) -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 11,
+            "type": "fielding",
+            "qualifications": (Qualification(field=field, minimum=1),),
+            "orderby": field,
+            "size": 10,
+        }
+    )
+    rows = [
+        fielding_row(1, "First", "AAA", ct_fi=440, ct_wk=30, st=20, di="0.700"),
+        fielding_row(2, "Second", "BBB", ct_fi=364, ct_wk=20, st=10, di="0.600"),
+        fielding_row(3, "Third", "CCC", ct_fi=300, ct_wk=10, st=5, di="0.500"),
+    ]
+    source, client = await client_for({url(query): fielding_result_page(rows)})
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard",
+            {
+                "format": "all internationals",
+                "discipline": "fielding",
+                "metric": metric,
+                "top_n": 2,
+            },
+        )
+
+    assert source.requests == [url(query)]
+    answer = result.structured_content["answer_markdown"]
+    leader = result.structured_content["rows"][0]
+    assert answer.startswith(f"First leads with {leader['value']} {label}.")
+    assert table_headers(answer) == ["Rank", "Player", label]
+    assert f"Minimum: {field} >= 1." in answer
+    assert RUN_OUT_NOTE in answer
+    for note in (CATCHES_NOTE, DISMISSALS_NOTE):
+        assert (note in answer) is (note in notes)
+    assert [row["player"] for row in result.structured_content["rows"]] == ["First", "Second"]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "query_fields", "floor"),
+    [
+        ({"format": "Test", "metric": "dismissals_per_innings"}, {"class": 1}, 50),
+        (
+            {"format": "Test", "metric": "D/I", "continent": "Asia"},
+            {"class": 1, "continent": 2},
+            20,
+        ),
+        (
+            {
+                "format": "T20I",
+                "metric": "dismissals per innings",
+                "period": {"kind": "dates", "start": "2016-10-08", "end": "2026-10-08"},
+            },
+            {"class": 3, "period": ResolvedPeriod(start="2016-10-08", end="2026-10-08")},
+            20,
+        ),
+        (
+            {
+                "format": "all internationals",
+                "metric": "dismissals_per_innings",
+                "opposition": "India",
+            },
+            {"class": 11, "opposition": 6},
+            30,
+        ),
+    ],
+)
+async def test_fielding_rate_leaderboard_keeps_its_dismissals_floor(
+    arguments: dict[str, object], query_fields: dict[str, object], floor: int
+) -> None:
+    query = StatsguruQuery(
+        **{
+            "type": "fielding",
+            "orderby": "dismissals_per_inns",
+            "size": 10,
+            **query_fields,
+            "qualifications": (Qualification(field="dismissals", minimum=floor),),
+        }
+    )
+    rows = [
+        fielding_row(1, "Busy Keeper", "AAA", ct_fi=0, ct_wk=150, st=7, inns=68, di="2.308"),
+        fielding_row(2, "Second Keeper", "BBB", ct_fi=0, ct_wk=221, st=11, inns=101, di="2.297"),
+        fielding_row(RHODES_ID, "JN Rhodes", "SA", ct_fi=139, di="0.411"),
+    ]
+    source, client = await client_for({url(query): fielding_result_page(rows)})
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard", {**arguments, "discipline": "fielding", "top_n": 2}
+        )
+
+    assert source.requests == [url(query)]
+    assert f"qualmin1={floor};qualval1=dismissals" in source.requests[0]
+    answer = result.structured_content["answer_markdown"]
+    assert answer.startswith("Busy Keeper leads with 2.308 dismissals per innings.")
+    assert table_headers(answer) == ["Rank", "Player", "dismissals per innings", "dismissals"]
+    assert f"Minimum: dismissals >= {floor}." in answer
+    assert RUN_OUT_NOTE in answer
+    assert DISMISSALS_NOTE in answer
+    assert [row["player"] for row in result.structured_content["rows"]] == [
+        "Busy Keeper",
+        "Second Keeper",
+    ]
+    assert result.structured_content["rows"][0]["dismissals"] == 157
+
+
+async def test_rhodes_fielder_catches_comparison_reports_level_players_and_confirms_proof() -> None:
+    base_query = StatsguruQuery(
+        **{
+            "class": 11,
+            "type": "fielding",
+            "qualifications": (Qualification(field="caught_fielder", minimum=100),),
+            "orderby": "caught_fielder",
+            "size": 200,
+        }
+    )
+    # Rhodes's 139 tightens the floor on the same field rather than repeating it (R2).
+    proof_query = base_query.model_copy(
+        update={"qualifications": (Qualification(field="caught_fielder", minimum=139),)}
+    )
+    rows = [
+        fielding_row(49289, "DPMD Jayawardene", "Asia/SL", ct_fi=440, di="0.572"),
+        fielding_row(28114, "Part-time Keeper", "IND", ct_fi=150, ct_wk=72, st=14, di="0.653"),
+        fielding_row(RHODES_ID, "JN Rhodes", "SA", ct_fi=139, di="0.411"),
+        fielding_row(2, "Level Catcher", "BBB", ct_fi=139, di="0.400"),
+        # More catches in all (160) than Rhodes, but fewer as a fielder, so not a beater.
+        fielding_row(3, "Keeper Fielder", "CCC", ct_fi=120, ct_wk=40, di="0.500"),
+    ]
+    source, client = await client_for(
+        {
+            **rhodes_search(),
+            url(base_query): fielding_result_page(rows),
+            url(proof_query): fielding_result_page(rows[:4]),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Jonty Rhodes",
+                "format": "all internationals",
+                "discipline": "fielding",
+                "metrics": ["fielder_catches"],
+                "period": {"kind": "all_time"},
+            },
+        )
+
+    assert result.is_error is False
+    assert source.requests == list(source.pages)
+    content = result.structured_content
+    assert [row["player"] for row in content["beaters"]] == [
+        "DPMD Jayawardene",
+        "Part-time Keeper",
+    ]
+    assert [row["player"] for row in content["ties"]] == ["Level Catcher"]
+    proof_url = content["proof"]["url"]
+    assert proof_url == url(proof_query)
+    assert "qualmin1=139;qualval1=caught_fielder" in proof_url
+    assert "qualval2" not in proof_url
+    assert content["proof"]["confirmed"] is True
+    answer = content["answer_markdown"]
+    assert answer.startswith(
+        "2 player(s) beat Jonty Rhodes's displayed catches as a fielder. "
+        "1 player(s) were level with Jonty Rhodes.\n"
+    )
+    assert "Minimum: caught_fielder >= 100." in answer
+    assert "Lowered from the default" not in answer
+    assert RUN_OUT_NOTE in answer
+    assert CATCHES_NOTE not in answer
+
+
+async def test_fielding_rate_comparison_uses_the_displayed_rate_as_an_exact_minimum() -> None:
+    base_query = StatsguruQuery(
+        **{
+            "class": 11,
+            "type": "fielding",
+            "qualifications": (Qualification(field="dismissals", minimum=100),),
+            "orderby": "dismissals_per_inns",
+            "size": 200,
+        }
+    )
+    proof_query = base_query.model_copy(
+        update={
+            "qualifications": (
+                Qualification(field="dismissals", minimum=100),
+                Qualification(field="dismissals_per_inns", minimum=Decimal("0.411")),
+            )
+        }
+    )
+    rows = [
+        fielding_row(1, "Busy Keeper", "AUS", ct_fi=0, ct_wk=813, st=92, inns=490, di="1.846"),
+        fielding_row(2, "Safe Hands", "NZ", ct_fi=354, inns=550, di="0.643"),
+        fielding_row(RHODES_ID, "JN Rhodes", "SA", ct_fi=139, di="0.411"),
+        fielding_row(3, "Level Rate", "ENG", ct_fi=150, inns=365, di="0.411"),
+        fielding_row(4, "Steady Fielder", "IND", ct_fi=256, inns=823, di="0.311"),
+    ]
+    source, client = await client_for(
+        {
+            **rhodes_search(),
+            url(base_query): fielding_result_page(rows),
+            url(proof_query): fielding_result_page(rows[:4]),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "Jonty Rhodes",
+                "format": "all internationals",
+                "discipline": "fielding",
+                "metrics": ["dismissals_per_innings"],
+                "period": {"kind": "all_time"},
+            },
+        )
+
+    assert source.requests == list(source.pages)
+    content = result.structured_content
+    assert [row["player"] for row in content["beaters"]] == ["Busy Keeper", "Safe Hands"]
+    assert [row["player"] for row in content["ties"]] == ["Level Rate"]
+    assert "qualmin2=0.411" in content["proof"]["url"]
+    assert "qualval2=dismissals_per_inns" in content["proof"]["url"]
+    assert content["proof"]["confirmed"] is True
+    answer = content["answer_markdown"]
+    assert "Minimum: dismissals >= 100." in answer
+    assert "Higher dismissals per innings is better." in answer
+    assert RUN_OUT_NOTE in answer
+    assert DISMISSALS_NOTE in answer
+
+
+async def test_fielding_comparison_lowers_the_floor_to_the_targets_own_figure() -> None:
+    def query(floor: int) -> StatsguruQuery:
+        return StatsguruQuery(
+            **{
+                "class": 1,
+                "type": "fielding",
+                "continent": 2,
+                "qualifications": (Qualification(field="stumped", minimum=floor),),
+                "orderby": "stumped",
+                "size": 200,
+            }
+        )
+
+    target_url = PlayerPageSpec(
+        player_id=28081, **{"class": 1, "type": "fielding", "continent": 2}
+    ).url(as_of=FakeClock().now().date())
+    spinner = fielding_row(1, "Spin Keeper", "IND", ct_fi=0, ct_wk=90, st=25, inns=80, di="1.437")
+    target = fielding_row(28081, "MS Dhoni", "IND", ct_fi=0, ct_wk=80, st=12, inns=75, di="1.226")
+    pages = {
+        player_search_url("MS Dhoni"): search_page(
+            search_row("MS Dhoni", "IND", 28081, 1, "Test matches", "2005/06 - 2014/15", 90)
+        ),
+        url(query(20)): fielding_result_page([spinner]),
+        target_url: fielding_player_page(
+            ("unfiltered", {"ct_fi": 0, "ct_wk": 256, "st": 38, "inns": 166, "di": "1.771"}),
+            ("filtered", {"ct_fi": 0, "ct_wk": 80, "st": 12, "inns": 75, "di": "1.226"}),
+        ),
+        # Dhoni's own figure is now the floor, so the proof is this table itself (R2).
+        url(query(12)): fielding_result_page([spinner, target]),
+    }
+    source, client = await client_for(pages)
+
+    async with client:
+        result = await client.call_tool(
+            "better_than_player",
+            {
+                "player_name": "MS Dhoni",
+                "format": "Test",
+                "discipline": "fielding",
+                "metrics": ["stumpings"],
+                "continent": "Asia",
+                "period": {"kind": "all_time"},
+            },
+        )
+
+    assert result.is_error is False
+    assert source.requests == list(pages)
+    assert [row["player"] for row in result.structured_content["beaters"]] == ["Spin Keeper"]
+    assert result.structured_content["proof"]["confirmed"] is True
+    answer = result.structured_content["answer_markdown"]
+    assert "Minimum: stumped >= 12." in answer
+    assert (
+        "Lowered from the default stumped >= 20 to MS Dhoni's own figure, so MS Dhoni qualifies."
+        in answer
+    )
+
+
+async def test_player_record_keeps_to_batting_and_bowling() -> None:
+    source, client = await client_for({})
+
+    async with client:
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        record = await client.call_tool(
+            "player_record",
+            {"player_name": "Jonty Rhodes", "format": "ODI", "discipline": "fielding"},
+        )
+        unknown = await client.call_tool(
+            "leaderboard", {"format": "ODI", "discipline": "keeping", "metric": "catches"}
+        )
+        unknown_record = await client.call_tool(
+            "player_record",
+            {"player_name": "Jonty Rhodes", "format": "ODI", "discipline": "keeping"},
+        )
+
+    def discipline_enum(name: str) -> list[str]:
+        schema = tools[name].input_schema
+        prop = schema["properties"]["discipline"]
+        ref = next(option["$ref"] for option in prop["anyOf"] if "$ref" in option)
+        return schema["$defs"][ref.rsplit("/", 1)[-1]]["enum"]
+
+    assert discipline_enum("leaderboard") == ["batting", "bowling", "fielding"]
+    assert discipline_enum("better_than_player") == ["batting", "bowling", "fielding"]
+    assert discipline_enum("player_record") == ["batting", "bowling"]
+    assert record.is_error is True
+    assert (
+        "player_record has no fielding records yet; use query_stats with type fielding"
+        in record.content[0].text
+    )
+    assert unknown.is_error is True
+    assert "discipline must be 'batting', 'bowling' or 'fielding'." in unknown.content[0].text
+    assert unknown_record.is_error is True
+    assert "discipline must be 'batting' or 'bowling'." in unknown_record.content[0].text
+    assert source.requests == []

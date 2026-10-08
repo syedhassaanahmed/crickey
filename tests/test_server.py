@@ -259,6 +259,20 @@ async def test_player_answer_tools_take_an_optional_player_id() -> None:
     assert "player_id" not in by_name["leaderboard"].input_schema["properties"]
 
 
+async def test_comparison_and_leaderboard_descriptions_add_a_fielding_example() -> None:
+    _, _, client = await call_with_source({})
+
+    async with client:
+        by_name = {tool.name: tool for tool in (await client.list_tools()).tools}
+
+    for name in ("leaderboard", "better_than_player"):
+        description = by_name[name].description
+        assert description.index("Bowling example:") < description.index("Fielding example:")
+    assert "batting, bowling or fielding leaderboard" in by_name["leaderboard"].description
+    assert "than Jonty Rhodes" in by_name["better_than_player"].description
+    assert "Fielding example:" not in by_name["player_record"].description
+
+
 async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
     _, _, client = await call_with_source({})
 

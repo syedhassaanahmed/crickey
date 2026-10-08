@@ -287,6 +287,69 @@ BOWLING_METRICS: dict[str, Metric] = {
 }
 
 
+# One set of floors for every fielding metric (D35): each count on its own field, and dismissals
+# per innings on dismissals.
+_FIELDING_MINIMUMS = {1: 50, 2: 50, 3: 25, 6: 100, 11: 100}
+
+FIELDING_METRICS: dict[str, Metric] = {
+    "catches": Metric(
+        "catches",
+        "catches",
+        "Ct",
+        "caught",
+        "caught",
+        BetterDirection.HIGHER,
+        _mins("caught", _FIELDING_MINIMUMS),
+    ),
+    "fielder_catches": Metric(
+        "fielder_catches",
+        "catches as a fielder",
+        "Ct Fi",
+        "caught_fielder",
+        "caught_fielder",
+        BetterDirection.HIGHER,
+        _mins("caught_fielder", _FIELDING_MINIMUMS),
+    ),
+    "keeper_catches": Metric(
+        "keeper_catches",
+        "catches as a wicketkeeper",
+        "Ct Wk",
+        "caught_keeper",
+        "caught_keeper",
+        BetterDirection.HIGHER,
+        _mins("caught_keeper", _FIELDING_MINIMUMS),
+    ),
+    "stumpings": Metric(
+        "stumpings",
+        "stumpings",
+        "St",
+        "stumped",
+        "stumped",
+        BetterDirection.HIGHER,
+        _mins("stumped", _FIELDING_MINIMUMS),
+    ),
+    "dismissals": Metric(
+        "dismissals",
+        "dismissals",
+        "Dis",
+        "dismissals",
+        "dismissals",
+        BetterDirection.HIGHER,
+        _mins("dismissals", _FIELDING_MINIMUMS),
+    ),
+    "dismissals_per_innings": Metric(
+        "dismissals_per_innings",
+        "dismissals per innings",
+        "D/I",
+        "dismissals_per_inns",
+        "dismissals_per_inns",
+        BetterDirection.HIGHER,
+        _mins("dismissals", _FIELDING_MINIMUMS),
+        proof_precision=3,
+    ),
+}
+
+
 def batting_metric(key: str) -> Metric:
     try:
         return BATTING_METRICS[key]
@@ -299,6 +362,13 @@ def bowling_metric(key: str) -> Metric:
         return BOWLING_METRICS[key]
     except KeyError as error:
         raise ValueError(f"unknown bowling metric {key!r}") from error
+
+
+def fielding_metric(key: str) -> Metric:
+    try:
+        return FIELDING_METRICS[key]
+    except KeyError as error:
+        raise ValueError(f"unknown fielding metric {key!r}") from error
 
 
 def rank_key(metric: Metric, value: Decimal | None) -> tuple[int, Decimal]:

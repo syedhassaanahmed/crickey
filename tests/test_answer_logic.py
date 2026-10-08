@@ -9,9 +9,11 @@ from crickey.fetcher import Fetcher, Freshness, MemoryPageSource
 from crickey.metrics import (
     BATTING_METRICS,
     BOWLING_METRICS,
+    FIELDING_METRICS,
     BetterDirection,
     batting_metric,
     bowling_metric,
+    fielding_metric,
     rank_key,
 )
 from crickey.parsers import RecentMatch
@@ -162,7 +164,7 @@ def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
 
 
 def test_count_metrics_are_derived_from_the_registry() -> None:
-    metrics = {**BATTING_METRICS, **BOWLING_METRICS}
+    metrics = {**BATTING_METRICS, **BOWLING_METRICS, **FIELDING_METRICS}
 
     assert {key for key, metric in metrics.items() if metric.is_count} == {
         "runs",
@@ -171,7 +173,58 @@ def test_count_metrics_are_derived_from_the_registry() -> None:
         "wickets",
         "five_wickets",
         "ten_wickets",
+        "catches",
+        "fielder_catches",
+        "keeper_catches",
+        "stumpings",
+        "dismissals",
     }
+
+
+def test_fielding_metrics_read_statsguru_columns_with_one_floor_table() -> None:
+    columns = {
+        key: (metric.column, metric.orderby, metric.qualval, metric.direction)
+        for key, metric in FIELDING_METRICS.items()
+    }
+    floors = {
+        key: {
+            class_id: (
+                metric.default_minimum(class_id).field,
+                metric.default_minimum(class_id).minimum,
+            )
+            for class_id in (1, 2, 3, 6, 11)
+        }
+        for key, metric in FIELDING_METRICS.items()
+    }
+
+    higher = BetterDirection.HIGHER
+    assert columns == {
+        "catches": ("Ct", "caught", "caught", higher),
+        "fielder_catches": ("Ct Fi", "caught_fielder", "caught_fielder", higher),
+        "keeper_catches": ("Ct Wk", "caught_keeper", "caught_keeper", higher),
+        "stumpings": ("St", "stumped", "stumped", higher),
+        "dismissals": ("Dis", "dismissals", "dismissals", higher),
+        "dismissals_per_innings": ("D/I", "dismissals_per_inns", "dismissals_per_inns", higher),
+    }
+    own_field = {
+        "catches": "caught",
+        "fielder_catches": "caught_fielder",
+        "keeper_catches": "caught_keeper",
+        "stumpings": "stumped",
+        "dismissals": "dismissals",
+        "dismissals_per_innings": "dismissals",
+    }
+    assert floors == {
+        key: {
+            class_id: (field, minimum)
+            for class_id, minimum in {1: 50, 2: 50, 3: 25, 6: 100, 11: 100}.items()
+        }
+        for key, field in own_field.items()
+    }
+    rate = fielding_metric("dismissals_per_innings")
+    assert rate.value_from_row({"D/I": "0.411"}) == Decimal("0.411")
+    assert rate.better_than(Decimal("0.64"), Decimal("0.411")) is True
+    assert rate.tied(Decimal("2.25"), Decimal("2.250")) is True
 
 
 def test_every_default_minimum_compiles_as_statsguru_qualification() -> None:
@@ -190,6 +243,23 @@ def test_every_default_minimum_compiles_as_statsguru_qualification() -> None:
 
             assert f"qualval1={minimum.field}" in url
             assert "template=results" in url
+    for metric in FIELDING_METRICS.values():
+        for class_id in metric.supported_classes:
+            minimum = metric.default_minimum(class_id)
+            url = StatsguruQuery(
+                **{
+                    "class": class_id,
+                    "type": "fielding",
+                    "qualifications": (
+                        Qualification(field=minimum.field, minimum=minimum.minimum),
+                        Qualification(field=metric.qualval, minimum=1),
+                    ),
+                    "orderby": metric.orderby,
+                }
+            ).results_url(as_of=date(2026, 10, 4))
+
+            assert f"qualval1={minimum.field}" in url
+            assert f"orderby={metric.orderby}" in url
 
 
 def test_equal_displayed_values_from_synthetic_results_page_are_reported_as_ties() -> None:
@@ -652,6 +722,56 @@ def test_proof_link_adds_qualval2_and_qualval3_and_fetches_once_to_confirm() -> 
         assert proof.label.startswith("Confirmed Statsguru results: T20I batting")
         assert "at least 38.94 average" in proof.label
         assert "at least 128.02 strike rate" in proof.label
+        assert source.requests == [expected_url]
+
+    asyncio.run(run())
+
+
+def test_proof_threshold_on_the_floor_field_tightens_it_instead_of_repeating_it() -> None:
+    # Statsguru misreads a repeated qualification field (R2): caught_fielder >= 100 and >= 139
+    # returned only players on exactly 100 or 139.
+    async def run() -> None:
+        query = StatsguruQuery(
+            **{
+                "class": 11,
+                "type": "fielding",
+                "qualifications": (Qualification(field="dismissals", minimum=100),),
+                "orderby": "caught_fielder",
+                "size": 200,
+            }
+        )
+        expected_url = (
+            "https://stats.cricinfo.com/ci/engine/stats/index.html?"
+            "class=11;orderby=caught_fielder;qualmin1=139;qualmin2=139;qualmin3=0.411;"
+            "qualval1=dismissals;qualval2=caught_fielder;qualval3=dismissals_per_inns;size=200;"
+            "spanmax1=08+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;"
+            "type=fielding"
+        )
+        html = """
+        <table class="engineTable"><caption>Overall figures</caption>
+        <tr><th>Player</th><th>Dis</th><th>Ct Fi</th><th>D/I</th></tr>
+        <tr class="data1"><td><a href="/ci/content/player/49289.html">DPMD Jayawardene</a> (Asia/SL)</td><td>440</td><td>440</td><td>0.572</td></tr>
+        <tr class="data1"><td><a href="/ci/content/player/46973.html">JN Rhodes</a> (SA)</td><td>139</td><td>139</td><td>0.411</td></tr>
+        </table><table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>2</b> of <b>2</b></td></tr></table>
+        """
+        source = MemoryPageSource({expected_url: html})
+        fetcher = Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
+        async with fetcher.call(budget=5) as call:
+            proof = await build_proof_link(
+                query,
+                thresholds=(
+                    Threshold(fielding_metric("dismissals"), 139),
+                    Threshold(fielding_metric("fielder_catches"), 139),
+                    Threshold(fielding_metric("dismissals_per_innings"), Decimal("0.411")),
+                ),
+                expected_player_ids=(49289, 46973),
+                call=call,
+                as_of=date(2026, 10, 8),
+            )
+
+        # Three thresholds plus the floor fit Statsguru's three qualifications once merged.
+        assert proof.url == expected_url
+        assert proof.confirmed is True
         assert source.requests == [expected_url]
 
     asyncio.run(run())

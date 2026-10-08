@@ -1060,6 +1060,27 @@ def test_unverified_sort_fields_have_no_direction_in_labels() -> None:
     )
 
 
+def test_fielding_labels_name_catches_stumpings_and_dismissals_per_innings() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 11,
+            "type": "fielding",
+            "qualifications": (
+                Qualification(field="caught_fielder", minimum=140),
+                Qualification(field="dismissals_per_inns", minimum=Decimal("0.411")),
+                Qualification(field="stumped", minimum=1),
+            ),
+            "orderby": "caught_keeper",
+        }
+    )
+
+    assert query.label(as_of=date(2026, 10, 8)) == (
+        "Test/ODI/T20I fielding, at least 140 catches as a fielder, "
+        "at least 0.411 dismissals per innings, at least 1 stumpings, "
+        "15 Mar 1877 to 8 Oct 2026, sorted by catches as a wicketkeeper"
+    )
+
+
 def test_player_page_label_describes_parameters() -> None:
     page = PlayerPageSpec(
         player_id=348144,

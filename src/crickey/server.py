@@ -26,11 +26,13 @@ from crickey.fetcher import (
 )
 from crickey.ids import LookupResult, lookup_continent, lookup_host
 from crickey.metrics import (
+    FIELDING_METRICS,
     BetterDirection,
     DefaultMinimum,
     Metric,
     batting_metric,
     bowling_metric,
+    fielding_metric,
     rank_key,
 )
 from crickey.parsers import (
@@ -112,7 +114,22 @@ _DEFAULT_FIND_CLASSES = (1, 2, 3, 6, 11)
 _METADATA_COLUMNS = {"player_name", "player_id", "player_team_codes", "match_id"}
 _BOWLING_RATE_METRICS = {"bowling_average", "economy_rate", "bowling_strike_rate"}
 _FILTERED_BOWLING_RATE_MINIMUMS = {1: 30, 2: 30, 3: 20, 6: 50, 11: 50}
+_FIELDING_RATE_METRICS = {"dismissals_per_innings"}
+_FILTERED_FIELDING_MINIMUMS = {1: 20, 2: 20, 3: 20, 6: 50, 11: 30}
 _COUNT_LEADERBOARD_MINIMUM = 1
+_ANSWER_DISCIPLINES = ("batting", "bowling", "fielding")
+_RECORD_DISCIPLINES = ("batting", "bowling")
+# Answers name what Statsguru's fielding columns leave out or fold in (R8).
+_FIELDING_NOTE = "Statsguru's fielding figures count catches and stumpings, not run-outs."
+_DISMISSALS_NOTE = "Dismissals are catches plus stumpings, including those taken as a wicketkeeper."
+_FIELDING_METRIC_NOTES = {
+    "catches": (
+        "Catches include catches taken as a wicketkeeper; fielder_catches counts outfield "
+        "catches only."
+    ),
+    "dismissals": _DISMISSALS_NOTE,
+    "dismissals_per_innings": _DISMISSALS_NOTE,
+}
 
 
 class AnswerMetric(StrEnum):
@@ -130,9 +147,21 @@ class AnswerMetric(StrEnum):
     BOWLING_STRIKE_RATE = "bowling_strike_rate"
     FIVE_WICKETS = "five_wickets"
     TEN_WICKETS = "ten_wickets"
+    CATCHES = "catches"
+    FIELDER_CATCHES = "fielder_catches"
+    KEEPER_CATCHES = "keeper_catches"
+    STUMPINGS = "stumpings"
+    DISMISSALS = "dismissals"
+    DISMISSALS_PER_INNINGS = "dismissals_per_innings"
 
 
 class AnswerDiscipline(StrEnum):
+    BATTING = "batting"
+    BOWLING = "bowling"
+    FIELDING = "fielding"
+
+
+class RecordDiscipline(StrEnum):
     BATTING = "batting"
     BOWLING = "bowling"
 
@@ -379,7 +408,8 @@ def create_server(
         description=(
             "Example: Average number of innings taken per ODI century (minimum X number "
             "of centuries). Bowling example: Which Test bowlers have the best bowling "
-            "average in Asia? Return a batting or bowling leaderboard with proof links."
+            "average in Asia? Fielding example: Who has taken the most catches as a fielder "
+            "in ODIs? Return a batting, bowling or fielding leaderboard with proof links."
         ),
     )
     async def leaderboard(
@@ -426,6 +456,8 @@ def create_server(
             "Babar Azam? Which batters had better average and strike rate in T20 "
             "than Babar Azam, in the same period that Babar Azam played? Bowling example: "
             "Which Test bowlers had a better bowling average than Dale Steyn in Asia? "
+            "Fielding example: Who has taken more catches as a fielder than Jonty Rhodes "
+            "across all internationals? "
             "Compare players. Name the player with player_name, or with player_id from "
             "find_player or a clarification when names clash."
         ),
@@ -492,7 +524,7 @@ def create_server(
         player_name: str | None = None,
         player_id: PositiveInt | None = None,
         format: str | int,
-        discipline: AnswerDiscipline | str = AnswerDiscipline.BATTING,
+        discipline: RecordDiscipline | str = RecordDiscipline.BATTING,
         period: AnswerPeriod | dict[str, Any] | None = None,
         opposition: str | list[str] | None = None,
         host_country: str | list[str] | None = None,
@@ -646,6 +678,7 @@ async def _leaderboard_tool(
             assumptions=(
                 f"Minimum: {minimum_field} >= {minimum_value}.",
                 f"Period: {_period_text(resolved_period, as_of=as_of)}.",
+                *_fielding_notes(discipline_value, (metric,)),
             ),
             proof_links=(proof,),
             players=tuple(
@@ -798,10 +831,10 @@ async def _better_than_player_tool(
                 )
 
             floor_value: int | Decimal = minimum if minimum is not None else default_floor
-            # X always qualifies (D29, D32). Bowling reads X's figures up front; batting reads
-            # them only when X is missing, so comparisons where X qualifies cost no request.
-            # The player page has no team filter (R6), so under one its figure covers all of
-            # X's teams: exact for one team, an upper bound for more.
+            # X always qualifies (D29, D32, D35). Bowling reads X's figures up front; batting and
+            # fielding read them only when X is missing, so comparisons where X qualifies cost no
+            # request. The player page has no team filter (R6), so under one its figure covers
+            # all of X's teams: exact for one team, an upper bound for more.
             target_floor_read = minimum is None and discipline_value == "bowling"
             if target_floor_read:
                 floor_value = _floor_for_target(floor_value, await target_floor())
@@ -956,6 +989,7 @@ async def _better_than_player_tool(
                     else ()
                 ),
                 f"Period: {_period_text(period_value, as_of=as_of)}.",
+                *_fielding_notes(discipline_value, metrics),
             ),
             proof_links=(proof,),
             players=tuple(
@@ -992,7 +1026,7 @@ async def _player_record_tool(
     player_name: str | None,
     player_id: int | None,
     format: str | int,
-    discipline: AnswerDiscipline | str,
+    discipline: RecordDiscipline | str,
     period: AnswerPeriod | dict[str, Any] | None,
     opposition: str | list[str] | None,
     host_country: str | list[str] | None,
@@ -1007,7 +1041,7 @@ async def _player_record_tool(
     query_name = _require_player(player_name, player_id)
     try:
         class_id = _format_class(format)
-        discipline_value = _answer_discipline(discipline)
+        discipline_value = _record_discipline(discipline)
         split_key = _split_by(split_by)
         _validate_period_shape(period)
     except ValueError as error:
@@ -1180,11 +1214,26 @@ def _format_class(value: str | int) -> int:
         raise ToolError("format must be Test, ODI, T20I, all T20 or all internationals.") from error
 
 
-def _answer_discipline(value: AnswerDiscipline | str) -> str:
-    normalized = str(value.value if isinstance(value, AnswerDiscipline) else value).casefold()
-    if normalized in {"batting", "bowling"}:
+def _answer_discipline(
+    value: AnswerDiscipline | RecordDiscipline | str,
+    *,
+    allowed: tuple[str, ...] = _ANSWER_DISCIPLINES,
+) -> str:
+    normalized = str(value.value if isinstance(value, StrEnum) else value).casefold()
+    if normalized in allowed:
         return normalized
-    raise ValueError("discipline must be 'batting' or 'bowling'.")
+    choices = _metric_list([f"'{discipline}'" for discipline in allowed], conjunction="or")
+    raise ValueError(f"discipline must be {choices}.")
+
+
+def _record_discipline(value: RecordDiscipline | str) -> str:
+    # player_record stays batting and bowling (D35), so a fielding call is pointed elsewhere.
+    if str(value.value if isinstance(value, StrEnum) else value).casefold() == "fielding":
+        raise ValueError(
+            "player_record has no fielding records yet; use query_stats with type fielding "
+            "for one player's figures, or better_than_player to compare players."
+        )
+    return _answer_discipline(value, allowed=_RECORD_DISCIPLINES)
 
 
 def _answer_metric(discipline: str, value: AnswerMetric | str) -> Metric:
@@ -1209,6 +1258,14 @@ def _answer_metric(discipline: str, value: AnswerMetric | str) -> Metric:
             "five_wickets",
             "ten_wickets",
         ),
+        "fielding": (
+            "catches",
+            "fielder_catches",
+            "keeper_catches",
+            "stumpings",
+            "dismissals",
+            "dismissals_per_innings",
+        ),
     }[discipline]
     aliases = {
         "batting": {
@@ -1224,9 +1281,28 @@ def _answer_metric(discipline: str, value: AnswerMetric | str) -> Metric:
             "five for": "five wickets",
             "five wickets": "five wickets",
         },
+        # Statsguru's own field names (R5) and common wordings.
+        "fielding": {
+            "caught": "catches",
+            "caught fielder": "fielder catches",
+            "outfield catches": "fielder catches",
+            "catches as fielder": "fielder catches",
+            "caught keeper": "keeper catches",
+            "wicketkeeper catches": "keeper catches",
+            "wicket keeper catches": "keeper catches",
+            "catches as wicketkeeper": "keeper catches",
+            "catches as keeper": "keeper catches",
+            "stumped": "stumpings",
+            "dismissals per inns": "dismissals per innings",
+            "d/i": "dismissals per innings",
+        },
     }[discipline]
     normalized = aliases.get(normalized, normalized)
-    getter = batting_metric if discipline == "batting" else bowling_metric
+    getter = {
+        "batting": batting_metric,
+        "bowling": bowling_metric,
+        "fielding": fielding_metric,
+    }[discipline]
     for metric in (getter(key) for key in registry):
         labels = {
             metric.key.casefold().replace("_", " "),
@@ -1436,9 +1512,25 @@ def _leaderboard_default_minimum(
 def _rate_default_minimum(
     metric: Metric, class_id: int, *, period: Period, filters: Mapping[str, Any]
 ) -> DefaultMinimum:
-    if metric.key in _BOWLING_RATE_METRICS and _is_filtered_bowling_query(period, filters):
+    if metric.key in _BOWLING_RATE_METRICS and _is_filtered_query(period, filters):
         return DefaultMinimum("wickets", _FILTERED_BOWLING_RATE_MINIMUMS[class_id])
+    if _is_fielding_metric(metric):
+        return _fielding_default_minimum(metric, class_id, period=period, filters=filters)
     return metric.default_minimum(class_id)
+
+
+def _fielding_default_minimum(
+    metric: Metric, class_id: int, *, period: Period, filters: Mapping[str, Any]
+) -> DefaultMinimum:
+    # D35: the same field as the registry's floor, lower under any narrowing filter (as in D32).
+    minimum = metric.default_minimum(class_id)
+    if _is_filtered_query(period, filters):
+        return DefaultMinimum(minimum.field, _FILTERED_FIELDING_MINIMUMS[class_id])
+    return minimum
+
+
+def _is_fielding_metric(metric: Metric) -> bool:
+    return FIELDING_METRICS.get(metric.key) is metric
 
 
 def _comparison_default_minimum(
@@ -1461,6 +1553,13 @@ def _comparison_default_minimum(
             filters=filters or {},
         )
         return minimum.field, minimum.minimum
+    if _is_fielding_metric(metrics[0]):
+        # A rate takes its dismissals floor; counts take the first metric's own field (D35).
+        metric = next(
+            (metric for metric in metrics if metric.key in _FIELDING_RATE_METRICS), metrics[0]
+        )
+        minimum = _fielding_default_minimum(metric, class_id, period=period, filters=filters or {})
+        return minimum.field, minimum.minimum
     minimum = metrics[0].default_minimum(class_id)
     return minimum.field, minimum.minimum
 
@@ -1469,7 +1568,7 @@ def _uses_bowling_rate_minimum(metrics: tuple[Metric, ...]) -> bool:
     return any(metric.key in _BOWLING_RATE_METRICS for metric in metrics)
 
 
-def _is_filtered_bowling_query(period: Period, filters: Mapping[str, Any]) -> bool:
+def _is_filtered_query(period: Period, filters: Mapping[str, Any]) -> bool:
     return period is not None or any(
         key in filters
         for key in (
@@ -1548,6 +1647,17 @@ def _direction_method(*metrics: Metric) -> str:
     if higher:
         pieces.append(f"Higher {_metric_list(higher)} {'is' if len(higher) == 1 else 'are'} better")
     return "; ".join(pieces) + "."
+
+
+def _fielding_notes(discipline: str, metrics: Iterable[Metric]) -> tuple[str, ...]:
+    if discipline != "fielding":
+        return ()
+    notes = [_FIELDING_NOTE]
+    for metric in metrics:
+        note = _FIELDING_METRIC_NOTES.get(metric.key)
+        if note is not None and note not in notes:
+            notes.append(note)
+    return tuple(notes)
 
 
 async def _fetch_all_result_pages(
@@ -1751,6 +1861,12 @@ def _metric_row_payload(
         "Econ",
         "5",
         "10",
+        "Dis",
+        "Ct",
+        "St",
+        "Ct Wk",
+        "Ct Fi",
+        "D/I",
     ):
         if field in row:
             payload[field] = _display_value(row, field)
@@ -1763,6 +1879,12 @@ def _metric_row_payload(
         "wickets": "Wkts",
         "five_wickets": "5",
         "ten_wickets": "10",
+        "dismissals": "Dis",
+        "caught": "Ct",
+        "stumped": "St",
+        "caught_keeper": "Ct Wk",
+        "caught_fielder": "Ct Fi",
+        "dismissals_per_inns": "D/I",
     }.items():
         if column in row:
             payload[qual_field] = _display_value(row, column)
