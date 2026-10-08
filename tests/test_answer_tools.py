@@ -4106,6 +4106,7 @@ async def test_fielding_rate_leaderboard_keeps_its_dismissals_floor(
             True,
         ),
     ],
+    ids=["fielder_catches", "catches"],
 )
 async def test_golden_question_7_catches_across_all_formats_compared_to_rhodes(
     metric: str,
