@@ -5,3 +5,5 @@ __pycache__/
 .ruff_cache/
 .local/
 uv.lock
+evals/logs/
+/logs/

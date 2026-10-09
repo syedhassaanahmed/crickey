@@ -8,6 +8,7 @@ import random
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
@@ -39,6 +40,33 @@ _CHALLENGE_MARKERS = (
     "access denied",
     "enable javascript",
 )
+
+
+@dataclass
+class RequestTally:
+    """What one tool call cost: Statsguru requests sent, and pages read from the cache."""
+
+    requests: int = 0
+    cached_pages: int = 0
+
+
+_request_tally: ContextVar[RequestTally | None] = ContextVar("crickey_request_tally", default=None)
+
+
+def request_tally() -> RequestTally:
+    """The current tool call's tally, started by `start_request_tally`."""
+    tally = _request_tally.get()
+    if tally is None:
+        tally = start_request_tally()
+    return tally
+
+
+def start_request_tally() -> RequestTally:
+    """Start a fresh tally at the top of each tool call. An MCP server can run its requests in
+    one shared context, so a tally can't rely on each request getting a context of its own."""
+    tally = RequestTally()
+    _request_tally.set(tally)
+    return tally
 
 
 class FetcherError(RuntimeError):
@@ -199,6 +227,8 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         self._progress = progress
 
     async def __aenter__(self) -> _FetchCall:
+        # Started here, in the tool's own task, so pages fetched by child tasks add to it.
+        request_tally()
         return self
 
     async def __aexit__(
@@ -221,6 +251,7 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         if not force_refetch:
             cached = self._fetcher.cache.get(url, now)
             if cached is not None:
+                request_tally().cached_pages += 1
                 return cached.text
         if url in self._fetcher._unavailable:
             raise UnavailableUrlError("This Statsguru page was unavailable earlier in this run.")
@@ -262,6 +293,7 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
                 if not force_refetch:
                     cached = self._fetcher.cache.get(url, self._fetcher.clock.monotonic())
                     if cached is not None:
+                        request_tally().cached_pages += 1
                         return cached.text
                 if url in self._fetcher._unavailable:
                     raise UnavailableUrlError(
@@ -327,6 +359,7 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         if timeout < _MIN_REQUEST_TIMEOUT:
             raise FetchTimeoutError("Not enough time left to request Statsguru.")
         self._fetcher._last_request_at = self._fetcher.clock.monotonic()
+        request_tally().requests += 1
         if isinstance(self._fetcher._source, _HttpPageSource):
             return await self._fetcher._source.get_with_timeout(
                 url, {"User-Agent": USER_AGENT}, timeout=timeout

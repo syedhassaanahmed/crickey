@@ -23,6 +23,8 @@ from crickey.fetcher import (
     TooBroadError,
     UnavailableUrlError,
     freshness_from_end_date,
+    request_tally,
+    start_request_tally,
 )
 from crickey.ids import LookupResult, lookup_continent, lookup_host
 from crickey.metrics import (
@@ -82,6 +84,9 @@ Prefer crickey's answer tools and show answer_markdown as-is when they return it
 Do not do multi-row arithmetic yourself; use crickey tools for comparisons and derived rates.
 Cite only links that came from crickey tools.
 Read "T20" as T20I unless a domestic or franchise league is named."""
+
+# Every tool result's `_meta` says what the call cost Statsguru (D38). Models don't see it.
+STATSGURU_META_KEY = "crickey/statsguru"
 
 FETCH_BUDGET_SECONDS = 240.0
 FIND_PLAYER_BUDGET_SECONDS = 60.0
@@ -272,6 +277,7 @@ def create_server(
         country: str | None = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
+        start_request_tally()
         if not name.strip():
             raise ToolError("name is required.")
         class_ids = (_format_class(format),) if format is not None else _DEFAULT_FIND_CLASSES
@@ -336,6 +342,7 @@ def create_server(
         fetch: bool = True,
         ctx: Context | None = None,
     ) -> CallToolResult:
+        start_request_tally()
         if limit < 1 or limit > MAX_QUERY_STATS_LIMIT:
             raise ToolError(f"limit must be from 1 to {MAX_QUERY_STATS_LIMIT}.")
         try:
@@ -429,6 +436,7 @@ def create_server(
         top_n: int = 10,
         ctx: Context | None = None,
     ) -> CallToolResult:
+        start_request_tally()
         return await _leaderboard_tool(
             fetcher,
             fetcher.settings,
@@ -482,6 +490,7 @@ def create_server(
         minimum: int | Decimal | None = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
+        start_request_tally()
         return await _better_than_player_tool(
             fetcher,
             fetcher.settings,
@@ -541,6 +550,7 @@ def create_server(
         split_by: SplitBy | str | None = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
+        start_request_tally()
         return await _player_record_tool(
             fetcher,
             player_name=player_name,
@@ -2598,6 +2608,7 @@ def _tool_result(
     text_required_columns: Iterable[str] = (),
     text: str | None = None,
 ) -> CallToolResult:
+    tally = request_tally()
     return CallToolResult(
         content=[
             TextContent(
@@ -2610,6 +2621,7 @@ def _tool_result(
             )
         ],
         structured_content=_jsonable(dict(structured_content)),
+        meta={STATSGURU_META_KEY: {"requests": tally.requests, "cached_pages": tally.cached_pages}},
     )
 
 

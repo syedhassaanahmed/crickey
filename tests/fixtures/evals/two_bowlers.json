@@ -1,0 +1,84 @@
+{
+  "_comment": "Synthetic transcripts for the eval's checks (D25): invented players, figures and links.",
+  "case": {
+    "id": "synthetic-two-bowlers-in-asia",
+    "golden_question": 6,
+    "question": "Which bowler between Ana Example and Bo Sample performed better in Asia in Tests?",
+    "tool": "player_record",
+    "fixed_because": "Invented players.",
+    "facts": [["Example"], ["Sample"], ["21.5"], ["30.25"]],
+    "calls": [
+      {"player": {"id": 900001, "names": ["Example"]}, "format": "Test", "discipline": "bowling", "filters": {"continent": "Asia"}},
+      {"player": {"id": 900002, "names": ["Sample"]}, "format": "Test", "discipline": "bowling", "filters": {"continent": "Asia"}}
+    ]
+  },
+  "results": {
+    "example": "AN Example's record: matches 20, innings 36, wickets 80, average 21.5, economy 2.8, strike rate 46.1, best innings 6/31.\n\n| Grouping | Span | Mat | Wkts | Ave | Econ | SR |\n| -------- | --------- | --- | ---- | ---- | ---- | ---- |\n| filtered | 2001-2010 | 20 | 80 | 21.5 | 2.8 | 46.1 |\n\n## Links\n- Answer proof: [Statsguru: AN Example, Test bowling in Asia](https://stats.cricinfo.com/ci/engine/player/900001.html?class=1;continent=2;template=results;type=bowling)\n- [AN Example profile](https://stats.cricinfo.com/ci/content/player/900001.html)\n\nAs of: 1 Jan 2030",
+    "sample": "BO Sample's record: matches 18, innings 33, wickets 64, average 30.25, economy 3.1, strike rate 58.2, best innings 5/40.\n\n| Grouping | Span | Mat | Wkts | Ave | Econ | SR |\n| -------- | --------- | --- | ---- | ----- | ---- | ---- |\n| filtered | 2003-2012 | 18 | 64 | 30.25 | 3.1 | 58.2 |\n\n## Links\n- Answer proof: [Statsguru: BO Sample, Test bowling in Asia](https://stats.cricinfo.com/ci/engine/player/900002.html?class=1;continent=2;template=results;type=bowling)\n- [BO Sample profile](https://stats.cricinfo.com/ci/content/player/900002.html)\n\nAs of: 1 Jan 2030"
+  },
+  "transcripts": {
+    "passes": {
+      "calls": [
+        {"name": "player_record", "arguments": {"player_name": "Ana Example", "format": "Tests", "discipline": "bowling", "continent": "asia"}, "result": "example"},
+        {"name": "player_record", "arguments": {"player_id": 900002, "format": 1, "discipline": "Bowling", "continent": ["Asia"]}, "result": "sample"}
+      ],
+      "answer": "**AN Example** did better in Asia in Tests: 80 wickets at an average of 21.5 and a strike rate of 46.1, against BO Sample's 64 wickets at 30.25 (strike rate 58.2).\n\nProof: [AN Example](https://stats.cricinfo.com/ci/engine/player/900001.html?class=1;continent=2;template=results;type=bowling), [BO Sample](https://stats.cricinfo.com/ci/engine/player/900002.html?class=1;continent=2;template=results;type=bowling).",
+      "expected": {"answer": true, "tool": true, "arguments": true, "proof": true, "grounding": true}
+    },
+    "compares_with_the_wrong_tool": {
+      "calls": [
+        {"name": "better_than_player", "arguments": {"player_name": "Ana Example", "format": "Test", "discipline": "bowling", "metrics": ["bowling_average"], "continent": "Asia"}, "result": "example"}
+      ],
+      "answer": "AN Example has an average of 21.5 in Asia. Proof: https://stats.cricinfo.com/ci/engine/player/900001.html?class=1;continent=2;template=results;type=bowling",
+      "expected": {"answer": false, "tool": false, "arguments": false, "proof": true, "grounding": true}
+    },
+    "asia_as_the_opposition": {
+      "calls": [
+        {"name": "player_record", "arguments": {"player_name": "Ana Example", "format": "Test", "discipline": "bowling", "opposition": "Asia"}, "error": "Asia isn't a team; did you mean continent?"},
+        {"name": "player_record", "arguments": {"player_name": "Bo Sample", "format": "Test", "discipline": "bowling"}, "result": "sample"}
+      ],
+      "answer": "BO Sample took 64 wickets at 30.25. [Proof](https://stats.cricinfo.com/ci/engine/player/900002.html?class=1;continent=2;template=results;type=bowling)",
+      "expected": {"answer": false, "tool": true, "arguments": false, "proof": true, "grounding": true}
+    },
+    "cites_a_link_no_tool_returned": {
+      "calls": [
+        {"name": "player_record", "arguments": {"player_name": "Ana Example", "format": "Test", "discipline": "bowling", "continent": "Asia"}, "result": "example"},
+        {"name": "player_record", "arguments": {"player_name": "Bo Sample", "format": "Test", "discipline": "bowling", "continent": "Asia"}, "result": "sample"}
+      ],
+      "answer": "AN Example (average 21.5) did better than BO Sample (30.25). See https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;continent=2;type=bowling",
+      "expected": {"answer": true, "tool": true, "arguments": true, "proof": false, "grounding": true}
+    },
+    "cites_no_link": {
+      "calls": [
+        {"name": "player_record", "arguments": {"player_name": "Ana Example", "format": "Test", "discipline": "bowling", "continent": "Asia"}, "result": "example"},
+        {"name": "player_record", "arguments": {"player_name": "Bo Sample", "format": "Test", "discipline": "bowling", "continent": "Asia"}, "result": "sample"}
+      ],
+      "answer": "AN Example (average 21.5) did better than BO Sample (30.25).",
+      "expected": {"answer": true, "tool": true, "arguments": true, "proof": false, "grounding": true}
+    },
+    "works_out_its_own_figure": {
+      "calls": [
+        {"name": "player_record", "arguments": {"player_name": "Ana Example", "format": "Test", "discipline": "bowling", "continent": "Asia"}, "result": "example"},
+        {"name": "player_record", "arguments": {"player_name": "Bo Sample", "format": "Test", "discipline": "bowling", "continent": "Asia"}, "result": "sample"}
+      ],
+      "answer": "AN Example averaged 21.5 against BO Sample's 30.25, 8.75 runs a wicket better. [Proof](https://stats.cricinfo.com/ci/engine/player/900001.html?class=1;continent=2;template=results;type=bowling)",
+      "expected": {"answer": true, "tool": true, "arguments": true, "proof": true, "grounding": false}
+    },
+    "leaves_out_a_fact": {
+      "calls": [
+        {"name": "player_record", "arguments": {"player_name": "Ana Example", "format": "Test", "discipline": "bowling", "continent": "Asia"}, "result": "example"},
+        {"name": "player_record", "arguments": {"player_name": "Bo Sample", "format": "Test", "discipline": "bowling", "continent": "Asia"}, "result": "sample"}
+      ],
+      "answer": "AN Example did better, with an average of 21.5. [Proof](https://stats.cricinfo.com/ci/engine/player/900001.html?class=1;continent=2;template=results;type=bowling)",
+      "expected": {"answer": false, "tool": true, "arguments": true, "proof": true, "grounding": true}
+    },
+    "changes_the_answer_with_extra_arguments": {
+      "calls": [
+        {"name": "player_record", "arguments": {"player_name": "Ana Example", "format": "Test", "discipline": "bowling", "continent": "Asia", "split_by": "year"}, "result": "example"},
+        {"name": "player_record", "arguments": {"player_name": "Bo Sample", "format": "Test", "discipline": "bowling", "continent": "Asia", "minimum": 10}, "result": "sample"}
+      ],
+      "answer": "AN Example (average 21.5) did better than BO Sample (30.25). [Proof](https://stats.cricinfo.com/ci/engine/player/900001.html?class=1;continent=2;template=results;type=bowling)",
+      "expected": {"answer": true, "tool": true, "arguments": false, "proof": true, "grounding": true}
+    }
+  }
+}
