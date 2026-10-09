@@ -1,0 +1,172 @@
+# Eval cases (#18, D37): the golden questions (plan › Goal) with real players filled in, and
+# answers that can't change. Each case's known answer was confirmed live; R10 records it.
+#
+# calls: the calls the question needs. A model passes the arguments check when each one matches
+# a call it made: the same tool, and every argument given here. Formats, metrics, filters and
+# splits compare as crickey resolves them, and players by ID or by one of their names.
+# facts: the final answer must contain one text from each entry.
+
+[[case]]
+id = "q1-innings-per-odi-century-2000s"
+golden_question = 1
+question = "Average number of innings taken per ODI century (minimum 10 centuries), counting only ODIs from 2000 to 2009."
+tool = "leaderboard"
+fixed_because = "The period ended in 2009."
+facts = [["13.72"], ["Tendulkar"], ["9.86"]]
+
+[[case.calls]]
+format = "ODI"
+metrics = [["innings_per_hundred"]]
+minimum = 10
+period = { kind = "dates", start = 2000-01-01, end = 2009-12-31 }
+
+[[case]]
+id = "q2-test-hundreds-more-often-than-tendulkar"
+golden_question = 2
+question = "Which players have scored Test hundreds more frequently than Sachin Tendulkar, over the span of his career?"
+tool = "better_than_player"
+fixed_because = "Tendulkar's career span ended in 2013."
+facts = [["6.45"], ["Pujara"], ["Sangakkara"], ["Hayden"], ["Amla"], ["Kallis"], ["Azharuddin"]]
+
+[[case.calls]]
+player = { id = 35320, names = ["Tendulkar"] }
+format = "Test"
+metrics = [["innings_per_hundred"]]
+period = { kind = "career" }
+
+[[case]]
+id = "q3-t20i-average-and-strike-rate-beat-mccullum"
+golden_question = 3
+question = "Which batters had better average and strike rate in T20 than Brendon McCullum, in the same period that Brendon McCullum played?"
+tool = "better_than_player"
+fixed_because = "McCullum's T20I career span ended in 2015."
+facts = [["Pietersen"], ["Hales"], ["35.66"], ["136.21"]]
+
+[[case.calls]]
+player = { id = 37737, names = ["McCullum"] }
+format = "T20I"
+metrics = [["average"], ["strike_rate"]]
+period = { kind = "career" }
+
+[[case]]
+id = "q4-dravid-test-average-last-3-years"
+golden_question = 4
+question = "What was Rahul Dravid's Test batting average in the last 3 years of his career?"
+tool = "player_record"
+fixed_because = "Dravid retired from Test cricket in 2012."
+facts = [["Dravid"], ["52.43"]]
+
+[[case.calls]]
+player = { id = 28114, names = ["Dravid"] }
+format = "Test"
+period = { kind = "last_years", years = 3 }
+
+[[case]]
+id = "q5-tendulkar-odi-world-cup-hundreds"
+golden_question = 5
+question = "How many hundreds has Sachin Tendulkar scored in ODI World Cups?"
+tool = "player_record"
+fixed_because = "Tendulkar retired from ODIs in 2012."
+facts = [["Tendulkar"], ["hundreds 6", "6 hundreds", "six hundreds", "6 centuries", "six centuries", "6 World Cup hundreds", "6 ODI World Cup hundreds"]]
+
+[[case.calls]]
+player = { id = 35320, names = ["Tendulkar"] }
+format = "ODI"
+filters = { trophy = "World Cup" }
+
+[[case]]
+id = "q6-anderson-or-steyn-in-asia-in-tests"
+golden_question = 6
+question = "Which bowler between James Anderson and Dale Steyn performed better in Asia in Tests?"
+tool = "player_record"
+fixed_because = "Both have retired from Test cricket."
+facts = [["Anderson"], ["Steyn"], ["92"], ["27.51"], ["24.11"], ["63.6"], ["42.9"]]
+
+[[case.calls]]
+player = { id = 8608, names = ["Anderson"] }
+format = "Test"
+discipline = "bowling"
+filters = { continent = "Asia" }
+
+[[case.calls]]
+player = { id = 47492, names = ["Steyn"] }
+format = "Test"
+discipline = "bowling"
+filters = { continent = "Asia" }
+
+[[case]]
+id = "q7-more-catches-than-rhodes"
+golden_question = 7
+question = "Who has taken more catches across all formats compared to Jonty Rhodes, over the span of his career?"
+tool = "better_than_player"
+fixed_because = "Rhodes's career span ended in 2003. Over all time, R10's count of 85 keeps growing."
+facts = [["139"], ["ME Waugh", "Mark Waugh"], ["Fleming"], ["Lara"], ["Azharuddin"], ["Hooper"], ["MA Taylor", "Mark Taylor"], ["Warne"], ["Dravid"], ["Inzamam"], ["Jayasuriya"], ["Tendulkar"], ["SR Waugh", "Steve Waugh"]]
+
+[[case.calls]]
+player = { id = 46973, names = ["Rhodes"] }
+format = "all internationals"
+discipline = "fielding"
+metrics = [["catches", "fielder_catches"]]
+period = { kind = "career" }
+
+[[case]]
+id = "q8-test-hundred-in-every-country-younis-and-dravid"
+golden_question = 8
+question = "Have Younis Khan and Rahul Dravid each scored at least 1 Test hundred in every country they've played in?"
+tool = "player_record"
+fixed_because = "Both have retired. A question about every player can't have a fixed answer (D34)."
+facts = [["Younis"], ["Dravid"], ["11 host countries", "11 countries", "eleven host countries", "eleven countries"], ["10 host countries", "10 countries", "ten host countries", "ten countries"]]
+
+[[case.calls]]
+player = { id = 43652, names = ["Younis"] }
+format = "Test"
+split_by = "host"
+
+[[case.calls]]
+player = { id = 28114, names = ["Dravid"] }
+format = "Test"
+split_by = "host"
+
+[[case]]
+id = "q9-wasim-waqar-imran-against-india"
+golden_question = 9
+question = "Take the records of Wasim Akram, Waqar Younis and Imran Khan against India. Curious to see who did better in terms of wickets, average and strike rates."
+tool = "player_record"
+fixed_because = "All three have retired."
+facts = [["Wasim"], ["Waqar"], ["Imran Khan"], ["94"], ["24.04"], ["45"], ["28.86"], ["48.75"], ["80.2"], ["60"], ["25.15"], ["40.4"], ["37"], ["24.48"], ["31.7"], ["35"], ["22.25"], ["34.6"]]
+
+[[case.calls]]
+player = { id = 43547, names = ["Wasim"] }
+format = "Test"
+discipline = "bowling"
+filters = { opposition = "India" }
+
+[[case.calls]]
+player = { id = 43543, names = ["Waqar"] }
+format = "Test"
+discipline = "bowling"
+filters = { opposition = "India" }
+
+[[case.calls]]
+player = { id = 40560, names = ["Imran Khan"] }
+format = "Test"
+discipline = "bowling"
+filters = { opposition = "India" }
+
+[[case.calls]]
+player = { id = 43547, names = ["Wasim"] }
+format = "ODI"
+discipline = "bowling"
+filters = { opposition = "India" }
+
+[[case.calls]]
+player = { id = 43543, names = ["Waqar"] }
+format = "ODI"
+discipline = "bowling"
+filters = { opposition = "India" }
+
+[[case.calls]]
+player = { id = 40560, names = ["Imran Khan"] }
+format = "ODI"
+discipline = "bowling"
+filters = { opposition = "India" }

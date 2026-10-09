@@ -14,7 +14,7 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 RUN --mount=type=secret,id=uv_index_url,env=UV_DEFAULT_INDEX,required=false \
     --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev --no-editable \
+    uv sync --no-default-groups --no-editable \
     && rm -f /app/.venv/.lock \
     && rm -f uv.lock
 

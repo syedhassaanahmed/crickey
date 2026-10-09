@@ -10,7 +10,7 @@ from mcp import Client
 
 from crickey.fetcher import Fetcher, FetchResponse, Freshness, MemoryPageSource
 from crickey.query import Qualification, StatsguruQuery
-from crickey.server import _freshness_for_query, create_server
+from crickey.server import STATSGURU_META_KEY, _freshness_for_query, create_server
 from crickey.settings import Settings
 
 pytestmark = pytest.mark.anyio
@@ -993,6 +993,56 @@ async def test_query_stats_fetch_false_makes_no_request() -> None:
     assert result.structured_content["link"] == results_url(
         StatsguruQuery(**{"class": 2, "type": "batting"})
     )
+
+
+async def test_tool_results_report_their_statsguru_requests_in_meta() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "qualifications": (Qualification(field="hundreds", minimum=10),),
+            "orderby": "hundreds",
+        }
+    )
+    url = results_url(query)
+    source, _, client = await call_with_source(
+        {url: result_page([row(348144, "Babar Azam", "PAK", 6626)], total=64)}
+    )
+    arguments = {
+        "query": {
+            "class": 2,
+            "type": "batting",
+            "qualval1": "hundreds",
+            "qualmin1": 10,
+            "orderby": "hundreds",
+        }
+    }
+
+    async with client:
+        fetched = await client.call_tool("query_stats", arguments)
+        cached = await client.call_tool("query_stats", arguments)
+        link_only = await client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting"}, "fetch": False}
+        )
+
+    assert source.requests == [url]
+    assert fetched.meta[STATSGURU_META_KEY] == {"requests": 1, "cached_pages": 0}
+    assert cached.meta[STATSGURU_META_KEY] == {"requests": 0, "cached_pages": 1}
+    assert link_only.meta[STATSGURU_META_KEY] == {"requests": 0, "cached_pages": 0}
+
+
+async def test_tool_errors_report_their_statsguru_requests_in_meta() -> None:
+    url = results_url(StatsguruQuery(**{"class": 2, "type": "batting"}))
+    missing = FetchResponse(url=url, status_code=404, headers={}, text="Not found")
+    source, _, client = await call_with_source({url: missing})
+
+    async with client:
+        result = await client.call_tool("query_stats", {"query": {"class": 2, "type": "batting"}})
+
+    assert source.requests == [url]
+    assert result.is_error is True
+    assert result.content[0].text.startswith("Error executing tool query_stats: ")
+    assert result.meta[STATSGURU_META_KEY] == {"requests": 1, "cached_pages": 0}
 
 
 async def test_query_stats_no_records_returns_zero_without_none_text() -> None:

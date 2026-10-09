@@ -5,7 +5,7 @@ crickey is an MCP server that answers cricket statistics questions from Cricinfo
 ## Read first
 - [docs/plan.md](docs/plan.md): the goal, golden questions and design.
 - [docs/decisions.md](docs/decisions.md): the numbered decisions (D1, D2, …) and the options that were dropped.
-- [docs/research.md](docs/research.md): facts about Statsguru and the tools, in sections R1–R16.
+- [docs/research.md](docs/research.md): facts about Statsguru and the tools, in sections R1–R17.
 
 Each fact lives in one of these files, and the others refer to it as D# or R#. Keep it that way: new facts go in research.md, new choices (with the reason) in decisions.md, and design changes in plan.md. If a decision gets in the way, raise it with the owner instead of working around it.
 
@@ -18,6 +18,7 @@ Each fact lives in one of these files, and the others refer to it as D# or R#. K
 - Use the versions in R15, through uv: `uv sync`, `uv run ruff format .`, `uv run ruff check .` and `uv run pytest`.
 - Packages come from public PyPI (D23). If it can't be reached, ask the owner which index to use. Never commit an index URL or `uv.lock`.
 - Tests use synthetic pages only (D25). Tests that reach Cricinfo are marked `live` and run only with `pytest -m live`.
+- The evals ([evals/README.md](evals/README.md)) ask live Statsguru through language models, so run them only when an issue needs it, and never commit their logs (D37).
 
 ## Fetching Cricinfo while developing
 - Fetch only from stats.cricinfo.com (D7), at least 15 seconds apart (D9), with curl's User-Agent (D12), and only what the issue needs.

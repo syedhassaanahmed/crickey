@@ -23,6 +23,7 @@ Everything learned while planning crickey, so it doesn't need to be redone. Unle
 14. Distribution options
 15. Versions and development environment
 16. Open questions
+17. Evals with Inspect AI and Ollama
 
 ## 1. Access and robots.txt
 
@@ -474,12 +475,24 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 - `caught_fielder>=140` gives 85 rows (Jayawardene 440, Ponting 364, Taylor 354, SPD Smith 350 and Kohli 345 lead), and `caught>=140` gives 146, counting wicketkeepers' catches.
 - With `team=3` and `caught_fielder>=100`, he is 12th of 15 South Africans.
 - `dismissals>=100` gives 239 rows (2 pages of 200); adding `dismissals_per_inns>=0.411` gives 172: Rhodes and the 171 with a higher rate.
-- These tables have no date range, so they compare whole careers.
+- These tables have no date range, so they compare whole careers. That count keeps growing as current players pass 139, so the eval case for golden question 7 compares over his career span instead (below).
 
 **Wasim Akram (ID 43547), Waqar Younis (ID 43543) and Imran Khan (ID 40560) bowling against India** (golden question 9, fetched 7 Oct 2026 through crickey's tools):
 - Tests: Imran Khan 23 Tests, 94 wickets, average 24.04, strike rate 54, economy 2.67, best 8/60; Wasim Akram 12 Tests, 45 wickets, average 28.86, strike rate 65, economy 2.66, best 5/96; Waqar Younis 4 Tests, 8 wickets, average 48.75, strike rate 80.2, economy 3.64, best 4/80. All three are in Pakistan's Test bowling table against India (103 bowlers), where Imran Khan has the most wickets and Wasim Akram the second most: `https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;opposition=6;orderby=wickets;size=25;spanmax1=07+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;team=7;template=results;type=bowling`
 - ODIs: Wasim Akram 48 ODIs, 60 wickets, average 25.15, strike rate 40.4, economy 3.73, best 4/35; Waqar Younis 26 ODIs, 37 wickets, average 24.48, strike rate 31.7, economy 4.62, best 5/31; Imran Khan 29 ODIs, 35 wickets, average 22.25, strike rate 34.6, economy 3.85, best 6/14. Each is the player's ODI bowling page with `opposition=6`, for example `https://stats.cricinfo.com/ci/engine/player/43547.html?class=2;opposition=6;spanmax1=07+Oct+2026;spanmin1=05+Jan+1971;spanval1=span;template=results;type=bowling`
 - The question names no format, so the answer covered Tests and ODIs. In Tests, "Imran Khan" needs his ID, because two Pakistan Test players share the name (R7). In ODIs, the name resolves to 40560 directly, because the other Imran Khan (316363) played no ODIs.
+
+**The eval cases' known answers** (#18, checked live on 9 Oct 2026 through crickey's tools, 26 requests with D9's spacing). Each case is a golden question with real players and an answer that can't change (D37); `evals/cases.toml` lists the facts an answer must contain.
+- **Golden question 1**, ODIs from 1 Jan 2000 to 31 Dec 2009, at least 10 hundreds (`leaderboard`, innings per hundred, 1 request): the qualifying group's figure is 13.72 innings per hundred. SR Tendulkar leads with 9.86 (21 hundreds), then RT Ponting 10, CH Gayle 10.16, ME Trescothick 10.17 and HH Gibbs 10.47.
+- **Golden question 2**, Test hundreds more often than SR Tendulkar (ID 35320) over his career span, 15 Nov 1989 to 14 Nov 2013, with the default floor of 5 hundreds (2 requests): 6 players beat his 6.45 innings per hundred: CA Pujara 4.8, KC Sangakkara 6.06, ML Hayden 6.13, HM Amla 6.15, JH Kallis 6.3 and M Azharuddin 6.44.
+- **Golden question 3**, T20I average and strike rate against BB McCullum (ID 37737) over his span, 17 Feb 2005 to 23 Jun 2015, with D29's floor of 1000 runs (3 requests): McCullum has 35.66 and 136.21, and 2 batters beat both: KP Pietersen (37.93, 141.51) and AD Hales (37.55, 137.84).
+- **Golden question 4**, R Dravid (ID 28114) in Tests over the last 3 years of his career, 24 Jan 2009 to 24 Jan 2012 (2 requests): 33 matches, 59 innings, 2779 runs, average 52.43 and 10 hundreds.
+- **Golden question 5**, SR Tendulkar in ODI World Cups (`trophy=12`, 1 request): 45 matches from 1992 to 2011, 44 innings, 2278 runs, average 56.95, 6 hundreds and 15 fifties.
+- **Golden questions 6 and 8** match R6: JM Anderson and DW Steyn (ID 47492) in Asia in Tests, and Younis Khan's 11 and Dravid's 10 host countries, each with a hundred (6 requests, with a player search). ID 46592, tried first for Steyn, is M Ntini.
+- **Golden question 7**, catches across all internationals against JN Rhodes over his span, 26 Feb 1992 to 12 Feb 2003, with D35's filtered floor of 30 (5 requests):
+  - Counting wicketkeepers' catches, 26 players have more than his 139, led by wicketkeepers MV Boucher (417), IA Healy (379) and AC Gilchrist (369), and G Kirsten is level.
+  - As a fielder, 12 have more: ME Waugh 256, SP Fleming 205, BC Lara 191, M Azharuddin 175, CL Hooper 174, MA Taylor 166, SK Warne 165, R Dravid 163, Inzamam-ul-Haq 149, and ST Jayasuriya, SR Tendulkar and SR Waugh 142 each. These 12 are on both lists, so they're the case's facts and either reading passes.
+- **Golden question 9** matches the figures above for Tests and ODIs (6 requests).
 
 **Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
 - Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`
@@ -656,7 +669,7 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | Docker base image | `python:3.14.8-slim-trixie` |
 | GitHub Actions | `actions/checkout` v7, `astral-sh/setup-uv` v10, `docker/setup-qemu-action` v4, `docker/setup-buildx-action` v4, `docker/login-action` v4, `docker/metadata-action` v6, `docker/build-push-action` v7 |
 
-**Python packages (PyPI):** D21 says which ones crickey uses; the rest were alternatives considered.
+**Python packages (PyPI):** D21 says which ones crickey uses, and D39 the evals'; the rest were alternatives considered.
 
 | Package | Version | Released | Notes |
 |---|---|---|---|
@@ -676,6 +689,10 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | pytest | 9.1.1 | 2026-06-19 | |
 | uvicorn | 0.54.0 | | |
 | ruff | 0.16.10 | | |
+| inspect-ai | 0.3.277 | 2026-10-06 | MIT; Python 3.10+. The evals' framework (R17). |
+| openai | 3.26.1 | 2026-10-08 | Inspect's `ollama` and other OpenAI-compatible providers need it. |
+
+The package index on the development machine had inspect-ai only up to 0.3.275 and openai up to 3.23.0 on 9 Oct 2026 (D39).
 
 Development machine: Windows with Python 3.14.6, uv 0.11.21, Node.js 24.21.0, Docker 29.5.2, git 2.55.0, gh 2.101.0 and curl 8.21.0.
 
@@ -697,3 +714,59 @@ To check while building:
 - Player pages accept date ranges and `trophy` (R6).
 - The query engine still refuses first-class queries (400 on 4 Oct), but record list pages load (R9).
 - Classes 12, 13 and 16 (R3).
+
+## 17. Evals with Inspect AI and Ollama
+Checked 8–9 Oct 2026 for the eval suite (#18, D37–D40). [evals/README.md](../evals/README.md) says how to run it.
+
+### Framework
+- **[Inspect AI](https://inspect.aisi.org.uk)** (MIT, from the UK AI Security Institute; R15 has the version):
+  - Its ReAct agent uses an MCP server's tools, over [Streamable HTTP or stdio](https://inspect.aisi.org.uk/tools-mcp.html).
+  - It has model providers for Ollama (`ollama/<model>`, through Ollama's OpenAI-compatible API at `http://localhost:11434/v1`), any OpenAI-compatible API, Microsoft Foundry, OpenRouter, Anthropic and Google, so one task runs against many models.
+  - Its scorers see the whole conversation, and epochs repeat each question.
+  - It writes logs as `eval` or JSON (`--log-format json`). `inspect view` opens them, and `inspect view bundle` turns them into a static site, which needs a web server with HTTP range requests (Python's `http.server` has none).
+  - It installs next to crickey's dependencies on Python 3.14 with `mcp` 2.x without conflicts (about 50 packages).
+- **Alternatives:** pydantic-evals with Pydantic AI (MIT) is lighter, but the agent wiring, the model matrix and a log viewer would be ours to build, and its viewer, Logfire, is hosted. DeepEval (Apache-2.0) is pytest-native, but its MCP metrics need an LLM judge and its dashboards are in Confident AI's cloud. promptfoo has strong MCP and CI support, but it's Node.js.
+- **Models in CI:** GitHub Models [was retired on 30 Jul 2026](https://github.blog/changelog/2026-07-01-github-models-is-being-fully-retired-on-july-30-2026/), and Copilot spends AI credits ([$0.01 each since June 2026](https://docs.github.com/en/billing/concepts/product-billing/github-copilot-billing)).
+
+### Inspect 0.3.275 in detail
+Read in its source on 9 Oct 2026.
+- **`react(submit=False)`** ends when the model replies without calling a tool, as MCP clients do. Its default prompt asks the model to submit an answer, so the eval passes its own `AgentPrompt`.
+- **MCP tools (`mcp_server_http`):**
+  - Results reach the model as their `content` only; `structuredContent` and `_meta` are dropped.
+  - The client handles no log or progress notifications, and its HTTP `timeout` defaults to 5 s.
+  - Tool schemas go through Inspect's `ToolParams`, whose `ToolParam` keeps `type`, `format`, `description`, `default`, `enum`, `items`, `properties`, `additionalProperties`, `anyOf`, `required`, `pattern`, `minLength`, `maxLength`, `minimum`, `maximum` and `examples`. Everything else is dropped, including `$defs`, `$ref`, `oneOf` and `const`: crickey's `query_stats` schema went from 21,851 characters to 193, and the answer tools' `period` lost its variants.
+  - Every parameter needs a description; Inspect's MCP tools fall back to the parameter's name.
+- **Tool output** over 16 KiB is cut unless `max_tool_output` is raised.
+- **Tool arguments:** a tool function gets a call's arguments as they are only through a parameter declared `**kwargs: Any`; otherwise Inspect binds them to the function's named parameters.
+- **Timeouts:** Inspect's HTTP clients give up on a request after 600 s, unless `INSPECT_HTTP_REQUEST_TIMEOUT` says otherwise; the `ollama` provider doesn't take the `client_timeout` model argument that some others do. The clients are created before Inspect loads the task file, so a task can't change that. `GenerateConfig.timeout` only bounds a model call with its retries.
+- **Concurrency:** with `max_connections` set in the task's config and no `max_samples`, samples run `max_connections` at a time.
+- **Per sample:** `TaskState.token_usage` gives the tokens used, and `store()` is the sample's own store, also inside tools.
+- **The MCP SDK** adds its own `_meta` key, `io.modelcontextprotocol/serverInfo`, to tool results, next to crickey's (D38).
+
+### Ollama on a CPU
+Measured on the owner's laptop (i7-1370P, 14 cores, 32 GB of RAM, no discrete GPU) with Ollama 0.40.1, 9 Oct 2026.
+- **Models:**
+  - `qwen3:4b` is `qwen3:4b-thinking-2507` (the same weights), which always thinks: `think: false` or `reasoning_effort: "none"` only moves its reasoning into the answer.
+  - `qwen3:4b-instruct` is `qwen3:4b-instruct-2507`, which doesn't think.
+- **Prompt size:** crickey's five tool definitions take about 9,400 tokens (`query_stats` alone about 5,500). With the server instructions and a question, the raw schemas make an 8,441-token first prompt for `qwen3:4b` and 11,236 for `qwen3:4b-instruct`, whose chat templates differ. Through the eval's bridge, `qwen3:4b-instruct`'s first prompt is 7,927 tokens.
+- **Context:** Ollama gives machines with under 24 GiB of VRAM a 4k-token context, too small for the tools. It reserves memory for the whole context when it loads a model:
+
+  | Context | Default cache | 8-bit cache (`OLLAMA_KV_CACHE_TYPE=q8_0`) |
+  |---|---|---|
+  | 32k | 7.6 GB | 5.3 GB |
+  | 64k | 12.8 GB | 8.2 GB |
+  | 128k | about 23 GB (estimated) | 13.6 GB |
+  | 256k | about 42 GB (the laptop ran out of memory) | about 24 GB (estimated) |
+
+- **Speed:** `qwen3:4b-instruct` read its 11,236-token prompt in 5.5 minutes (34.3 tokens/s) with the default cache, and in 25 minutes (7.5 tokens/s) with the 8-bit cache. It writes 3–4 tokens a second with that prompt in context, and about 35 with a short one.
+- **Flash attention:** Ollama's default lets llama.cpp turn it on for the CPU. Forcing it off (`OLLAMA_FLASH_ATTENTION=0`) needed an extra compute buffer of about 18 GB at 64k.
+- **Prompt reuse:** Ollama keeps the last prompt it read, so a call that starts the same way only reads what's new: a repeat call read 1 new token.
+- **Prompt cache:** Ollama 0.40's llama-server saves the previous conversation whenever a new one starts, up to 8 GiB or one context's worth of tokens (`--cache-ram`, default 8192 MiB). `LLAMA_ARG_CACHE_RAM=0` in Ollama's environment reaches llama-server and turns it off.
+
+### GitHub's runners
+Measured on 9 Oct 2026 with Ollama 0.40.2 ([run](https://github.com/syedhassaanahmed/crickey/actions/runs/37889876851)). The largest free runners for a public repo have 4 CPUs and 16 GB; bigger runners and GPUs are paid, and the M1 macOS runner has 7 GB. `qwen3:4b-instruct` read the 11,236-token prompt at 32k:
+
+| Runner | CPU | Reading | Writing | Memory at 32k / 48k / 64k (left free) |
+|---|---|---|---|---|
+| `ubuntu-24.04` | AMD EPYC 7763: 2 cores, 2 threads each, AVX2 | 15 min (12.2 tokens/s) | 1.7 tokens/s | 7.6 / 10.3 / 12.8 GB (7.5 / 5.4 / 3.2 GiB) |
+| `ubuntu-24.04-arm` | Neoverse-N2: 4 cores | 45 min (4.2 tokens/s) | 3.8 tokens/s | 7.9 / 10.6 / 13.1 GB (7.3 / 5.2 / 2.9 GiB) |
