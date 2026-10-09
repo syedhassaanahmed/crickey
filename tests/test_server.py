@@ -1031,6 +1031,20 @@ async def test_tool_results_report_their_statsguru_requests_in_meta() -> None:
     assert link_only.meta[STATSGURU_META_KEY] == {"requests": 0, "cached_pages": 0}
 
 
+async def test_tool_errors_report_their_statsguru_requests_in_meta() -> None:
+    url = results_url(StatsguruQuery(**{"class": 2, "type": "batting"}))
+    missing = FetchResponse(url=url, status_code=404, headers={}, text="Not found")
+    source, _, client = await call_with_source({url: missing})
+
+    async with client:
+        result = await client.call_tool("query_stats", {"query": {"class": 2, "type": "batting"}})
+
+    assert source.requests == [url]
+    assert result.is_error is True
+    assert result.content[0].text.startswith("Error executing tool query_stats: ")
+    assert result.meta[STATSGURU_META_KEY] == {"requests": 1, "cached_pages": 0}
+
+
 async def test_query_stats_no_records_returns_zero_without_none_text() -> None:
     query = StatsguruQuery(**{"class": 2, "type": "batting", "team": 1, "opposition": 1})
     source, _, client = await call_with_source({results_url(query): no_records_page()})

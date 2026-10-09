@@ -29,13 +29,17 @@ def transcript_from_state(state: TaskState) -> checks.Transcript:
             continue
         for call in message.tool_calls or []:
             result = results.get(call.id)
-            error = result.error if result is not None else None
+            if result is None:
+                # A result goes missing when its round passes the message limit.
+                error: str | None = "No result reached the model."
+            else:
+                error = result.error.message if result.error is not None else None
             calls.append(
                 checks.ToolCall(
                     name=call.function,
                     arguments=call.arguments or {},
                     result=result.text if result is not None else "",
-                    error=error.message if error is not None else None,
+                    error=error,
                 )
             )
     records = state.store.get(CALLS_KEY, [])

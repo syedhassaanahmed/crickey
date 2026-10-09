@@ -36,9 +36,9 @@ Each question gets these scores, averaged over its epochs:
 | Score | Passes when |
 |---|---|
 | `all_checks` | Every check below passes. A model's headline score is its mean. |
-| `known_answer` | The final answer contains every fact in the case's known answer (R10). |
-| `answer_tool` | The answer tool the question needs was called and answered, rather than only `query_stats`. |
-| `arguments` | Each call the question needs was made, with the format, player, discipline, metrics, filters, period, minimum and split that decide its answer. |
+| `known_answer` | The final answer contains every fact in the case's known answer (R10), outside its links. |
+| `answer_tool` | The answer tool the question needs was called and answered with a Statsguru link, rather than only `query_stats`. A clarification doesn't count. |
+| `arguments` | Each call the question needs was made, with the format, player, discipline, metrics, filters, period, minimum and split that decide its answer. A player named rather than given by ID counts once crickey resolves the name to them. |
 | `proof` | The answer cites a Statsguru link, and every link it cites came from a tool result (D16). |
 | `grounding` | Every figure in the answer appears in a tool result or in the question (D13). |
 | `cost` | Not a check: tool calls, tool errors, Statsguru requests and cached pages (from each result's `_meta`, D38), tokens and seconds. |

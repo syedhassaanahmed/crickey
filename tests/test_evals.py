@@ -149,64 +149,97 @@ def test_each_case_accepts_its_own_reference_calls() -> None:
         assert checks.check_arguments(case, transcript).passed, case.id
 
 
+RHODES = {"format": "all formats", "discipline": "fielding", "metrics": ["catches"]}
+# Synthetic tool results: an answer links the player's page; a clarification lists candidates.
+RHODES_ANSWER = "1 player(s) beat JN Rhodes. [JN Rhodes profile](https://stats.cricinfo.com/ci/content/player/46973.html)"
+RHODES_CLARIFICATION = "Several players match.\n\n| ID | Name | Country |\n| --- | --- | --- |\n| 46973 | JN Rhodes | SA |\n| 900003 | AB Rhodes | XYZ |"
+
+
 @pytest.mark.parametrize(
-    ("arguments", "passed"),
+    ("arguments", "result", "passed"),
     [
         (
-            {
-                "player_name": "Jonty Rhodes",
-                "format": "all formats",
-                "discipline": "fielding",
-                "metrics": ["catches as a fielder"],
-            },
+            {"player_name": "Jonty Rhodes", **RHODES, "metrics": ["catches as a fielder"]},
+            RHODES_ANSWER,
             True,
         ),
         (
             {
+                **RHODES,
                 "player_id": 46973,
                 "format": 11,
                 "discipline": "Fielding",
                 "metrics": ["caught"],
                 "period": {"kind": "career"},
             },
+            "",
             True,
         ),
+        ({"player_name": "Jonty Rhodes", **RHODES}, RHODES_CLARIFICATION, False),
         (
-            {
-                "player_name": "Jonty Rhodes",
-                "format": "all formats",
-                "discipline": "fielding",
-                "metrics": ["catches"],
-                "period": {"kind": "all_time"},
-            },
+            {"player_name": "Jonty Rhodes", **RHODES, "period": {"kind": "all_time"}},
+            RHODES_ANSWER,
             False,
         ),
-        (
-            {
-                "player_name": "Jonty Rhodes",
-                "format": "ODI",
-                "discipline": "fielding",
-                "metrics": ["catches"],
-            },
-            False,
-        ),
-        (
-            {
-                "player_id": 99999,
-                "format": "all formats",
-                "discipline": "fielding",
-                "metrics": ["catches"],
-            },
-            False,
-        ),
+        ({"player_name": "Jonty Rhodes", **RHODES, "format": "ODI"}, RHODES_ANSWER, False),
+        ({**RHODES, "player_id": 99999}, RHODES_ANSWER, False),
     ],
 )
-def test_arguments_compare_as_crickey_resolves_them(arguments: dict, passed: bool) -> None:
+def test_arguments_compare_as_crickey_resolves_them(
+    arguments: dict, result: str, passed: bool
+) -> None:
     case = next(case for case in load_cases() if case.golden_question == 7)
-    call = checks.ToolCall(name="better_than_player", arguments=arguments)
+    call = checks.ToolCall(name="better_than_player", arguments=arguments, result=result)
     transcript = checks.Transcript(question=case.question, calls=(call,), answer="")
 
     assert checks.check_arguments(case, transcript).passed is passed
+
+
+@pytest.mark.parametrize(
+    ("period", "passed"),
+    [
+        (None, True),
+        ({"kind": "career"}, True),
+        ({"kind": "all_time"}, True),
+        ({"kind": "last_years", "years": 2}, False),
+        ({"kind": "dates", "start": "2003-01-01", "end": "2003-12-31"}, False),
+    ],
+)
+def test_a_case_without_a_period_takes_the_whole_record_only(
+    period: dict | None, passed: bool
+) -> None:
+    case = next(case for case in load_cases() if case.golden_question == 6)
+    calls = tuple(
+        checks.ToolCall(
+            name="player_record",
+            arguments={**call.reference_arguments(), **({"period": period} if period else {})},
+        )
+        for call in case.calls
+    )
+    transcript = checks.Transcript(question=case.question, calls=calls, answer="")
+
+    assert checks.check_arguments(case, transcript).passed is passed
+
+
+def test_a_clarification_is_not_an_answer() -> None:
+    case = next(case for case in load_cases() if case.golden_question == 7)
+    asked = checks.ToolCall(
+        "better_than_player", {"player_name": "Rhodes", **RHODES}, RHODES_CLARIFICATION
+    )
+    answered = replace(asked, result=RHODES_ANSWER)
+
+    assert not checks.check_tool(case, checks.Transcript(case.question, (asked,), "")).passed
+    assert checks.check_tool(case, checks.Transcript(case.question, (asked, answered), "")).passed
+
+
+def test_answer_facts_dont_count_inside_links() -> None:
+    case = next(case for case in load_cases() if case.golden_question == 3)
+    link = "https://stats.cricinfo.com/ci/engine/stats/index.html?class=3;qualmin2=35.66;qualmin3=136.21;type=batting"
+    in_link = f"KP Pietersen and AD Hales beat McCullum. [Proof]({link})"
+    in_text = f"KP Pietersen and AD Hales beat McCullum's 35.66 and 136.21. [Proof]({link})"
+
+    assert not checks.check_answer(case, checks.Transcript(case.question, (), in_link)).passed
+    assert checks.check_answer(case, checks.Transcript(case.question, (), in_text)).passed
 
 
 @pytest.mark.parametrize("name", SCENARIOS)
@@ -388,6 +421,18 @@ async def test_scorers_score_the_sample_transcript() -> None:
     assert spent["tool_calls"] == 2 and spent["tool_errors"] == 1
     assert spent["statsguru_requests"] == 1 and spent["cached_pages"] == 1
     assert spent["seconds"] >= 30
+
+
+async def test_calls_without_a_result_count_as_failed() -> None:
+    # A round that passes the message limit keeps its calls but loses their results.
+    state = sample_state("passes")
+    state.messages = [
+        message for message in state.messages if not isinstance(message, ChatMessageTool)
+    ]
+
+    assert (await answer_tool()(state, Target(""))).value == 0.0
+    spent = (await cost()(state, Target(""))).value
+    assert isinstance(spent, dict) and spent["tool_errors"] == 2
 
 
 def test_task_asks_every_case_one_question_at_a_time() -> None:

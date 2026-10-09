@@ -62,8 +62,8 @@ class CheckResult:
 
 
 def check_answer(case: Case, transcript: Transcript) -> CheckResult:
-    """The final answer contains the known answer's facts."""
-    text = _plain(transcript.answer)
+    """The final answer contains the known answer's facts, outside its links."""
+    text = _plain(_URL.sub(" ", transcript.answer))
     missing = [facts for facts in case.facts if not any(_contains(text, fact) for fact in facts)]
     if missing:
         listed = "; ".join(" or ".join(repr(fact) for fact in facts) for facts in missing)
@@ -73,7 +73,7 @@ def check_answer(case: Case, transcript: Transcript) -> CheckResult:
 
 def check_tool(case: Case, transcript: Transcript) -> CheckResult:
     """The answer tool the question needs was called and answered."""
-    if any(call.name == case.tool and call.error is None for call in transcript.calls):
+    if any(call.name == case.tool and _answered(call) for call in transcript.calls):
         return CheckResult(True, f"{case.tool} answered.")
     used = ", ".join(_call_label(call) for call in transcript.calls) or "no tools"
     return CheckResult(False, f"Expected a {case.tool} call that answers; got {used}.")
@@ -156,7 +156,7 @@ def _matches(expected: ExpectedCall, call: ToolCall) -> bool:
     class_id = _class_id(arguments.get("format"))
     if expected.format is not None and class_id != _class_id(expected.format):
         return False
-    if expected.player is not None and not _same_player(expected.player, arguments):
+    if expected.player is not None and not _same_player(expected.player, call):
         return False
     discipline = str(arguments.get("discipline") or "batting").casefold()
     # The answer tools all default to batting.
@@ -164,7 +164,7 @@ def _matches(expected: ExpectedCall, call: ToolCall) -> bool:
         return False
     if expected.metrics and not _same_metrics(expected, discipline, arguments):
         return False
-    if expected.period is not None and not _same_period(expected.period, arguments.get("period")):
+    if not _same_period(expected.period, arguments.get("period")):
         return False
     for name in FILTERS:
         if not _same_filter(name, expected.filters.get(name), arguments.get(name), class_id):
@@ -183,11 +183,22 @@ def _class_id(value: Any) -> int | None:
         return None
 
 
-def _same_player(expected: ExpectedPlayer, arguments: Mapping[str, Any]) -> bool:
+def _same_player(expected: ExpectedPlayer, call: ToolCall) -> bool:
+    arguments = call.arguments
     if _given(arguments.get("player_id")):
         return _number(arguments.get("player_id")) == expected.id
     name = arguments.get("player_name")
-    return isinstance(name, str) and any(_has_words(name, words) for words in expected.names)
+    if not isinstance(name, str) or not any(_has_words(name, words) for words in expected.names):
+        return False
+    # A name counts once crickey resolved it to this player, whose page its answer links;
+    # a clarification lists candidates without links (R7).
+    return f"/player/{expected.id}.html" in call.result
+
+
+def _answered(call: ToolCall) -> bool:
+    """An answer tool answered: its result cites Statsguru, as a clarification doesn't."""
+    hosts = {urlparse(url).hostname for url in _urls(call.result)}
+    return call.error is None and bool(hosts & STATSGURU_HOSTS)
 
 
 def _same_metrics(expected: ExpectedCall, discipline: str, arguments: Mapping[str, Any]) -> bool:
@@ -219,7 +230,11 @@ def _metric_key(discipline: str, value: Any) -> str | None:
         return None
 
 
-def _same_period(expected: ExpectedPeriod, actual: Any) -> bool:
+def _same_period(expected: ExpectedPeriod | None, actual: Any) -> bool:
+    if expected is None:
+        # A case without a period asks about the whole record, which these all give.
+        kind = actual.get("kind") if isinstance(actual, Mapping) else None
+        return not _given(actual) or kind in {"career", "all_time"}
     if not _given(actual):
         return expected.kind == "career"
     if not isinstance(actual, Mapping) or actual.get("kind") != expected.kind:

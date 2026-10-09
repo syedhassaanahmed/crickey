@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+import functools
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import date
@@ -271,13 +272,13 @@ def create_server(
             "by name, with player ID, country, formats and career spans."
         ),
     )
+    @_reports_statsguru_cost
     async def find_player(
         name: str,
         format: str | int | None = None,
         country: str | None = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
-        start_request_tally()
         if not name.strip():
             raise ToolError("name is required.")
         class_ids = (_format_class(format),) if format is not None else _DEFAULT_FIND_CLASSES
@@ -336,13 +337,13 @@ def create_server(
             f"{_QUERY_STATS_SINGLE_VALUE_LIST_FIELDS}."
         ),
     )
+    @_reports_statsguru_cost
     async def query_stats(
         query: StatsguruQuery,
         limit: int = DEFAULT_QUERY_STATS_LIMIT,
         fetch: bool = True,
         ctx: Context | None = None,
     ) -> CallToolResult:
-        start_request_tally()
         if limit < 1 or limit > MAX_QUERY_STATS_LIMIT:
             raise ToolError(f"limit must be from 1 to {MAX_QUERY_STATS_LIMIT}.")
         try:
@@ -419,6 +420,7 @@ def create_server(
             "in ODIs? Return a batting, bowling or fielding leaderboard with proof links."
         ),
     )
+    @_reports_statsguru_cost
     async def leaderboard(
         format: str | int,
         metric: AnswerMetric | str,
@@ -436,7 +438,6 @@ def create_server(
         top_n: int = 10,
         ctx: Context | None = None,
     ) -> CallToolResult:
-        start_request_tally()
         return await _leaderboard_tool(
             fetcher,
             fetcher.settings,
@@ -470,6 +471,7 @@ def create_server(
             "find_player or a clarification when names clash."
         ),
     )
+    @_reports_statsguru_cost
     async def better_than_player(
         *,
         player_name: str | None = None,
@@ -490,7 +492,6 @@ def create_server(
         minimum: int | Decimal | None = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
-        start_request_tally()
         return await _better_than_player_tool(
             fetcher,
             fetcher.settings,
@@ -533,6 +534,7 @@ def create_server(
             "from find_player or a clarification when names clash."
         ),
     )
+    @_reports_statsguru_cost
     async def player_record(
         *,
         player_name: str | None = None,
@@ -550,7 +552,6 @@ def create_server(
         split_by: SplitBy | str | None = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
-        start_request_tally()
         return await _player_record_tool(
             fetcher,
             player_name=player_name,
@@ -2601,6 +2602,36 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def _reports_statsguru_cost(
+    tool: Callable[..., Awaitable[CallToolResult]],
+) -> Callable[..., Awaitable[CallToolResult]]:
+    """Give each tool call a fresh tally, and report it on errors too (D38).
+
+    A ToolError becomes an error result with MCPServer's own text, plus the tally.
+    """
+
+    @functools.wraps(tool)
+    async def call(*args: Any, **kwargs: Any) -> CallToolResult:
+        start_request_tally()
+        try:
+            return await tool(*args, **kwargs)
+        except ToolError as error:
+            return CallToolResult(
+                content=[
+                    TextContent(type="text", text=f"Error executing tool {tool.__name__}: {error}")
+                ],
+                is_error=True,
+                meta=_statsguru_meta(),
+            )
+
+    return call
+
+
+def _statsguru_meta() -> dict[str, Any]:
+    tally = request_tally()
+    return {STATSGURU_META_KEY: {"requests": tally.requests, "cached_pages": tally.cached_pages}}
+
+
 def _tool_result(
     summary: str,
     structured_content: Mapping[str, Any],
@@ -2608,7 +2639,6 @@ def _tool_result(
     text_required_columns: Iterable[str] = (),
     text: str | None = None,
 ) -> CallToolResult:
-    tally = request_tally()
     return CallToolResult(
         content=[
             TextContent(
@@ -2621,7 +2651,7 @@ def _tool_result(
             )
         ],
         structured_content=_jsonable(dict(structured_content)),
-        meta={STATSGURU_META_KEY: {"requests": tally.requests, "cached_pages": tally.cached_pages}},
+        meta=_statsguru_meta(),
     )
 
 
