@@ -25,7 +25,7 @@ The steps are the same on Windows, Linux (including WSL) and macOS, and the comm
    ```
    `evals/inspect.env` writes JSON logs to `evals/logs`, and gives each model request an hour, because Inspect's HTTP clients give up after 10 minutes and a CPU can take longer than that to read the first prompt.
 
-`--group evals` adds the eval's tools (the `evals` dependency group, D39), which crickey's own `uv sync` leaves out. The run asks each question three times (epochs), one question at a time.
+`--group evals` adds the eval's tools (the `evals` dependency group, D39), which crickey's own `uv sync` leaves out. On Python 3.15, two of them, zstandard and PyYAML, have no wheels yet, so uv builds them from source, which needs a C compiler: gcc or clang on Linux and macOS, or [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) on Windows (R17). The run asks each question three times (epochs), one question at a time.
 
 ## Options
 - `--epochs 1` asks each question once. On a CPU, the model can read for 5 to 10 minutes before it starts on the first question; later questions reuse that reading and take a few minutes each.

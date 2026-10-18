@@ -662,11 +662,11 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 
 | Component | Version |
 |---|---|
-| Python | 3.14.8 (3.15 is still a release candidate) |
-| uv | 0.13.1 (updated 18 Oct 2026, #68). 0.13 makes Python 3.15 the default when no version is requested; crickey's `requires-python` keeps it on 3.14. |
+| Python | 3.15.0 (updated 19 Oct 2026, #70) |
+| uv | 0.13.1 (updated 18 Oct 2026, #68) |
 | MCP specification | 2026-07-28 |
 | Docker Engine | 29.8.2 |
-| Docker base image | `python:3.14.8-slim-trixie` |
+| Docker base image | `python:3.15.0-slim-trixie` (updated 19 Oct 2026, #70) |
 | GitHub Actions | `actions/checkout` v7, `astral-sh/setup-uv` v10, `docker/setup-qemu-action` v4, `docker/setup-buildx-action` v4, `docker/login-action` v4, `docker/metadata-action` v6, `docker/build-push-action` v7 |
 
 **Python packages (PyPI):** D21 says which ones crickey uses, and D39 the evals'; the rest were alternatives considered.
@@ -678,7 +678,7 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | httpx | 0.28.1 | 2024-12-06 | |
 | lxml | 6.1.3 | 2026-09-02 | |
 | selectolax | 0.4.13 | 2026-09-29 | Python below 3.15 |
-| pydantic | 2.13.5 | 2026-08-28 | |
+| pydantic | 2.14.1 | 2026-10-11 | 2.14.0 is the first release that supports Python 3.15; 2.13 pins pydantic-core 2.46, which has no 3.15 wheels (#70). |
 | pandas | 3.0.6 | 2026-09-17 | Python 3.11+ |
 | polars | 1.44.2 | 2026-09-09 | |
 | duckdb | 1.5.6 | 2026-09-28 | |
@@ -688,13 +688,13 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | respx | 0.23.1 | 2026-04-08 | |
 | pytest | 9.1.1 | 2026-06-19 | |
 | uvicorn | 0.54.0 | | |
-| ruff | 0.16.10 | | |
+| ruff | 0.17.1 | 2026-10-15 | 0.17.0 is the first release that fully supports a `py315` target; 0.16 calls it a preview (#70). |
 | inspect-ai | 0.3.277 | 2026-10-06 | MIT; Python 3.10+. The evals' framework (R17). |
 | openai | 3.26.1 | 2026-10-08 | Inspect's `ollama` and other OpenAI-compatible providers need it. |
 
-The package index on the development machine had inspect-ai only up to 0.3.275 and openai up to 3.23.0 on 9 Oct 2026 (D39).
+The package index on the development machine had inspect-ai only up to 0.3.275 and openai up to 3.23.0 on 9 Oct 2026 (D39). It still lagged PyPI on 19 Oct 2026, with ijson up to 3.5.1 while PyPI had 3.6.0 from 12 Oct. It also serves a wheel's `.metadata` only after the wheel's first download through it, so uv can fail with a 404 on the metadata of a wheel nobody has fetched yet, as with the first Python 3.15 wheels; downloading the wheel once fixes it.
 
-Development machine: Windows with Python 3.14.6, uv 0.11.21, Node.js 24.21.0, Docker 29.5.2, git 2.55.0, gh 2.101.0 and curl 8.21.0.
+Development machine: Windows with Python 3.15.0 from the Python install manager (`py`), uv 0.11.21, Node.js 24.21.0, Docker 29.5.2, git 2.55.0, gh 2.101.0 and curl 8.21.0.
 
 Dockerfile frontend 1.10+ supports `env=` on secret mounts.
 
@@ -725,6 +725,7 @@ Checked 8–9 Oct 2026 for the eval suite (#18, D37–D40). [evals/README.md](..
   - Its scorers see the whole conversation, and epochs repeat each question.
   - It writes logs as `eval` or JSON (`--log-format json`). `inspect view` opens them, and `inspect view bundle` turns them into a static site, which needs a web server with HTTP range requests (Python's `http.server` has none).
   - It installs next to crickey's dependencies on Python 3.14 with `mcp` 2.x without conflicts (about 50 packages).
+  - **On Python 3.15** (checked 19 Oct 2026, #70), two of its dependencies have no wheels yet: zstandard (latest 0.25.0) and PyYAML (latest 6.0.3), both from September 2025. So installing the `evals` group builds them from source, which needs a C compiler. In `python:3.15.0-trixie`, with gcc, both built, zstandard with its C extension and PyYAML with libyaml. On Windows, both fail without Microsoft C++ Build Tools. ijson 3.6.0 has 3.15 wheels, and ijson 3.5.1's source builds without a compiler, in pure Python.
 - **Alternatives:** pydantic-evals with Pydantic AI (MIT) is lighter, but the agent wiring, the model matrix and a log viewer would be ours to build, and its viewer, Logfire, is hosted. DeepEval (Apache-2.0) is pytest-native, but its MCP metrics need an LLM judge and its dashboards are in Confident AI's cloud. promptfoo has strong MCP and CI support, but it's Node.js.
 - **Models in CI:** GitHub Models [was retired on 30 Jul 2026](https://github.blog/changelog/2026-07-01-github-models-is-being-fully-retired-on-july-30-2026/), and Copilot spends AI credits ([$0.01 each since June 2026](https://docs.github.com/en/billing/concepts/product-billing/github-copilot-billing)).
 
