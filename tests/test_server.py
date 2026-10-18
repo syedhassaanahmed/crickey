@@ -308,6 +308,28 @@ async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
     assert "player-by-player checks" in description
 
 
+async def test_every_tool_parameter_has_a_one_line_description() -> None:
+    _, _, client = await call_with_source({})
+
+    async with client:
+        tools = (await client.list_tools()).tools
+
+    descriptions = {
+        (tool.name, name): schema.get("description", "")
+        for tool in tools
+        for name, schema in tool.input_schema["properties"].items()
+    }
+    assert descriptions
+    assert [key for key, text in descriptions.items() if not text.strip() or "\n" in text] == []
+    # What small models got wrong in the eval (#66): a tournament as a season, and no player.
+    for tool in ("leaderboard", "better_than_player", "player_record"):
+        assert "A tournament goes in trophy." in descriptions[(tool, "period")]
+        assert '"World Cup"' in descriptions[(tool, "trophy")]
+    for tool in ("better_than_player", "player_record"):
+        assert "Give this or player_id." in descriptions[(tool, "player_name")]
+        assert "Give this or player_name." in descriptions[(tool, "player_id")]
+
+
 async def test_query_stats_fetch_false_allows_repeated_team_link() -> None:
     _, _, client = await call_with_source({})
 
