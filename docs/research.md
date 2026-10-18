@@ -663,7 +663,7 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | Component | Version |
 |---|---|
 | Python | 3.14.8 (3.15 is still a release candidate) |
-| uv | 0.12.23 |
+| uv | 0.13.1 (updated 18 Oct 2026, #68). 0.13 makes Python 3.15 the default when no version is requested; crickey's `requires-python` keeps it on 3.14. |
 | MCP specification | 2026-07-28 |
 | Docker Engine | 29.8.2 |
 | Docker base image | `python:3.14.8-slim-trixie` |
