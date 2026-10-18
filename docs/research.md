@@ -726,6 +726,7 @@ Checked 8–9 Oct 2026 for the eval suite (#18, D37–D40). [evals/README.md](..
   - It writes logs as `eval` or JSON (`--log-format json`). `inspect view` opens them, and `inspect view bundle` turns them into a static site, which needs a web server with HTTP range requests (Python's `http.server` has none).
   - It installs next to crickey's dependencies on Python 3.14 with `mcp` 2.x without conflicts (about 50 packages).
   - **On Python 3.15** (checked 19 Oct 2026, #70), two of its dependencies have no wheels yet: zstandard (latest 0.25.0) and PyYAML (latest 6.0.3), both from September 2025. So installing the `evals` group builds them from source, which needs a C compiler. In `python:3.15.0-trixie`, with gcc, both built, zstandard with its C extension and PyYAML with libyaml. On Windows, both fail without Microsoft C++ Build Tools. ijson 3.6.0 has 3.15 wheels, and ijson 3.5.1's source builds without a compiler, in pure Python.
+  - **In a Linux container instead** (19 Oct 2026, #66): on Windows without Build Tools, the eval ran in `python:3.15.0-trixie` with uv, the checkout mounted and `UV_PROJECT_ENVIRONMENT` outside it. crickey has to run inside the same container, because the SDK's Host check (D20) turns away `host.docker.internal`. Ollama on the host answers at `OLLAMA_BASE_URL=http://host.docker.internal:11434/v1`, and Statsguru answered the container's requests as it does the host's.
 - **Alternatives:** pydantic-evals with Pydantic AI (MIT) is lighter, but the agent wiring, the model matrix and a log viewer would be ours to build, and its viewer, Logfire, is hosted. DeepEval (Apache-2.0) is pytest-native, but its MCP metrics need an LLM judge and its dashboards are in Confident AI's cloud. promptfoo has strong MCP and CI support, but it's Node.js.
 - **Models in CI:** GitHub Models [was retired on 30 Jul 2026](https://github.blog/changelog/2026-07-01-github-models-is-being-fully-retired-on-july-30-2026/), and Copilot spends AI credits ([$0.01 each since June 2026](https://docs.github.com/en/billing/concepts/product-billing/github-copilot-billing)).
 
@@ -750,6 +751,10 @@ Measured on the owner's laptop (i7-1370P, 14 cores, 32 GB of RAM, no discrete GP
   - `qwen3:4b` is `qwen3:4b-thinking-2507` (the same weights), which always thinks: `think: false` or `reasoning_effort: "none"` only moves its reasoning into the answer.
   - `qwen3:4b-instruct` is `qwen3:4b-instruct-2507`, which doesn't think.
 - **Prompt size:** crickey's five tool definitions take about 9,400 tokens (`query_stats` alone about 5,500). With the server instructions and a question, the raw schemas make an 8,441-token first prompt for `qwen3:4b` and 11,236 for `qwen3:4b-instruct`, whose chat templates differ. Through the eval's bridge, `qwen3:4b-instruct`'s first prompt is 7,927 tokens.
+- **Parameter descriptions** (#66, 19 Oct 2026) made the tool definitions about 9% bigger, measured with Ollama 0.40.6:
+  - `qwen3:4b-instruct`, with the server instructions and golden question 6, then minus the 98 tokens without tools: 9,202 tokens before, 10,093 after (+9.7%).
+  - tiktoken's `o200k_base`, on `tools/list`'s JSON: 10,156 before, 10,991 after (+8.2%).
+  - Through the bridge: the first prompt went from 7,591 to 8,162 tokens.
 - **Context:** Ollama gives machines with under 24 GiB of VRAM a 4k-token context, too small for the tools. It reserves memory for the whole context when it loads a model:
 
   | Context | Default cache | 8-bit cache (`OLLAMA_KV_CACHE_TYPE=q8_0`) |
@@ -760,6 +765,7 @@ Measured on the owner's laptop (i7-1370P, 14 cores, 32 GB of RAM, no discrete GP
   | 256k | about 42 GB (the laptop ran out of memory) | about 24 GB (estimated) |
 
 - **Speed:** `qwen3:4b-instruct` read its 11,236-token prompt in 5.5 minutes (34.3 tokens/s) with the default cache, and in 25 minutes (7.5 tokens/s) with the 8-bit cache. It writes 3–4 tokens a second with that prompt in context, and about 35 with a short one.
+- **Runaway replies:** with no cap on its output, `qwen3:4b-instruct` once wrote a single reply for 23 minutes (4,550 tokens, golden question 5, 19 Oct 2026) until the run was stopped, and Inspect's one-hour model timeout would have ended the call as an error. `--max-tokens 2048` bounds a reply to about 10 minutes and leaves room for any answer or tool call.
 - **Flash attention:** Ollama's default lets llama.cpp turn it on for the CPU. Forcing it off (`OLLAMA_FLASH_ATTENTION=0`) needed an extra compute buffer of about 18 GB at 64k.
 - **Prompt reuse:** Ollama keeps the last prompt it read, so a call that starts the same way only reads what's new: a repeat call read 1 new token.
 - **Prompt cache:** Ollama 0.40's llama-server saves the previous conversation whenever a new one starts, up to 8 GiB or one context's worth of tokens (`--cache-ram`, default 8192 MiB). `LLAMA_ARG_CACHE_RAM=0` in Ollama's environment reaches llama-server and turns it off.

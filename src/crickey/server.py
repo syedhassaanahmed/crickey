@@ -254,6 +254,67 @@ AnswerPeriod = Annotated[
     Field(discriminator="kind"),
 ]
 
+# What each tool parameter takes, in one line, so small models put a question's details in the
+# right parameters (#66, D13). Defaults and allowed values are in the schemas already.
+_TOURNAMENTS = "A tournament goes in trophy."
+FormatParam = Annotated[
+    str | int, Field(description='Test, ODI, T20I, "all T20" or "all formats".')
+]
+AnswerDisciplineParam = Annotated[
+    AnswerDiscipline | str,
+    Field(description="Batting, bowling or fielding (catches and stumpings)."),
+]
+RecordDisciplineParam = Annotated[RecordDiscipline | str, Field(description="Batting or bowling.")]
+PlayerNameParam = Annotated[
+    str | None, Field(description="The player's name. Give this or player_id.")
+]
+PlayerIdParam = Annotated[
+    PositiveInt | None,
+    Field(description="Player ID from find_player or a clarification. Give this or player_name."),
+]
+LeaderboardPeriodParam = Annotated[
+    AnswerPeriod | dict[str, Any] | None,
+    Field(description=f"All time by default; or dates or a season. {_TOURNAMENTS}"),
+]
+ComparisonPeriodParam = Annotated[
+    AnswerPeriod | dict[str, Any] | None,
+    Field(
+        description=(
+            "The player's career span by default; or all_time, first_years, last_years, dates "
+            f"or a season. {_TOURNAMENTS}"
+        )
+    ),
+]
+RecordPeriodParam = Annotated[
+    AnswerPeriod | dict[str, Any] | None,
+    Field(
+        description=(
+            "The whole record by default; or first_years, last_years, dates or a season. "
+            f"{_TOURNAMENTS}"
+        )
+    ),
+]
+TeamParam = Annotated[
+    str | list[str] | None, Field(description='The players\' team, e.g. "India".')
+]
+OppositionParam = Annotated[
+    str | list[str] | None, Field(description='The opposing team, e.g. "Australia".')
+]
+HostCountryParam = Annotated[
+    str | list[str] | None, Field(description='Country the matches were in, e.g. "England".')
+]
+ContinentParam = Annotated[
+    str | list[str] | None, Field(description='Continent the matches were in, e.g. "Asia".')
+]
+GroundParam = Annotated[str | list[str] | None, Field(description='A ground, e.g. "Lord\'s".')]
+TrophyParam = Annotated[
+    str | list[str] | None, Field(description='A tournament, e.g. "World Cup".')
+]
+HomeOrAwayParam = Annotated[str | int | None, Field(description="home, away or neutral.")]
+MatchResultParam = Annotated[
+    str | int | None, Field(description="won, lost, tied, drawn or no result.")
+]
+
 
 def create_server(
     settings: Settings | None = None,
@@ -274,9 +335,13 @@ def create_server(
     )
     @_reports_statsguru_cost
     async def find_player(
-        name: str,
-        format: str | int | None = None,
-        country: str | None = None,
+        name: Annotated[str, Field(description='A name or part of one, e.g. "Babar".')],
+        format: Annotated[
+            str | int | None, Field(description="Only candidates who played this format.")
+        ] = None,
+        country: Annotated[
+            str | None, Field(description='Only candidates from this country, e.g. "Pakistan".')
+        ] = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
         if not name.strip():
@@ -339,9 +404,16 @@ def create_server(
     )
     @_reports_statsguru_cost
     async def query_stats(
-        query: StatsguruQuery,
-        limit: int = DEFAULT_QUERY_STATS_LIMIT,
-        fetch: bool = True,
+        query: Annotated[
+            StatsguruQuery,
+            Field(description="The Statsguru query: format class, stat type, filters and sort."),
+        ],
+        limit: Annotated[
+            int, Field(description=f"Rows to return, up to {MAX_QUERY_STATS_LIMIT}.")
+        ] = DEFAULT_QUERY_STATS_LIMIT,
+        fetch: Annotated[
+            bool, Field(description="False builds the pinned link without fetching.")
+        ] = True,
         ctx: Context | None = None,
     ) -> CallToolResult:
         if limit < 1 or limit > MAX_QUERY_STATS_LIMIT:
@@ -422,20 +494,26 @@ def create_server(
     )
     @_reports_statsguru_cost
     async def leaderboard(
-        format: str | int,
-        metric: AnswerMetric | str,
-        discipline: AnswerDiscipline | str = AnswerDiscipline.BATTING,
-        period: AnswerPeriod | dict[str, Any] | None = None,
-        team: str | list[str] | None = None,
-        opposition: str | list[str] | None = None,
-        host_country: str | list[str] | None = None,
-        continent: str | list[str] | None = None,
-        ground: str | list[str] | None = None,
-        trophy: str | list[str] | None = None,
-        home_or_away: str | int | None = None,
-        match_result: str | int | None = None,
-        minimum: int | Decimal | None = None,
-        top_n: int = 10,
+        format: FormatParam,
+        metric: Annotated[
+            AnswerMetric | str,
+            Field(description='What to rank by, e.g. "innings_per_hundred" or "wickets".'),
+        ],
+        discipline: AnswerDisciplineParam = AnswerDiscipline.BATTING,
+        period: LeaderboardPeriodParam = None,
+        team: TeamParam = None,
+        opposition: OppositionParam = None,
+        host_country: HostCountryParam = None,
+        continent: ContinentParam = None,
+        ground: GroundParam = None,
+        trophy: TrophyParam = None,
+        home_or_away: HomeOrAwayParam = None,
+        match_result: MatchResultParam = None,
+        minimum: Annotated[
+            int | Decimal | None,
+            Field(description='Qualifying minimum, e.g. 10 for "minimum 10 centuries".'),
+        ] = None,
+        top_n: Annotated[int, Field(description="How many players to list, up to 200.")] = 10,
         ctx: Context | None = None,
     ) -> CallToolResult:
         return await _leaderboard_tool(
@@ -474,22 +552,29 @@ def create_server(
     @_reports_statsguru_cost
     async def better_than_player(
         *,
-        player_name: str | None = None,
-        player_id: PositiveInt | None = None,
-        format: str | int,
-        metrics: list[AnswerMetric | str],
-        discipline: AnswerDiscipline | str = AnswerDiscipline.BATTING,
-        match: str = "all",
-        period: AnswerPeriod | dict[str, Any] | None = None,
-        team: str | list[str] | None = None,
-        opposition: str | list[str] | None = None,
-        host_country: str | list[str] | None = None,
-        continent: str | list[str] | None = None,
-        ground: str | list[str] | None = None,
-        trophy: str | list[str] | None = None,
-        home_or_away: str | int | None = None,
-        match_result: str | int | None = None,
-        minimum: int | Decimal | None = None,
+        player_name: PlayerNameParam = None,
+        player_id: PlayerIdParam = None,
+        format: FormatParam,
+        metrics: Annotated[
+            list[AnswerMetric | str],
+            Field(description='1 to 3 metrics to compare, e.g. ["average", "strike_rate"].'),
+        ],
+        discipline: AnswerDisciplineParam = AnswerDiscipline.BATTING,
+        match: Annotated[
+            str, Field(description='"all": better on every metric; "any": on at least one.')
+        ] = "all",
+        period: ComparisonPeriodParam = None,
+        team: TeamParam = None,
+        opposition: OppositionParam = None,
+        host_country: HostCountryParam = None,
+        continent: ContinentParam = None,
+        ground: GroundParam = None,
+        trophy: TrophyParam = None,
+        home_or_away: HomeOrAwayParam = None,
+        match_result: MatchResultParam = None,
+        minimum: Annotated[
+            int | Decimal | None, Field(description="Qualifying minimum for the other players.")
+        ] = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
         return await _better_than_player_tool(
@@ -537,19 +622,21 @@ def create_server(
     @_reports_statsguru_cost
     async def player_record(
         *,
-        player_name: str | None = None,
-        player_id: PositiveInt | None = None,
-        format: str | int,
-        discipline: RecordDiscipline | str = RecordDiscipline.BATTING,
-        period: AnswerPeriod | dict[str, Any] | None = None,
-        opposition: str | list[str] | None = None,
-        host_country: str | list[str] | None = None,
-        continent: str | list[str] | None = None,
-        ground: str | list[str] | None = None,
-        trophy: str | list[str] | None = None,
-        home_or_away: str | int | None = None,
-        match_result: str | int | None = None,
-        split_by: SplitBy | str | None = None,
+        player_name: PlayerNameParam = None,
+        player_id: PlayerIdParam = None,
+        format: FormatParam,
+        discipline: RecordDisciplineParam = RecordDiscipline.BATTING,
+        period: RecordPeriodParam = None,
+        opposition: OppositionParam = None,
+        host_country: HostCountryParam = None,
+        continent: ContinentParam = None,
+        ground: GroundParam = None,
+        trophy: TrophyParam = None,
+        home_or_away: HomeOrAwayParam = None,
+        match_result: MatchResultParam = None,
+        split_by: Annotated[
+            SplitBy | str | None, Field(description="Split the record into one row per group.")
+        ] = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
         return await _player_record_tool(
