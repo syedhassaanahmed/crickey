@@ -1,4 +1,4 @@
-"""Eval cases: the golden questions with real players filled in and answers that can't change."""
+"""The golden questions and their eval cases, from golden_questions.toml (D37, D41)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CASES_FILE = Path(__file__).with_name("cases.toml")
+GOLDEN_QUESTIONS_FILE = Path(__file__).with_name("golden_questions.toml")
 
 # The answer tools' filter parameters (plan › MCP tools).
 FILTERS = ("team", "opposition", "host_country", "continent", "ground", "trophy")
@@ -83,8 +83,11 @@ class ExpectedCall(_Strict):
 
 
 class Case(_Strict):
+    # The golden question, in its general form, and its number in the docs.
+    number: int = Field(ge=1)
+    golden_question: str
     id: str
-    golden_question: int = Field(ge=1, le=9)
+    # What the eval asks: the golden question with real players and an answer that can't change.
     question: str
     # The answer tool the question needs (plan › MCP tools).
     tool: str
@@ -104,6 +107,6 @@ class Case(_Strict):
         return self
 
 
-def load_cases(path: Path = CASES_FILE) -> list[Case]:
+def load_cases(path: Path = GOLDEN_QUESTIONS_FILE) -> list[Case]:
     data = tomllib.loads(path.read_text("utf-8"))
     return [Case.model_validate(item) for item in data["case"]]

@@ -1,7 +1,8 @@
 # Decisions
 
 Key decisions for crickey. Each one says what was decided and why, and keeps its number for good: a new decision takes the next number and goes at the end, under "Added while building". Options considered and dropped are listed at the end, so they aren't reopened without new information.
-- [plan.md](plan.md) has the goal and golden questions, puts these decisions into practice and refers to them by number (D1, D2, …).
+- [plan.md](plan.md) has the goal, puts these decisions into practice and refers to them by number (D1, D2, …).
+- [evals/golden_questions.toml](../evals/golden_questions.toml) lists the golden questions (D41).
 - [research.md](research.md) has the supporting facts, referred to here as R1–R17.
 
 ## Product and scope
@@ -26,7 +27,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 ## Answers and calculations
 13. **The server does the work, so weaker models cope.** It fetches, calculates and formats the answer; the model picks a tool and passes plain parameters.
 14. **Five tools in v1:** `leaderboard`, `better_than_player`, `player_record`, `find_player` and `query_stats`.
-    - The three answer tools cover the golden questions and start with batting; plan.md maps each tool to its questions.
+    - The three answer tools cover the golden questions and start with batting; the golden questions file says which tool answers each (D41).
     - More tools are added only when real questions need them.
 15. **Statsguru's numbers as displayed.** Averages, strike rates and economy rates are used as Statsguru displays them (R2, R8), not recomputed from totals, so answers show the same figures as Statsguru and its proof links (D16). Players whose displayed values are equal count as tied, and answers say so.
 16. **Proof links.**
@@ -75,8 +76,11 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
     - Scores come from deterministic checks, with no LLM judge, which would be weak with a local model.
     - Logs hold Statsguru's figures, so they're never committed (D25); CI keeps them with each run.
 38. **Tool results report what they cost Statsguru in `_meta`.** Every tool result's `_meta`, errors included, has `crickey/statsguru`: the Statsguru requests the call sent, retries included, and the pages it read from the cache. The eval's cost check needs them per question, and `_meta` keeps them out of what models read (R17). Each tool call starts a fresh tally, because an MCP server can run its requests in one shared context. A tool's error becomes an error result with MCPServer's own text plus the tally, since MCPServer's error results carry no `_meta`.
-39. **The eval's packages are a default dependency group, left out of the image.** `inspect-ai` and `openai` are in the `evals` group. `uv sync` installs it with `dev` (`default-groups`), so the eval's tests run with the rest, and the Dockerfile's `uv sync --no-default-groups` leaves both groups out of the image. As in D27, their lower bounds are the releases the owner's package index had on 9 Oct 2026, below R15's: inspect-ai 0.3.275 and openai 3.23.0.
+39. **The eval's packages are an optional dependency group, left out of the image.** `inspect-ai` and `openai` are in the `evals` group, which the eval's commands add with `uv run --group evals`. crickey's own `uv sync`, its tests and CI don't install it, so they don't depend on those packages being on the package index, and the Dockerfile's `uv sync --no-default-groups` leaves every group out of the image. As in D27, their lower bounds are the releases the owner's package index had on 9 Oct 2026, below R15's: inspect-ai 0.3.275 and openai 3.23.0.
 40. **The eval reaches crickey through its own MCP bridge.** Inspect's MCP tools would cut crickey's tool schemas down to what Inspect's parameter model keeps, losing everything under `$defs`, and they drop `_meta` (R17). So the eval lists crickey's tools itself, inlines the `$ref`s into keywords Inspect keeps, and calls each tool over a fresh Streamable HTTP session, recording the call's `_meta` (D38). When crickey reports a block, the bridge stops the run instead of handing the model an error (D11).
+41. **The golden questions are listed once, with the evals.** The owner's choice (18 Oct 2026, PR #67): [evals/golden_questions.toml](../evals/golden_questions.toml) is the one place they're listed. Each has its general form, a number, and its eval case (D37). Other files refer to a golden question by its number instead of quoting it, so changing one means editing only that file.
+    - The file belongs to the evals, so crickey's code doesn't read it, and the image doesn't ship it.
+    - The answer tools' descriptions keep example questions written for models, which don't have to match the golden questions. The evals measure whether they're enough, and failures become issues (D14). This replaces plan.md's rule that each description quotes the golden questions its tool answers.
 
 ## Considered and dropped
 
@@ -112,3 +116,6 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 | Synthetic pages for evals | The owner wants evals to ask live Statsguru (D37); tests stay synthetic (D25). |
 | Inspect's own MCP tools for the eval | They drop crickey's `$defs` and `_meta` (D40). |
 | An 8-bit KV cache for local models | It reads prompts about 4.6 times slower on a CPU (R17). |
+| Golden questions in crickey's package, so tool descriptions could be built from them | The owner keeps them with the evals (D41). |
+| Quoting every golden question in the description of the tool that answers it | It copied the golden questions into the code and a test (D41). |
+| pytest tests of the evals: a live test of the cases' known answers, and offline tests of the checks, scorers, bridge and cases | Not needed, the owner said (18 Oct 2026, PR #67): the evals run on their own, and a changed case's known answer is checked live once, by hand (plan › Evals). |

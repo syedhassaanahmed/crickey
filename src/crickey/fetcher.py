@@ -227,8 +227,6 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         self._progress = progress
 
     async def __aenter__(self) -> _FetchCall:
-        # Started here, in the tool's own task, so pages fetched by child tasks add to it.
-        request_tally()
         return self
 
     async def __aexit__(

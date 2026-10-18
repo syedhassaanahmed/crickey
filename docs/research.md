@@ -4,7 +4,7 @@ Everything learned while planning crickey, so it doesn't need to be redone. Unle
 - **(search summary)** marks facts from a web-search summary rather than the primary page.
 - **(unverified)** marks facts seen in other people's code that we haven't tested.
 
-[plan.md](plan.md) has the goal, the golden questions and how crickey is built, and [decisions.md](decisions.md) records what was decided from these facts, by number (D1, D2, …).
+[plan.md](plan.md) has the goal and how crickey is built, [evals/golden_questions.toml](../evals/golden_questions.toml) lists the golden questions, and [decisions.md](decisions.md) records what was decided from these facts, by number (D1, D2, …).
 
 ## Contents
 1. Access and robots.txt
@@ -482,7 +482,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 - ODIs: Wasim Akram 48 ODIs, 60 wickets, average 25.15, strike rate 40.4, economy 3.73, best 4/35; Waqar Younis 26 ODIs, 37 wickets, average 24.48, strike rate 31.7, economy 4.62, best 5/31; Imran Khan 29 ODIs, 35 wickets, average 22.25, strike rate 34.6, economy 3.85, best 6/14. Each is the player's ODI bowling page with `opposition=6`, for example `https://stats.cricinfo.com/ci/engine/player/43547.html?class=2;opposition=6;spanmax1=07+Oct+2026;spanmin1=05+Jan+1971;spanval1=span;template=results;type=bowling`
 - The question names no format, so the answer covered Tests and ODIs. In Tests, "Imran Khan" needs his ID, because two Pakistan Test players share the name (R7). In ODIs, the name resolves to 40560 directly, because the other Imran Khan (316363) played no ODIs.
 
-**The eval cases' known answers** (#18, checked live on 9 Oct 2026 through crickey's tools, 26 requests with D9's spacing). Each case is a golden question with real players and an answer that can't change (D37); `evals/cases.toml` lists the facts an answer must contain.
+**The eval cases' known answers** (#18, checked live on 9 Oct 2026 through crickey's tools, 26 requests with D9's spacing). [evals/golden_questions.toml](../evals/golden_questions.toml) has each case's question and the facts an answer must contain (D37); these are the checks behind them.
 - **Golden question 1**, ODIs from 1 Jan 2000 to 31 Dec 2009, at least 10 hundreds (`leaderboard`, innings per hundred, 1 request): the qualifying group's figure is 13.72 innings per hundred. SR Tendulkar leads with 9.86 (21 hundreds), then RT Ponting 10, CH Gayle 10.16, ME Trescothick 10.17 and HH Gibbs 10.47.
 - **Golden question 2**, Test hundreds more often than SR Tendulkar (ID 35320) over his career span, 15 Nov 1989 to 14 Nov 2013, with the default floor of 5 hundreds (2 requests): 6 players beat his 6.45 innings per hundred: CA Pujara 4.8, KC Sangakkara 6.06, ML Hayden 6.13, HM Amla 6.15, JH Kallis 6.3 and M Azharuddin 6.44.
 - **Golden question 3**, T20I average and strike rate against BB McCullum (ID 37737) over his span, 17 Feb 2005 to 23 Jun 2015, with D29's floor of 1000 runs (3 requests): McCullum has 35.66 and 136.21, and 2 batters beat both: KP Pietersen (37.93, 141.51) and AD Hales (37.55, 137.84).

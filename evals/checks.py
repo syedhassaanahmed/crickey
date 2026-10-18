@@ -1,4 +1,4 @@
-"""The eval's checks (#18). They read a plain transcript, so tests can run them without a model."""
+"""The eval's checks (#18), on a plain transcript that scorers.py builds from each sample."""
 
 from __future__ import annotations
 
@@ -96,16 +96,16 @@ def check_arguments(case: Case, transcript: Transcript) -> CheckResult:
 
 
 def check_proof(case: Case, transcript: Transcript) -> CheckResult:
-    """The answer cites a Statsguru link, and every link it cites came from a tool (D16)."""
+    """The answer cites a Statsguru query link, and every link it cites came from a tool (D16)."""
     cited = _urls(transcript.answer)
     returned = set().union(*(_urls(call.result) for call in transcript.calls))
-    statsguru = [url for url in cited if urlparse(url).hostname in STATSGURU_HOSTS]
+    proof = [url for url in cited if _is_statsguru_query(url)]
     unsourced = [url for url in cited if url not in returned]
-    if not statsguru:
-        return CheckResult(False, "The answer cites no Statsguru link.")
+    if not proof:
+        return CheckResult(False, "The answer cites no Statsguru query link.")
     if unsourced:
         return CheckResult(False, f"The answer cites links no tool returned: {unsourced}.")
-    return CheckResult(True, f"The answer cites {len(statsguru)} Statsguru link(s) from tools.")
+    return CheckResult(True, f"The answer cites {len(proof)} Statsguru query link(s) from tools.")
 
 
 def check_grounding(case: Case, transcript: Transcript) -> CheckResult:
@@ -196,9 +196,14 @@ def _same_player(expected: ExpectedPlayer, call: ToolCall) -> bool:
 
 
 def _answered(call: ToolCall) -> bool:
-    """An answer tool answered: its result cites Statsguru, as a clarification doesn't."""
-    hosts = {urlparse(url).hostname for url in _urls(call.result)}
-    return call.error is None and bool(hosts & STATSGURU_HOSTS)
+    """The call answered: its result has a Statsguru query link, which a clarification lacks."""
+    return call.error is None and any(_is_statsguru_query(url) for url in _urls(call.result))
+
+
+def _is_statsguru_query(url: str) -> bool:
+    """A Statsguru query or player page: proof, unlike the profile links answers add (D16)."""
+    parsed = urlparse(url)
+    return parsed.hostname in STATSGURU_HOSTS and parsed.path.startswith("/ci/engine/")
 
 
 def _same_metrics(expected: ExpectedCall, discipline: str, arguments: Mapping[str, Any]) -> bool:

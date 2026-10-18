@@ -3,7 +3,8 @@
 crickey is an MCP server that answers cricket statistics questions from Cricinfo's Statsguru, with links that prove each answer. It's built one GitHub issue at a time, each in a fresh session.
 
 ## Read first
-- [docs/plan.md](docs/plan.md): the goal, golden questions and design.
+- [docs/plan.md](docs/plan.md): the goal and design.
+- [evals/golden_questions.toml](evals/golden_questions.toml): the golden questions, the one place they're listed (D41). Elsewhere, refer to one by its number.
 - [docs/decisions.md](docs/decisions.md): the numbered decisions (D1, D2, …) and the options that were dropped.
 - [docs/research.md](docs/research.md): facts about Statsguru and the tools, in sections R1–R17.
 

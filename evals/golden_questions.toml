@@ -1,14 +1,21 @@
-# Eval cases (#18, D37): the golden questions (plan › Goal) with real players filled in, and
-# answers that can't change. Each case's known answer was confirmed live; R10 records it.
+# crickey's golden questions (plan › Goal): the one place they're listed (D41). Docs, tests and
+# issues refer to them by number.
 #
-# calls: the calls the question needs. A model passes the arguments check when each one matches
-# a call it made: the same tool, and every argument given here. Formats, metrics, filters and
-# splits compare as crickey resolves them, and players by ID or by one of their names.
-# facts: the final answer must contain one text from each entry.
+# Each case has:
+# - number and golden_question: the golden question, in its general form.
+# - question: what the eval asks. Real players are filled in, and the answer can't change, because
+#   the players have retired or the period has ended (fixed_because, D37).
+# - tool: the answer tool the question needs.
+# - calls: the calls the question needs. A model passes the arguments check when each one matches
+#   a call it made: the same tool, and every argument given here. Formats, metrics, filters and
+#   splits compare as crickey resolves them, and players by ID or by one of their names.
+# - facts: the known answer, confirmed live (R10). The final answer must contain one text from
+#   each entry.
 
 [[case]]
+number = 1
+golden_question = "Average number of innings taken per ODI century (minimum X number of centuries)."
 id = "q1-innings-per-odi-century-2000s"
-golden_question = 1
 question = "Average number of innings taken per ODI century (minimum 10 centuries), counting only ODIs from 2000 to 2009."
 tool = "leaderboard"
 fixed_because = "The period ended in 2009."
@@ -21,8 +28,9 @@ minimum = 10
 period = { kind = "dates", start = 2000-01-01, end = 2009-12-31 }
 
 [[case]]
+number = 2
+golden_question = "Which players have scored Test hundreds more frequently than player X?"
 id = "q2-test-hundreds-more-often-than-tendulkar"
-golden_question = 2
 question = "Which players have scored Test hundreds more frequently than Sachin Tendulkar, over the span of his career?"
 tool = "better_than_player"
 fixed_because = "Tendulkar's career span ended in 2013."
@@ -35,8 +43,9 @@ metrics = [["innings_per_hundred"]]
 period = { kind = "career" }
 
 [[case]]
+number = 3
+golden_question = "Which batters had better average and strike rate in T20 than player X, in the same period that player X played?"
 id = "q3-t20i-average-and-strike-rate-beat-mccullum"
-golden_question = 3
 question = "Which batters had better average and strike rate in T20 than Brendon McCullum, in the same period that Brendon McCullum played?"
 tool = "better_than_player"
 fixed_because = "McCullum's T20I career span ended in 2015."
@@ -49,8 +58,9 @@ metrics = [["average"], ["strike_rate"]]
 period = { kind = "career" }
 
 [[case]]
+number = 4
+golden_question = "What was player X's Test batting average in the last Y years of his career?"
 id = "q4-dravid-test-average-last-3-years"
-golden_question = 4
 question = "What was Rahul Dravid's Test batting average in the last 3 years of his career?"
 tool = "player_record"
 fixed_because = "Dravid retired from Test cricket in 2012."
@@ -62,8 +72,9 @@ format = "Test"
 period = { kind = "last_years", years = 3 }
 
 [[case]]
+number = 5
+golden_question = "How many hundreds has player X scored in ODI World Cups?"
 id = "q5-tendulkar-odi-world-cup-hundreds"
-golden_question = 5
 question = "How many hundreds has Sachin Tendulkar scored in ODI World Cups?"
 tool = "player_record"
 fixed_because = "Tendulkar retired from ODIs in 2012."
@@ -75,8 +86,9 @@ format = "ODI"
 filters = { trophy = "World Cup" }
 
 [[case]]
+number = 6
+golden_question = "Which bowler between X and Y performed better in Asia in Tests?"
 id = "q6-anderson-or-steyn-in-asia-in-tests"
-golden_question = 6
 question = "Which bowler between James Anderson and Dale Steyn performed better in Asia in Tests?"
 tool = "player_record"
 fixed_because = "Both have retired from Test cricket."
@@ -95,8 +107,9 @@ discipline = "bowling"
 filters = { continent = "Asia" }
 
 [[case]]
+number = 7
+golden_question = "Who has taken more catches across all formats compared to player X?"
 id = "q7-more-catches-than-rhodes"
-golden_question = 7
 question = "Who has taken more catches across all formats compared to Jonty Rhodes, over the span of his career?"
 tool = "better_than_player"
 fixed_because = "Rhodes's career span ended in 2003. Over all time, R10's count of 85 keeps growing."
@@ -110,8 +123,9 @@ metrics = [["catches", "fielder_catches"]]
 period = { kind = "career" }
 
 [[case]]
+number = 8
+golden_question = "Who has scored at least 1 Test hundred in every country they've played in?"
 id = "q8-test-hundred-in-every-country-younis-and-dravid"
-golden_question = 8
 question = "Have Younis Khan and Rahul Dravid each scored at least 1 Test hundred in every country they've played in?"
 tool = "player_record"
 fixed_because = "Both have retired. A question about every player can't have a fixed answer (D34)."
@@ -128,8 +142,9 @@ format = "Test"
 split_by = "host"
 
 [[case]]
+number = 9
+golden_question = "Take the records of players X, Y and Z against country A. Curious to see who did better in terms of wickets, average and strike rates."
 id = "q9-wasim-waqar-imran-against-india"
-golden_question = 9
 question = "Take the records of Wasim Akram, Waqar Younis and Imran Khan against India. Curious to see who did better in terms of wickets, average and strike rates."
 tool = "player_record"
 fixed_because = "All three have retired."

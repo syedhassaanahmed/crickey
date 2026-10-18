@@ -1,7 +1,13 @@
 """crickey's tools for Inspect agents, over Streamable HTTP (D40).
 
-Inspect's own MCP tools drop what crickey's tool schemas keep in `$defs` and what results keep
-in `_meta` (R17), so the eval connects through this bridge instead.
+Inspect's own MCP tools (`mcp_server_http`) would change what models see and what the eval can
+measure (R17), so the eval connects through this bridge instead:
+- Inspect keeps only the JSON Schema keywords its `ToolParam` has, so `$defs`, `$ref`, `oneOf` and
+  `const` go. `query_stats` would offer `query` as an empty object (21,851 characters of schema
+  down to 193), and the answer tools' `period` would lose its kinds. MCP clients such as Copilot
+  CLI send models the whole schema, so the bridge inlines it into keywords Inspect keeps.
+- Inspect drops each result's `_meta`, where crickey reports the call's Statsguru requests (D38).
+- Inspect would hand a block to the model as an error; the bridge stops the run instead (D11).
 """
 
 from __future__ import annotations

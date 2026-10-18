@@ -3,16 +3,7 @@
 ## Goal
 - Answer cricket statistics questions using only Cricinfo's Statsguru as the data source.
 - Every answer includes Cricinfo links that anyone can open to check the numbers and share as proof.
-- These golden questions must work:
-  1. Average number of innings taken per ODI century (minimum X number of centuries).
-  2. Which players have scored Test hundreds more frequently than player X?
-  3. Which batters had better average and strike rate in T20 than player X, in the same period that player X played?
-  4. What was player X's Test batting average in the last Y years of his career?
-  5. How many hundreds has player X scored in ODI World Cups?
-  6. Which bowler between X and Y performed better in Asia in Tests?
-  7. Who has taken more catches across all formats compared to player X?
-  8. Who has scored at least 1 Test hundred in every country they've played in?
-  9. Take the records of players X, Y and Z against country A. Curious to see who did better in terms of wickets, average and strike rates.
+- The golden questions must work. [evals/golden_questions.toml](../evals/golden_questions.toml) is the one place they're listed (D41): each in its general form, with a number that the docs use, and as the eval asks it, with real players filled in.
 
 ## Overview
 This plan says how to build crickey to meet the goal. It refers to decisions and research instead of repeating them:
@@ -58,7 +49,7 @@ Five tools (D14), all read-only.
 - **What a call cost:** every tool result's `_meta`, errors included, has `crickey/statsguru`, with the Statsguru requests the call sent and the pages it read from the cache (D38). Models don't see it; the evals' cost check reads it.
 - **Ambiguous names** (players, teams, grounds, trophies) return `needs_clarification` with the candidates. Player candidates list each one's ID, country, span and match count in the requested format, and the text says to call again with `player_id`.
 - **Players by ID:** `better_than_player` and `player_record` take the player's name or `player_id`, the ID from `find_player` or a player clarification; players with the same name and country can only be told apart by ID (R7). An ID skips the name search, and the name shown comes from the pages the tool reads anyway (X's results row or player page, R6). If `player_name` clearly names someone else (no surname-like word in common), the ID wins and the assumptions say so. An ID with no record in the format is an error naming the ID and the format; errors by ID name the player only as Statsguru does, or by ID.
-- **Descriptions** for answer tools start with example questions, followed by bowling and fielding examples where applicable and, for `player_record`, a split example. Every golden question appears in the description of the tool that answers it, with real players and countries filled in; the other examples cover what no golden question asks. `better_than_player` and `player_record` then mention `player_id`. `find_player` and `query_stats` start with their own example question.
+- **Descriptions** for answer tools start with example questions, followed by bowling and fielding examples where applicable and, for `player_record`, a split example. The examples are written for models, to show what each tool answers; they don't have to match the golden questions, and the evals show whether they're enough (D13, D41). `better_than_player` and `player_record` then mention `player_id`. `find_player` and `query_stats` start with their own example question.
 
 1. **`leaderboard`** (golden question 1): "Who has the best or fastest …?"
    - Parameters: format, discipline (batting by default, bowling or fielding), metric, period, filters by name (team, opposition, host country, continent, ground, trophy, home or away, match result), minimum and top N.
@@ -188,19 +179,19 @@ The work is split into [GitHub issues #1–#18](https://github.com/syedhassaanah
 - **Answer tools:** each one against synthetic pages, with expected answers and proof links. Each golden question has a test named after it.
 - **HTTP tests:** Host and Origin checks (localhost on any port), loopback-only binding natively, binding in container mode, and SSE progress.
 - **End to end:** tests over HTTP and stdio using the synthetic-page hook, a check that no files are written, and the `--read-only` container smoke test. CI runs on Ubuntu. Live smoke tests run only when explicitly enabled.
-- **Evals:** the checks are tested on saved synthetic transcripts, and the bridge on an in-process crickey with synthetic pages. A live test re-checks every eval case's known answer (see Evals).
+- **Evals:** pytest neither tests nor runs them; they run on their own (Evals below).
 - **Acceptance:** every golden question is answered correctly in the evals by a strong model and a small one, every pinned link shows matching numbers, and the public image works on a machine without the source.
 
 ## Evals
 The eval suite in `evals/` (D37) asks the golden questions through language models, against a running crickey and live Statsguru, and scores the answers. [evals/README.md](../evals/README.md) has the one command that runs it, and R17 the facts behind it.
-- **Cases:** `evals/cases.toml` holds one case per golden question, with real players and an answer that can't change (D37). Each has the question, the answer tool and the calls it needs, and the facts the answer must contain; R10 has their live checks. Questions 2 and 7 say "over the span of his career", so they ask what the tool answers without a period.
+- **Cases:** [evals/golden_questions.toml](../evals/golden_questions.toml) has one case per golden question, with real players and an answer that can't change (D37). Each has the question as the eval asks it, the answer tool and the calls it needs, and the facts the answer must contain; R10 has their live checks. Where the answer tool's default is the player's career span, the question says so, so it asks what the tool answers without a period. A new or changed case needs its known answer checked live, within D7–D12, and recorded in R10.
 - **Agent:** Inspect's ReAct agent, stopping when the model stops calling tools, as MCP clients do. Its system prompt is one line plus crickey's server instructions, which the eval reads from the server, as a client would. It reaches crickey's tools through the eval's own MCP bridge, which keeps their whole schemas and reads `_meta` (D40).
 - **Run:** one question at a time (`max_connections=1`), so a local model reuses the shared tool definitions, for 3 epochs, with at most 40 messages per question. `evals/inspect.env` gives each model request an hour, because a CPU can take longer than Inspect's 10-minute default to read the first prompt (R17), and writes JSON logs. A block ends the run (D11).
 - **Checks**, all deterministic:
   1. **Answer:** the final answer contains the case's facts outside its links. Numbers compare by value, names as whole words.
-  2. **Tool:** the case's answer tool was called and answered with a Statsguru link; a clarification doesn't count.
+  2. **Tool:** the case's answer tool was called and answered with a Statsguru query link; a clarification doesn't count.
   3. **Arguments:** each call the case needs was made, with the same format, player, discipline, metrics, filters, period, minimum and split, compared as crickey resolves them. A player named rather than given by ID counts once crickey's answer links that player's page. Arguments that change the answer fail it, such as an all-time period, or any period narrower than the whole record when the case names none.
-  4. **Proof:** the answer cites a Statsguru link, and every link it cites came from a tool result (D16).
+  4. **Proof:** the answer cites a Statsguru query link, not just a profile link, and every link it cites came from a tool result (D16).
   5. **Grounding:** every figure in the answer appears in a tool result or the question (D13).
   6. **Cost:** tool calls, tool errors, Statsguru requests and cached pages (D38), tokens and seconds.
 

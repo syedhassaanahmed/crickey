@@ -1,6 +1,6 @@
 """Inspect task: language models answer the golden questions through crickey (#18, D37).
 
-    uv run --env-file evals/inspect.env inspect eval evals/golden_questions.py \
+    uv run --group evals --env-file evals/inspect.env inspect eval evals/golden_questions.py \
         --model ollama/qwen3:4b-instruct
 
 evals/README.md says how to start crickey and Ollama first, and how to read the results.
