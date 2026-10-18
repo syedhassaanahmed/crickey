@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Mapping
+import functools
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import date
@@ -23,6 +24,8 @@ from crickey.fetcher import (
     TooBroadError,
     UnavailableUrlError,
     freshness_from_end_date,
+    request_tally,
+    start_request_tally,
 )
 from crickey.ids import LookupResult, lookup_continent, lookup_host
 from crickey.metrics import (
@@ -82,6 +85,9 @@ Prefer crickey's answer tools and show answer_markdown as-is when they return it
 Do not do multi-row arithmetic yourself; use crickey tools for comparisons and derived rates.
 Cite only links that came from crickey tools.
 Read "T20" as T20I unless a domestic or franchise league is named."""
+
+# Every tool result's `_meta` says what the call cost Statsguru (D38). Models don't see it.
+STATSGURU_META_KEY = "crickey/statsguru"
 
 FETCH_BUDGET_SECONDS = 240.0
 FIND_PLAYER_BUDGET_SECONDS = 60.0
@@ -266,6 +272,7 @@ def create_server(
             "by name, with player ID, country, formats and career spans."
         ),
     )
+    @_reports_statsguru_cost
     async def find_player(
         name: str,
         format: str | int | None = None,
@@ -330,6 +337,7 @@ def create_server(
             f"{_QUERY_STATS_SINGLE_VALUE_LIST_FIELDS}."
         ),
     )
+    @_reports_statsguru_cost
     async def query_stats(
         query: StatsguruQuery,
         limit: int = DEFAULT_QUERY_STATS_LIMIT,
@@ -412,6 +420,7 @@ def create_server(
             "in ODIs? Return a batting, bowling or fielding leaderboard with proof links."
         ),
     )
+    @_reports_statsguru_cost
     async def leaderboard(
         format: str | int,
         metric: AnswerMetric | str,
@@ -462,6 +471,7 @@ def create_server(
             "find_player or a clarification when names clash."
         ),
     )
+    @_reports_statsguru_cost
     async def better_than_player(
         *,
         player_name: str | None = None,
@@ -524,6 +534,7 @@ def create_server(
             "from find_player or a clarification when names clash."
         ),
     )
+    @_reports_statsguru_cost
     async def player_record(
         *,
         player_name: str | None = None,
@@ -2591,6 +2602,36 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def _reports_statsguru_cost(
+    tool: Callable[..., Awaitable[CallToolResult]],
+) -> Callable[..., Awaitable[CallToolResult]]:
+    """Give each tool call a fresh tally, and report it on errors too (D38).
+
+    A ToolError becomes an error result with MCPServer's own text, plus the tally.
+    """
+
+    @functools.wraps(tool)
+    async def call(*args: Any, **kwargs: Any) -> CallToolResult:
+        start_request_tally()
+        try:
+            return await tool(*args, **kwargs)
+        except ToolError as error:
+            return CallToolResult(
+                content=[
+                    TextContent(type="text", text=f"Error executing tool {tool.__name__}: {error}")
+                ],
+                is_error=True,
+                meta=_statsguru_meta(),
+            )
+
+    return call
+
+
+def _statsguru_meta() -> dict[str, Any]:
+    tally = request_tally()
+    return {STATSGURU_META_KEY: {"requests": tally.requests, "cached_pages": tally.cached_pages}}
+
+
 def _tool_result(
     summary: str,
     structured_content: Mapping[str, Any],
@@ -2610,6 +2651,7 @@ def _tool_result(
             )
         ],
         structured_content=_jsonable(dict(structured_content)),
+        meta=_statsguru_meta(),
     )
 
 
