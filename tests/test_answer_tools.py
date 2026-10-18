@@ -4083,9 +4083,9 @@ async def test_fielding_rate_leaderboard_keeps_its_dismissals_floor(
     assert result.structured_content["rows"][0]["dismissals"] == 157
 
 
-# Golden question 7: "Who has taken more catches across all formats compared to player X?" Rhodes
-# never kept wicket, so all his catches are as a fielder. `catches` also counts wicketkeepers'
-# catches, and the answer says so; R10 has both counts (146 and 85).
+# Golden question 7 (evals/golden_questions.toml): Rhodes never kept wicket, so all his catches
+# are as a fielder. `catches` also counts wicketkeepers' catches, and the answer says so; R10 has
+# both counts (146 and 85).
 @pytest.mark.parametrize(
     ("metric", "field", "label", "beaters", "proof_count", "keeper_note"),
     [

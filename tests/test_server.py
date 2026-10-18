@@ -10,7 +10,7 @@ from mcp import Client
 
 from crickey.fetcher import Fetcher, FetchResponse, Freshness, MemoryPageSource
 from crickey.query import Qualification, StatsguruQuery
-from crickey.server import _freshness_for_query, create_server
+from crickey.server import STATSGURU_META_KEY, _freshness_for_query, create_server
 from crickey.settings import Settings
 
 pytestmark = pytest.mark.anyio
@@ -238,11 +238,11 @@ async def test_player_answer_tools_take_an_optional_player_id() -> None:
     async with client:
         by_name = {tool.name: tool for tool in (await client.list_tools()).tools}
 
-    golden_examples = {
+    examples = {
         "player_record": "ODI World Cups?",
         "better_than_player": "same period that Babar Azam played?",
     }
-    for name, example in golden_examples.items():
+    for name, example in examples.items():
         schema = by_name[name].input_schema
         assert list(schema["properties"])[:2] == ["player_name", "player_id"]
         assert schema["properties"]["player_id"]["anyOf"] == [
@@ -271,60 +271,6 @@ async def test_comparison_and_leaderboard_descriptions_add_a_fielding_example() 
     assert "batting, bowling or fielding leaderboard" in by_name["leaderboard"].description
     assert "compared to Jonty Rhodes?" in by_name["better_than_player"].description
     assert "Fielding example:" not in by_name["player_record"].description
-
-
-# Each golden question (plan.md › Goal), with real players and countries filled in, and the tool
-# whose description quotes it.
-GOLDEN_QUESTION_EXAMPLES = {
-    1: (
-        "leaderboard",
-        "Average number of innings taken per ODI century (minimum X number of centuries).",
-    ),
-    2: (
-        "better_than_player",
-        "Which players have scored Test hundreds more frequently than Babar Azam?",
-    ),
-    3: (
-        "better_than_player",
-        "Which batters had better average and strike rate in T20 than Babar Azam, in the same "
-        "period that Babar Azam played?",
-    ),
-    4: (
-        "player_record",
-        "What was Babar Azam's Test batting average in the last Y years of his career?",
-    ),
-    5: ("player_record", "How many hundreds has Babar Azam scored in ODI World Cups?"),
-    6: (
-        "player_record",
-        "Which bowler between James Anderson and Dale Steyn performed better in Asia in Tests?",
-    ),
-    7: (
-        "better_than_player",
-        "Who has taken more catches across all formats compared to Jonty Rhodes?",
-    ),
-    8: (
-        "player_record",
-        "Who has scored at least 1 Test hundred in every country they've played in?",
-    ),
-    9: (
-        "player_record",
-        "Take the records of Wasim Akram, Waqar Younis and Imran Khan against India. Curious to "
-        "see who did better in terms of wickets, average and strike rates.",
-    ),
-}
-
-
-@pytest.mark.parametrize("number", sorted(GOLDEN_QUESTION_EXAMPLES))
-async def test_answer_tool_descriptions_quote_the_golden_questions_they_answer(
-    number: int,
-) -> None:
-    _, _, client = await call_with_source({})
-
-    async with client:
-        descriptions = {tool.name: tool.description for tool in (await client.list_tools()).tools}
-
-    tool_name, question = GOLDEN_QUESTION_EXAMPLES[number]
-    assert [name for name, text in descriptions.items() if question in text] == [tool_name]
 
 
 async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
@@ -993,6 +939,56 @@ async def test_query_stats_fetch_false_makes_no_request() -> None:
     assert result.structured_content["link"] == results_url(
         StatsguruQuery(**{"class": 2, "type": "batting"})
     )
+
+
+async def test_tool_results_report_their_statsguru_requests_in_meta() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "qualifications": (Qualification(field="hundreds", minimum=10),),
+            "orderby": "hundreds",
+        }
+    )
+    url = results_url(query)
+    source, _, client = await call_with_source(
+        {url: result_page([row(348144, "Babar Azam", "PAK", 6626)], total=64)}
+    )
+    arguments = {
+        "query": {
+            "class": 2,
+            "type": "batting",
+            "qualval1": "hundreds",
+            "qualmin1": 10,
+            "orderby": "hundreds",
+        }
+    }
+
+    async with client:
+        fetched = await client.call_tool("query_stats", arguments)
+        cached = await client.call_tool("query_stats", arguments)
+        link_only = await client.call_tool(
+            "query_stats", {"query": {"class": 2, "type": "batting"}, "fetch": False}
+        )
+
+    assert source.requests == [url]
+    assert fetched.meta[STATSGURU_META_KEY] == {"requests": 1, "cached_pages": 0}
+    assert cached.meta[STATSGURU_META_KEY] == {"requests": 0, "cached_pages": 1}
+    assert link_only.meta[STATSGURU_META_KEY] == {"requests": 0, "cached_pages": 0}
+
+
+async def test_tool_errors_report_their_statsguru_requests_in_meta() -> None:
+    url = results_url(StatsguruQuery(**{"class": 2, "type": "batting"}))
+    missing = FetchResponse(url=url, status_code=404, headers={}, text="Not found")
+    source, _, client = await call_with_source({url: missing})
+
+    async with client:
+        result = await client.call_tool("query_stats", {"query": {"class": 2, "type": "batting"}})
+
+    assert source.requests == [url]
+    assert result.is_error is True
+    assert result.content[0].text.startswith("Error executing tool query_stats: ")
+    assert result.meta[STATSGURU_META_KEY] == {"requests": 1, "cached_pages": 0}
 
 
 async def test_query_stats_no_records_returns_zero_without_none_text() -> None:

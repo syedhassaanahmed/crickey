@@ -28,6 +28,12 @@ dev = [
   "respx>=0.23.1,<1",
   "ruff>=0.16.9,<1",
 ]
+# The eval suite (evals/, D37), added by `uv run --group evals`. The image installs neither
+# group (D39).
+evals = [
+  "inspect-ai>=0.3.275,<1",
+  "openai>=3.23.0,<4",
+]
 
 [build-system]
 requires = ["uv_build>=0.8.0,<1"]
