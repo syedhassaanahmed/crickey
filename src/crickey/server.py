@@ -83,6 +83,7 @@ from crickey.settings import Settings
 SERVER_INSTRUCTIONS = """\
 Prefer crickey's answer tools and show answer_markdown as-is when they return it.
 Do not do multi-row arithmetic yourself; use crickey tools for comparisons and derived rates.
+To compare named players, call player_record once for each; better_than_player finds who beat one.
 Cite only links that came from crickey tools.
 Read "T20" as T20I unless a domestic or franchise league is named."""
 
@@ -542,11 +543,12 @@ def create_server(
             "Example: Which players have scored Test hundreds more frequently than "
             "Babar Azam? Which batters had better average and strike rate in T20 "
             "than Babar Azam, in the same period that Babar Azam played? Bowling example: "
-            "Which Test bowlers had a better bowling average than Dale Steyn in Asia? "
+            "Which Test bowlers had a better bowling average than Glenn McGrath? "
             "Fielding example: Who has taken more catches across all formats compared to "
             "Jonty Rhodes? "
-            "Compare players. Name the player with player_name, or with player_id from "
-            "find_player or a clarification when names clash."
+            "Find the players who beat one player. To see which of two or more named players "
+            "did better, call player_record once for each instead. Name the player with "
+            "player_name, or with player_id from find_player or a clarification when names clash."
         ),
     )
     @_reports_statsguru_cost

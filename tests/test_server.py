@@ -221,6 +221,7 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
             [
                 "Prefer crickey's answer tools and show answer_markdown as-is when they return it.",
                 "Do not do multi-row arithmetic yourself; use crickey tools for comparisons and derived rates.",
+                "To compare named players, call player_record once for each; better_than_player finds who beat one.",
                 "Cite only links that came from crickey tools.",
                 'Read "T20" as T20I unless a domestic or franchise league is named.',
             ]
@@ -271,6 +272,19 @@ async def test_comparison_and_leaderboard_descriptions_add_a_fielding_example() 
     assert "batting, bowling or fielding leaderboard" in by_name["leaderboard"].description
     assert "compared to Jonty Rhodes?" in by_name["better_than_player"].description
     assert "Fielding example:" not in by_name["player_record"].description
+
+
+async def test_better_than_player_sends_comparisons_of_named_players_to_player_record() -> None:
+    _, _, client = await call_with_source({})
+
+    async with client:
+        by_name = {tool.name: tool for tool in (await client.list_tools()).tools}
+
+    # Small models read "Compare players" as comparing the players they were given (#72).
+    description = by_name["better_than_player"].description
+    assert "Compare players" not in description
+    assert "Find the players who beat one player." in description
+    assert "named players did better, call player_record once for each" in description
 
 
 async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
