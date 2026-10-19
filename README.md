@@ -6,10 +6,10 @@ crickey is for personal use at the user's own risk, Cricinfo's terms ban data-ex
 
 ## Start it
 
-Docker image: `ghcr.io/syedhassaanahmed/crickey`, tagged as a version (`0.1.0`), a minor version (`0.1`) and `latest`. The commands use `0.1`, which gets its patch releases.
+Docker image: `ghcr.io/syedhassaanahmed/crickey`, tagged as a version (`0.2.0`), a minor version (`0.2`) and `latest`. The commands use `0.2`, which gets its patch releases.
 
 ```sh
-docker run -d --rm --read-only --name crickey -p 127.0.0.1:8765:8765 ghcr.io/syedhassaanahmed/crickey:0.1
+docker run -d --rm --read-only --name crickey -p 127.0.0.1:8765:8765 ghcr.io/syedhassaanahmed/crickey:0.2
 ```
 
 Keep that container running before MCP clients connect; after a reboot, run it again. Check it: open http://127.0.0.1:8765/health in a browser; it shows `{"status":"ok"}`.
@@ -23,13 +23,13 @@ docker stop crickey
 Update: pull the latest patch release, then stop the container and run it again.
 
 ```sh
-docker pull ghcr.io/syedhassaanahmed/crickey:0.1
+docker pull ghcr.io/syedhassaanahmed/crickey:0.2
 ```
 
 Pass a setting with `-e`:
 
 ```sh
-docker run -d --rm --read-only --name crickey -p 127.0.0.1:8765:8765 -e CRICKEY_MIN_INTERVAL=15s ghcr.io/syedhassaanahmed/crickey:0.1
+docker run -d --rm --read-only --name crickey -p 127.0.0.1:8765:8765 -e CRICKEY_MIN_INTERVAL=15s ghcr.io/syedhassaanahmed/crickey:0.2
 ```
 
 ## Connect a client
@@ -71,7 +71,7 @@ Requests are slow because crickey waits 15 seconds between Cricinfo requests by 
 Debug stdio:
 
 ```sh
-docker run -i --rm --read-only ghcr.io/syedhassaanahmed/crickey:0.1 stdio
+docker run -i --rm --read-only ghcr.io/syedhassaanahmed/crickey:0.2 stdio
 ```
 
 Contributors: see [AGENTS.md](AGENTS.md).
