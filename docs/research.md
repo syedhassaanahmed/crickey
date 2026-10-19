@@ -777,3 +777,13 @@ Measured on 9 Oct 2026 with Ollama 0.40.2 ([run](https://github.com/syedhassaana
 |---|---|---|---|---|
 | `ubuntu-24.04` | AMD EPYC 7763: 2 cores, 2 threads each, AVX2 | 15 min (12.2 tokens/s) | 1.7 tokens/s | 7.6 / 10.3 / 12.8 GB (7.5 / 5.4 / 3.2 GiB) |
 | `ubuntu-24.04-arm` | Neoverse-N2: 4 cores | 45 min (4.2 tokens/s) | 3.8 tokens/s | 7.9 / 10.6 / 13.1 GB (7.3 / 5.2 / 2.9 GiB) |
+
+### What a small model gets wrong
+Single-epoch runs with `qwen3:4b-instruct`, 19 Oct 2026; the scores are in #66 and #72.
+- **Golden question 5:** parameter descriptions (#66) fixed both of its mistakes. The World Cup moved from a season `period` to `trophy`, and the call names the player.
+- **Golden question 6:** it calls `better_than_player` for each bowler, instead of `player_record`. Three changes for #72 didn't move it, each run once:
+  - `better_than_player`'s description saying that a comparison of named players goes to `player_record`;
+  - then also removing that description's bowling example about Dale Steyn in Asia;
+  - then also a server instruction saying the same.
+
+  The tool's name matches the question's "performed better".

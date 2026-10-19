@@ -58,6 +58,7 @@ Five tools (D14), all read-only.
    - Without an explicit minimum, count metrics use a minimum of 1 (D33) and other metrics use their default minimum (D32 for bowling rates, D35 for dismissals per innings).
    - For a derived rate it also gives the group's overall figure, for example total innings ÷ total hundreds across all qualifying players.
 2. **`better_than_player`** (golden questions 2, 3 and 7): "Who beats player X on A (and B)?"
+   - Its description says it finds the players who beat one player, and sends a comparison of named players, such as golden question 6, to `player_record`, one call each (#72).
    - Parameters: player name or `player_id`, format, discipline (batting by default, bowling or fielding), 1–3 metrics, all or any, period (all time, X's career span, or dates), minimum and filters.
    - Includes X's own row. Proof link (D16): the results query with X's values as extra minimums or maximums for lower-is-better metrics (R2). A value on a field the query already qualifies, such as a count's own floor, tightens that qualification instead, because Statsguru misreads a field repeated across minimums (R2).
    - When comparing rate metrics without an explicit minimum, the batting answer uses D29's default minimum, the bowling answer D32's and the fielding answer D35's. Whatever the metric, a default minimum never excludes X (D29, D32, D35), except possibly under a team filter when X has played for more than one team; then the answer asks for an explicit minimum.
@@ -75,6 +76,7 @@ Five tools (D14), all read-only.
 Server instructions tell the agent to:
 - prefer the answer tools and show `answer_markdown` as-is;
 - not do multi-row arithmetic itself (D13);
+- compare named players with one `player_record` call each, since `better_than_player` finds who beat one player (#72);
 - cite only links that came from the tools (D16);
 - read "T20" as D3 says.
 
