@@ -25,6 +25,8 @@ The steps are the same on Windows, Linux (including WSL) and macOS, and the comm
    ```
    `evals/inspect.env` writes JSON logs to `evals/logs`, and gives each model request an hour, because Inspect's HTTP clients give up after 10 minutes and a CPU can take longer than that to read the first prompt.
 
+   Keep the machine awake while it runs, because sleep freezes a reply midway: on macOS, run `caffeinate -i` in another terminal (R17).
+
 `--group evals` adds the eval's tools (the `evals` dependency group, D39), which crickey's own `uv sync` leaves out. On Python 3.15, two of them, zstandard and PyYAML, have no wheels yet, so uv builds them from source, which needs a C compiler: gcc or clang on Linux and macOS, or [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) on Windows (R17). Without Build Tools, the eval also runs in a Linux container, with crickey inside it (R17). The run asks each question three times (epochs), one question at a time.
 
 ## Options
@@ -32,6 +34,8 @@ The steps are the same on Windows, Linux (including WSL) and macOS, and the comm
 - `--max-tokens 2048` caps each reply. Without it, a small model can write a single reply for half an hour or more (R17).
 - `--sample-id q5-tendulkar-odi-world-cup-hundreds` asks one question; `golden_questions.toml` has the IDs.
 - `-T crickey_url=http://127.0.0.1:8766/mcp` uses a crickey on another port.
+- Ctrl+C stops a run and keeps the questions it finished in the log; `inspect eval-retry <log>`, with the same `uv run` prefix, asks the rest.
+- `inspect ctl sample cancel golden_questions <sample id> <epoch> --action score`, from another terminal, ends a reply that runs away and scores what the model wrote so far (R17).
 - `--model` takes any of [Inspect's model providers](https://inspect.aisi.org.uk/providers.html), for example `openai/<model>` or `anthropic/<model>` with an API key in the environment. Several models run one after another and share crickey's cache, so only the first pays for the Statsguru requests (D17).
 
 ## Results
