@@ -696,6 +696,8 @@ The package index on the development machine had inspect-ai only up to 0.3.275 a
 
 Development machine: Windows with Python 3.15.0 from the Python install manager (`py`), uv 0.11.21, Node.js 24.21.0, Docker 29.5.2, git 2.55.0, gh 2.101.0 and curl 8.21.0.
 
+Second development machine (27 Oct 2026, for the evals in R17): a MacBook Pro with macOS 27.0.1, uv 0.13.1 from Astral's installer, Python 3.15.0 from uv, Apple clang 21.0.0, Docker 29.9.2, git 2.54.0, gh 2.97.0 and curl 8.7.1. Public PyPI's file host dropped its connections there, so uv used the package proxy that the machine's npm already uses, through `UV_DEFAULT_INDEX` (D23). That proxy had inspect-ai 0.3.285 and openai 3.35.1, and its first request for ijson 3.6.0's wheel metadata failed with a 404, as above. zstandard 0.25.0 built from source with its C extension, and PyYAML 6.0.3 without libyaml.
+
 Dockerfile frontend 1.10+ supports `env=` on secret mounts.
 
 Dependabot's supported-ecosystems documentation lists `uv` as a Python ecosystem with version updates, and dependabot-core's uv file fetcher accepts a repository with `pyproject.toml` even when no `uv.lock` is committed ("Repo must contain a requirements.txt, uv.lock, requirements.in, or pyproject.toml").
@@ -716,7 +718,7 @@ To check while building:
 - Classes 12, 13 and 16 (R3).
 
 ## 17. Evals with Inspect AI and Ollama
-Checked 8–9 Oct 2026 for the eval suite (#18, D37–D40). [evals/README.md](../evals/README.md) says how to run it.
+Checked 8–9 Oct 2026 for the eval suite (#18, D37–D40), and on Apple Silicon on 27 Oct 2026. [evals/README.md](../evals/README.md) says how to run it.
 
 ### Framework
 - **[Inspect AI](https://inspect.aisi.org.uk)** (MIT, from the UK AI Security Institute; R15 has the version):
@@ -770,6 +772,32 @@ Measured on the owner's laptop (i7-1370P, 14 cores, 32 GB of RAM, no discrete GP
 - **Prompt reuse:** Ollama keeps the last prompt it read, so a call that starts the same way only reads what's new: a repeat call read 1 new token.
 - **Prompt cache:** Ollama 0.40's llama-server saves the previous conversation whenever a new one starts, up to 8 GiB or one context's worth of tokens (`--cache-ram`, default 8192 MiB). `LLAMA_ARG_CACHE_RAM=0` in Ollama's environment reaches llama-server and turns it off.
 
+### Periods as text
+Measured on 28 Oct 2026 for #78 (D42), on the owner's MacBook Pro (Apple M5 Max, 36 GB of unified memory) with Ollama 0.40.12 at a 64k context. Each run asked the golden questions whose cases have a period (1, 2, 3, 4 and 7) for 3 epochs, as evals/README.md says.
+- **Before:** Ollama's tool renderers for `gpt-oss:20b` (its harmony format) and `gemma4:31b` dropped the period object's kinds and fields. In a run of all nine golden questions on 27 Oct 2026, with Ollama 0.40.11, gpt-oss invented fields such as `{"kind": "dates", "from": …, "to": …}`, and gemma4 wrote every period as a string, such as "2000 to 2009". Neither passed golden question 1's arguments check in any epoch, nor gemma4 question 4's. On 0.40.12 the same request read the same number of tokens, so the renderers hadn't changed.
+- **Size:** the eval's request for golden question 4, with the tools as Inspect sends them:
+
+  | Model | Without tools | main | #78 | The tools |
+  |---|---|---|---|---|
+  | `gpt-oss:20b` | 199 | 1,642 | 1,522 | −8.3% |
+  | `gemma4:31b` | 156 | 3,059 | 3,112 | +1.8% |
+  | `qwen3.8:27b` | 149 | 7,992 | 7,220 | −9.8% |
+
+  gemma4's grows because its renderer used to drop `period` altogether, and now shows its forms. tiktoken's `o200k_base`, on `tools/list`'s JSON: 11,109 before, 9,503 after (−14.5%).
+- **Scores**, epochs out of 3 that passed, on 27 Oct (main) and then 28 Oct (#78):
+
+  | Model | Check | Q1 | Q2 | Q3 | Q4 | Q7 |
+  |---|---|---|---|---|---|---|
+  | `gpt-oss:20b` | arguments | 0 → 3 | 1 → 1 | 2 → 2 | 2 → 3 | 0 → 1 |
+  | | all checks | 0 → 0 | 0 → 1 | 1 → 1 | 0 → 1 | 0 → 1 |
+  | `gemma4:31b` | arguments | 0 → 3 | 3 → 3 | 3 → 3 | 0 → 3 | 3 → 3 |
+  | | all checks | 0 → 2 | 0 → 0 | 2 → 2 | 0 → 0 | 2 → 2 |
+  | `qwen3.8:27b` | arguments | 3 → 3 | 3 → 3 | 3 → 3 | 3 → 3 | 3 → 2 |
+  | | all checks | 3 → 2 | 1 → 1 | 2 → 3 | 3 → 3 | 0 → 1 |
+
+  Calls per question fell from 7.1 to 2.7 for gpt-oss, with 1.1 errors instead of 4.9, and from 7.4 to 1.1 for gemma4, with 0.1 errors instead of 5.5. Most of gemma4's remaining failures are answers without the proof link (#80). qwen3.8's two lower cells are a figure it wrote (question 1) and extra metrics (question 7), with the periods right.
+- **Guessed spans:** with a first wording, "The player's career span by default; or …", `gpt-oss:20b` gave its own guess of McCullum's span for golden question 3 in all 3 epochs ("2005 to 2013", "2006 to 2009" and "2004 to 2016"), where it had passed the arguments check in 2 of 3 before. Saying to leave the period out or give "career" for the span the player played, since crickey reads its dates from Statsguru, brought question 3 back to 2 of 3. Over the five questions, gpt-oss then gave "career" 11 times and its own span 3 times (question 7, one epoch); gemma4 and qwen3.8 never guessed one.
+
 ### GitHub's runners
 Measured on 9 Oct 2026 with Ollama 0.40.2 ([run](https://github.com/syedhassaanahmed/crickey/actions/runs/37889876851)). The largest free runners for a public repo have 4 CPUs and 16 GB; bigger runners and GPUs are paid, and the M1 macOS runner has 7 GB. `qwen3:4b-instruct` read the 11,236-token prompt at 32k:
 
@@ -777,6 +805,38 @@ Measured on 9 Oct 2026 with Ollama 0.40.2 ([run](https://github.com/syedhassaana
 |---|---|---|---|---|
 | `ubuntu-24.04` | AMD EPYC 7763: 2 cores, 2 threads each, AVX2 | 15 min (12.2 tokens/s) | 1.7 tokens/s | 7.6 / 10.3 / 12.8 GB (7.5 / 5.4 / 3.2 GiB) |
 | `ubuntu-24.04-arm` | Neoverse-N2: 4 cores | 45 min (4.2 tokens/s) | 3.8 tokens/s | 7.9 / 10.6 / 13.1 GB (7.3 / 5.2 / 2.9 GiB) |
+
+### Ollama on Apple Silicon
+Measured on 27 Oct 2026 on the owner's MacBook Pro: Apple M5 Max (18-core CPU, 32-core GPU) with 36 GB of unified memory, macOS 27.0.1 and the Ollama app 0.40.11. #18 has the run's scores.
+- **Memory:** Metal lets the GPU use 28.1 GiB, so Ollama's default context there is 32k. The app's context slider was at 256k, for cloud models, so the eval used a second `ollama serve` on another port, with `OLLAMA_CONTEXT_LENGTH=65536` and `LLAMA_ARG_CACHE_RAM=0`, reached through `OLLAMA_BASE_URL`. Both servers read the same model store.
+- **Two engines:**
+  - GGUF models run in llama-server, as on Windows.
+  - Where a model's default tag has an MLX build, `ollama pull` fetches that on Apple Silicon, and Ollama runs it in its MLX engine (MLX 0.32): here `qwen3.8:27b`, `gemma4:31b` and `nemotron-3.5-lightning:30b`, all nvfp4. The engine drafts tokens ahead (`qwen3.8:27b` kept about 80% of its drafts) and keeps earlier prompts in a prefix cache that grows during a run. `LLAMA_ARG_CACHE_RAM` doesn't apply to it.
+- **Per model**, at 64k:
+
+  | Model | Engine, weights | GPU memory | Writing (tokens/s) | Seconds per question |
+  |---|---|---|---|---|
+  | `gpt-oss:20b` | llama-server, MXFP4 | 13.6 GiB | 86 | 59 |
+  | `qwen3.8:27b` | MLX, nvfp4 | 26.0 GiB held, 28.5 peak | 48 | 19 |
+  | `gemma4:31b` | MLX, nvfp4 | 28.0 GiB held, 30.9 peak | 30 | 78 |
+  | `muse-glimmer:30b` | llama-server, Q4_K_M | 16.0 GiB | 21 | 129 |
+  | `nemotron-3.5-lightning:30b` | MLX, nvfp4 | 23.9 GiB held, 25.4 peak | 112 | 14 |
+  | `mistral-small3.2:24b` | llama-server, Q4_K_M | 23.4 GiB, 10.0 of it cache | 24 | 22 |
+  | `glm-4.7-flash` | llama-server, Q4_K_M | 21.1 GiB | 42 | 25 |
+  | `granite4.1:30b`, at 32k | llama-server, Q4_K_M | 24.5 GiB, 8.0 of it cache | 18 | 43 |
+  | `deepseek-r1:8b` | llama-server, Q4_K_M | 14.2 GiB | 68 | 24 |
+  | `phi4-mini:3.8b` | llama-server, Q4_K_M | 10.8 GiB | 94 | 16 |
+  | `lfm2.5:24b` | llama-server, Q4_K_M | 15.0 GiB | 136 | 62 |
+  | `olmo-3.1:32b-instruct` | llama-server, Q4_K_M | 23.1 GiB | 17 | 15 |
+
+  Writing is the median over replies of at least 200 tokens, from Inspect's logs. Seconds include Statsguru's 15 s between requests: `gpt-oss:20b`, the first model, sent 62 and `muse-glimmer:30b` 44; the rest found most pages in crickey's cache.
+- **Too big for 64k:** `granite4.1:30b` needs 32.7 GiB at 64k, 16 GiB of it cache. llama.cpp kept the context and put 11 of its 65 layers on the CPU, and with macOS swapping it wrote 2.4 tokens/s, so it ran at 32k.
+- **Memory pressure:** `gemma4:31b` peaked at 30.9 GiB, above Metal's 28.1 GiB. With the owner's usual apps open, macOS compressed and swapped about 5 GB, and its questions took 78 s each, against 19 s for `qwen3.8:27b`.
+- **Sleep:** this Mac's idle sleep is 1 minute (`pmset -g`), and sleeping froze replies mid-run: llama-server timed one reply at 312 s that Ollama's handler, whose clock stops during sleep, timed at 2.4 s. `caffeinate -i -s -m` in another terminal kept it awake. A closed lid sleeps anyway, so the run was stopped with Ctrl+C, which keeps the finished samples in the log, and finished later with `inspect eval-retry`.
+- **Runaway replies:** Ollama starts llama-server with `--context-shift`, which lets a reply run on past the end of the context, so one that never ends stops only at Inspect's one-hour timeout. `phi4-mini:3.8b` wrote 22,600 tokens in one reply (golden question 8), which `inspect ctl sample cancel … --action score` ended and scored as it stood.
+- **What renderers drop** (#78): Ollama turns tool schemas into each model's own format, and two of these drop `period`'s kinds:
+  - gpt-oss's harmony format shows an object parameter as a bare `object`, without its properties. Its first prompt with crickey's tools is 1,642 tokens, against 6,300–9,200 for most models. Removing `query_stats.query`, 13,273 characters of schema, takes off 25 tokens, and `leaderboard.period` costs the same as a bare object whether or not its fields are listed.
+  - gemma4's keeps an object's properties, and `query`'s, but drops `period`'s `anyOf` of kinds: its first prompt is 3,059 tokens, and `period` as sent costs less than a bare object.
 
 ### What a small model gets wrong
 Single-epoch runs with `qwen3:4b-instruct`, 19 Oct 2026; the scores are in #66 and #72.
@@ -787,3 +847,13 @@ Single-epoch runs with `qwen3:4b-instruct`, 19 Oct 2026; the scores are in #66 a
   - then also a server instruction saying the same.
 
   The tool's name matches the question's "performed better".
+
+### What the models get wrong
+The run on Apple Silicon above: all nine questions, 3 epochs, 12 models; #18 has the scores.
+- **Proof links:** answers drop the answer tool's Statsguru link more than anything else, 65 times across 8 models (`gemma4:31b` in 22 of 27). The server instructions name `answer_markdown`, which models never see (#80).
+- **Periods:** `gpt-oss:20b` can't see the kinds' fields (above) and invents them, and `gemma4:31b` writes periods as strings, such as `"2000 to 2009"` and `"last 3 years"` (#78). A known kind with other fields, such as `dates` with `from` and `to`, gets an empty error (#79).
+- **`minimum: 0`** makes `better_than_player` too broad for D10, and the error doesn't say to leave it out (#81).
+- **Arithmetic:** answers add figures they worked out, such as differences, ratios and rounded rates, which fail grounding (D13).
+- **Golden question 6:** with #74's instruction, most models call `player_record` for each bowler; `glm-4.7-flash` (2 of 3 epochs) and `gpt-oss:20b` (1 of 3) still called only `better_than_player`.
+- **No tool calls:** `mistral-small3.2:24b` answered 7 of 27 from memory, with invented figures and links. `deepseek-r1:8b`'s chat template in Ollama never shows the tool list, and `phi4-mini:3.8b` and often `olmo-3.1:32b-instruct` write tool calls as text that Ollama doesn't parse.
+- **The eval's checks** missed some right answers, and golden question 9 names no format (#82).

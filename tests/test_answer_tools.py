@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # ruff: noqa: E501
 import asyncio
+import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -17,12 +18,23 @@ from crickey.metrics import (
     bowling_metric,
     fielding_metric,
 )
-from crickey.query import PlayerPageSpec, Qualification, ResolvedPeriod, StatsguruQuery
+from crickey.query import (
+    PlayerPageSpec,
+    Qualification,
+    QuerySpecError,
+    ResolvedPeriod,
+    SeasonPeriod,
+    StatsguruQuery,
+    SymbolicPeriod,
+    SymbolicPeriodKind,
+)
 from crickey.resolve import names_agree
 from crickey.server import (
+    STATSGURU_META_KEY,
     _answer_metric,
     _comparison_default_minimum,
     _metric_row_payload,
+    _parse_period,
     create_server,
 )
 from crickey.settings import Settings
@@ -940,7 +952,7 @@ async def test_golden_question_4_last_years_test_record_requests_and_cache() -> 
             {
                 "player_name": "Babar Azam",
                 "format": "Test",
-                "period": {"kind": "last_years", "years": 1},
+                "period": "last 1 year",
             },
         )
         assert len(source.requests) == 3
@@ -950,7 +962,7 @@ async def test_golden_question_4_last_years_test_record_requests_and_cache() -> 
             {
                 "player_name": "Babar Azam",
                 "format": "Test",
-                "period": {"kind": "last_years", "years": 1},
+                "period": "last 1 year",
             },
         )
 
@@ -1792,24 +1804,73 @@ async def test_filter_clarification_text_shows_lookup_candidates() -> None:
     assert source.requests == [form_url]
 
 
-async def test_period_without_kind_is_rejected_with_available_kinds() -> None:
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (None, None),
+        ("all time", None),
+        ("All_Time", None),
+        ("career", SymbolicPeriod(kind=SymbolicPeriodKind.CAREER)),
+        ("first 3 years", SymbolicPeriod(kind=SymbolicPeriodKind.FIRST_YEARS, years=3)),
+        ("last_3_years", SymbolicPeriod(kind=SymbolicPeriodKind.LAST_YEARS, years=3)),
+        (
+            "the last three years of his career",
+            SymbolicPeriod(kind=SymbolicPeriodKind.LAST_YEARS, years=3),
+        ),
+        ("2000 to 2009", ResolvedPeriod(start="2000-01-01", end="2009-12-31")),
+        ("2000-2009", ResolvedPeriod(start="2000-01-01", end="2009-12-31")),
+        ("2000\u20132009", ResolvedPeriod(start="2000-01-01", end="2009-12-31")),
+        ("2011", ResolvedPeriod(start="2011-01-01", end="2011-12-31")),
+        ("2000-01-01 to 2009-12-31", ResolvedPeriod(start="2000-01-01", end="2009-12-31")),
+        ("5 Jan 1971 to 27 Oct 2026", ResolvedPeriod(start="1971-01-05", end="2026-10-27")),
+        ("season 2011", SeasonPeriod(season="2011")),
+        ("season 2011-2012", SeasonPeriod(season="2011/12")),
+        ("2011/12", SeasonPeriod(season="2011/12")),
+    ],
+)
+def test_period_text_forms(text: str | None, expected: object) -> None:
+    assert _parse_period(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("2 years", 'can\'t be read; use "all time", "career", "first 3 years", "last 3 years"'),
+        ("from 2000", 'can\'t be read; use "all time"'),
+        ("2011-12", 'or a season ("season 2011/12")'),
+        ("last_years", 'needs a number of years, such as "last 3 years"'),
+        ("2009 to 2000", "ends before it starts"),
+        ("season 2011/13", "isn't a season"),
+        ("2009-02-30 to 2010-01-01", 'has a date that can\'t be read: "2009-02-30"'),
+    ],
+)
+def test_unreadable_period_text_says_why(text: str, message: str) -> None:
+    with pytest.raises(QuerySpecError, match=re.escape(message)):
+        _parse_period(text)
+
+
+async def test_periods_are_text_and_unreadable_ones_cost_no_request() -> None:
     source, client = await client_for({})
 
     async with client:
-        result = await client.call_tool(
-            "player_record",
-            {
-                "player_name": "Babar Azam",
-                "format": "Test",
-                "period": {"years": 2},
-            },
+        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
+        record = await client.call_tool(
+            "player_record", {"player_name": "Babar Azam", "format": "Test", "period": "2 years"}
+        )
+        ranking = await client.call_tool(
+            "leaderboard", {"format": "Test", "metric": "runs", "period": "career"}
         )
 
+    # D42: no object for a model's tool renderer to drop.
+    for name in ("leaderboard", "better_than_player", "player_record"):
+        period = tools[name].input_schema["properties"]["period"]
+        assert period["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert source.requests == []
-    assert result.is_error is True
-    assert "period.kind is required" in result.content[0].text
-    assert "all_time" in result.content[0].text
-    assert "last_years" in result.content[0].text
+    assert record.is_error is True
+    assert '"last 3 years", years ("2000 to 2009")' in record.content[0].text
+    assert record.meta[STATSGURU_META_KEY] == {"requests": 0, "cached_pages": 0}
+    assert ranking.is_error is True
+    assert "leaderboard ranks every player" in ranking.content[0].text
 
 
 def test_issue_9_review_follow_up_innings_per_hundred_precision() -> None:
@@ -2337,7 +2398,7 @@ def team_filter_case(discipline: str, all_teams_figure: int):
         "discipline": discipline,
         "metrics": ["average"],
         "team": "India" if batting else "England",
-        "period": {"kind": "all_time"},
+        "period": "all time",
         **({"host_country": "United Arab Emirates"} if batting else {"continent": "Asia"}),
     }
     return arguments, query, {player_search_url("Team Target"): search}, (target_url, target_page)
@@ -2455,7 +2516,7 @@ async def test_comparison_without_team_filter_reports_a_missing_target_plainly()
                 "discipline": "bowling",
                 "metrics": ["average"],
                 "continent": "Asia",
-                "period": {"kind": "all_time"},
+                "period": "all time",
             },
         )
 
@@ -2507,7 +2568,7 @@ async def test_comparison_finds_the_target_on_a_later_page_without_the_fallback(
                 "format": "T20I",
                 "metrics": ["average"],
                 "host_country": "United Arab Emirates",
-                "period": {"kind": "all_time"},
+                "period": "all time",
             },
         )
 
@@ -2551,7 +2612,7 @@ async def test_batting_comparison_refuses_a_lower_floor_that_cannot_fit_the_page
                 "format": "T20I",
                 "metrics": ["average"],
                 "host_country": "United Arab Emirates",
-                "period": {"kind": "all_time"},
+                "period": "all time",
             },
         )
 
@@ -2618,7 +2679,7 @@ async def test_batting_comparison_lowered_floor_counts_every_result_page() -> No
                 "format": "T20I",
                 "metrics": ["average"],
                 "host_country": "United Arab Emirates",
-                "period": {"kind": "all_time"},
+                "period": "all time",
             },
         )
 
@@ -2677,7 +2738,7 @@ async def test_any_mode_short_answer_counts_beaters_on_each_metric() -> None:
                 "format": "T20I",
                 "metrics": ["average", "strike_rate"],
                 "match": "any",
-                "period": {"kind": "all_time"},
+                "period": "all time",
             },
         )
         single = await client.call_tool(
@@ -2687,7 +2748,7 @@ async def test_any_mode_short_answer_counts_beaters_on_each_metric() -> None:
                 "format": "T20I",
                 "metrics": ["average"],
                 "match": "any",
-                "period": {"kind": "all_time"},
+                "period": "all time",
             },
         )
 
@@ -2734,7 +2795,7 @@ async def test_answer_metric_schema_lists_batting_bowling_and_fielding_keys() ->
 
 # Issue #57: Statsguru lists two Test players as "Imran Khan" (PAK), so only player_id tells them
 # apart. The figures, spans and match counts below are synthetic.
-KHAN_DATES = {"kind": "dates", "start": "1981-09-17", "end": "1992-12-31"}
+KHAN_DATES = "1981-09-17 to 1992-12-31"
 
 
 def khan_spec(player_id: int, **fields: object) -> PlayerPageSpec:
@@ -2966,7 +3027,7 @@ async def test_player_record_by_id_resolves_career_periods_without_a_search() ->
     async with client:
         result = await client.call_tool(
             "player_record",
-            {"player_id": 40560, "format": "Test", "period": {"kind": "last_years", "years": 2}},
+            {"player_id": 40560, "format": "Test", "period": "last 2 years"},
         )
 
     assert source.requests == [form_url, page_url]
@@ -3144,7 +3205,7 @@ async def test_player_id_without_a_record_in_the_format_is_a_clear_error() -> No
         )
         career_record = await client.call_tool(
             "player_record",
-            {"player_id": 316363, "format": "ODI", "period": {"kind": "last_years", "years": 2}},
+            {"player_id": 316363, "format": "ODI", "period": "last 2 years"},
         )
         career = await client.call_tool(
             "better_than_player", {"player_id": 316363, "format": "ODI", "metrics": ["average"]}
@@ -3632,7 +3693,7 @@ async def test_split_by_on_filtered_pages_uses_the_filtered_grouped_rows() -> No
             {
                 "player_id": CENTURION_ID,
                 "format": "Test",
-                "period": {"kind": "dates", "start": "2005-01-01", "end": "2012-12-31"},
+                "period": "2005-01-01 to 2012-12-31",
                 "split_by": "year",
             },
         )
@@ -3693,7 +3754,7 @@ async def test_split_by_refuses_grouped_rows_that_do_not_add_up_to_the_record() 
             {
                 "player_id": CENTURION_ID,
                 "format": "Test",
-                "period": {"kind": "dates", "start": "2005-01-01", "end": "2012-12-31"},
+                "period": "2005-01-01 to 2012-12-31",
                 "split_by": "host",
             },
         )
@@ -4028,7 +4089,7 @@ async def test_fielding_count_leaderboards_use_a_minimum_of_one_and_say_what_is_
             {
                 "format": "T20I",
                 "metric": "dismissals per innings",
-                "period": {"kind": "dates", "start": "2016-10-08", "end": "2026-10-08"},
+                "period": "2016-10-08 to 2026-10-08",
             },
             {"class": 3, "period": ResolvedPeriod(start="2016-10-08", end="2026-10-08")},
             20,
@@ -4153,7 +4214,7 @@ async def test_golden_question_7_catches_across_all_formats_compared_to_rhodes(
                 "format": "all formats",
                 "discipline": "fielding",
                 "metrics": [metric],
-                "period": {"kind": "all_time"},
+                "period": "all time",
             },
         )
 
@@ -4219,7 +4280,7 @@ async def test_fielding_rate_comparison_uses_the_displayed_rate_as_an_exact_mini
                 "format": "all internationals",
                 "discipline": "fielding",
                 "metrics": ["dismissals_per_innings"],
-                "period": {"kind": "all_time"},
+                "period": "all time",
             },
         )
 
@@ -4278,7 +4339,7 @@ async def test_fielding_comparison_lowers_the_floor_to_the_targets_own_figure() 
                 "discipline": "fielding",
                 "metrics": ["stumpings"],
                 "continent": "Asia",
-                "period": {"kind": "all_time"},
+                "period": "all time",
             },
         )
 
