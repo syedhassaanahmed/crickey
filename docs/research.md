@@ -663,7 +663,7 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | Component | Version |
 |---|---|
 | Python | 3.15.0 (updated 19 Oct 2026, #70) |
-| uv | 0.13.1 (updated 18 Oct 2026, #68) |
+| uv | 0.13.6 (updated 28 Oct 2026, #76) |
 | MCP specification | 2026-07-28 |
 | Docker Engine | 29.8.2 |
 | Docker base image | `python:3.15.0-slim-trixie` (updated 19 Oct 2026, #70) |
