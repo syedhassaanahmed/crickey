@@ -1,6 +1,6 @@
 [project]
 name = "crickey"
-version = "0.2.0"
+version = "0.3.0"
 description = "An MCP server for answering Cricinfo Statsguru cricket statistics questions."
 readme = "README.md"
 requires-python = ">=3.15,<3.16"
