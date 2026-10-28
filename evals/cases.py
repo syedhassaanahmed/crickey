@@ -32,6 +32,14 @@ class ExpectedPeriod(_Strict):
     end: date | None = None
     years: int | None = None
 
+    def text(self) -> str:
+        """The period as the answer tools take it (D42), such as "last 3 years"."""
+        if self.kind == "dates":
+            return f"{self.start} to {self.end}"
+        if self.years is not None:
+            return f"{self.kind.removesuffix('_years')} {self.years} years"
+        return self.kind.replace("_", " ")
+
 
 class ExpectedCall(_Strict):
     """A call the question needs, with the arguments that decide its answer."""
@@ -71,7 +79,7 @@ class ExpectedCall(_Strict):
             else:
                 arguments["metrics"] = metrics
         if self.period is not None and self.period.kind != "career":
-            arguments["period"] = self.period.model_dump(mode="json", exclude_none=True)
+            arguments["period"] = self.period.text()
         arguments.update(self.filters)
         if self.minimum is not None:
             arguments["minimum"] = (
