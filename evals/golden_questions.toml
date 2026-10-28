@@ -7,8 +7,9 @@
 #   the players have retired or the period has ended (fixed_because, D37).
 # - tool: the answer tool the question needs.
 # - calls: the calls the question needs. A model passes the arguments check when each one matches
-#   a call it made: the same tool, and every argument given here. Formats, metrics, filters and
-#   splits compare as crickey resolves them, and players by ID or by one of their names.
+#   a call it made: the same tool, and every argument given here. Formats, metrics, periods,
+#   filters and splits compare as crickey resolves them, and players by ID or by one of their
+#   names. A period here is what the call's text means, so "2000 to 2009" matches its dates (D42).
 # - facts: the known answer, confirmed live (R10). The final answer must contain one text from
 #   each entry.
 

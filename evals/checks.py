@@ -7,13 +7,13 @@ import re
 import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlparse
 
 from crickey.ids import LookupResult, lookup_continent, lookup_host, lookup_team, lookup_trophy
-from crickey.server import _answer_metric, _format_class, _split_by
+from crickey.query import ResolvedPeriod, SymbolicPeriod, SymbolicPeriodKind
+from crickey.server import _answer_metric, _format_class, _parse_period, _split_by
 from evals.cases import FILTERS, Case, ExpectedCall, ExpectedPeriod, ExpectedPlayer
 
 STATSGURU_HOSTS = frozenset({"stats.cricinfo.com", "stats.espncricinfo.com"})
@@ -236,21 +236,26 @@ def _metric_key(discipline: str, value: Any) -> str | None:
 
 
 def _same_period(expected: ExpectedPeriod | None, actual: Any) -> bool:
+    """Compares the call's period as crickey reads its text (D42)."""
+    text = actual.strip() if isinstance(actual, str) else actual
+    if not _given(text):
+        # Without a period, the answer tools use the whole record or the player's career span.
+        return expected is None or expected.kind == "career"
+    if not isinstance(text, str):
+        return False
+    try:
+        period = _parse_period(text)
+    except ValueError:
+        return False
     if expected is None:
         # A case without a period asks about the whole record, which these all give.
-        kind = actual.get("kind") if isinstance(actual, Mapping) else None
-        return not _given(actual) or kind in {"career", "all_time"}
-    if not _given(actual):
-        return expected.kind == "career"
-    if not isinstance(actual, Mapping) or actual.get("kind") != expected.kind:
-        return False
+        return period is None or period == SymbolicPeriod(kind=SymbolicPeriodKind.CAREER)
+    if expected.kind == "all_time":
+        return period is None
     if expected.kind == "dates":
-        return _date(actual.get("start")) == expected.start and (
-            _date(actual.get("end")) == expected.end
-        )
-    if expected.kind in {"first_years", "last_years"}:
-        return _number(actual.get("years")) == expected.years
-    return True
+        return period == ResolvedPeriod(start=expected.start, end=expected.end)
+    years = None if expected.kind == "career" else expected.years
+    return period == SymbolicPeriod(kind=SymbolicPeriodKind(expected.kind), years=years)
 
 
 def _same_filter(name: str, expected: str | None, actual: Any, class_id: int | None) -> bool:
@@ -297,13 +302,6 @@ def _number(value: Any) -> float | None:
         return None
     try:
         return float(str(value).strip())
-    except ValueError:
-        return None
-
-
-def _date(value: Any) -> date | None:
-    try:
-        return date.fromisoformat(str(value))
     except ValueError:
         return None
 

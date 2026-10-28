@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 import functools
+import re
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, is_dataclass, replace
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from math import ceil
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 import pandas as pd
 from mcp.server import MCPServer
 from mcp.server.mcpserver.context import Context
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import BaseModel, Field, PositiveInt, ValidationError
+from pydantic import Field, PositiveInt, ValidationError
 
 from crickey.fetcher import (
     Fetcher,
@@ -215,46 +216,6 @@ _SPLIT_COUNTS = {
     "bowling": _SplitCount("5", "five-wicket haul", "five-wicket hauls", "five_wicket_hauls"),
 }
 
-
-class AllTimePeriod(BaseModel):
-    kind: Literal["all_time"]
-
-
-class CareerPeriod(BaseModel):
-    kind: Literal["career"]
-
-
-class FirstYearsPeriod(BaseModel):
-    kind: Literal["first_years"]
-    years: PositiveInt
-
-
-class LastYearsPeriod(BaseModel):
-    kind: Literal["last_years"]
-    years: PositiveInt
-
-
-class DatesPeriod(BaseModel):
-    kind: Literal["dates"]
-    start: date
-    end: date
-
-
-class AnswerSeasonPeriod(BaseModel):
-    kind: Literal["season"]
-    season: str
-
-
-AnswerPeriod = Annotated[
-    AllTimePeriod
-    | CareerPeriod
-    | FirstYearsPeriod
-    | LastYearsPeriod
-    | DatesPeriod
-    | AnswerSeasonPeriod,
-    Field(discriminator="kind"),
-]
-
 # What each tool parameter takes, in one line, so small models put a question's details in the
 # right parameters (#66, D13). Defaults and allowed values are in the schemas already.
 _TOURNAMENTS = "A tournament goes in trophy."
@@ -273,25 +234,30 @@ PlayerIdParam = Annotated[
     PositiveInt | None,
     Field(description="Player ID from find_player or a clarification. Give this or player_name."),
 ]
+# A period is plain text in one of a few forms (D42); the descriptions and errors show them.
+_PERIOD_RANGES = (
+    'years ("2000 to 2009"), dates ("2000-01-01 to 2009-12-31") or a season ("season 2011/12")'
+)
+_PLAYER_SPANS = '"first 3 years", "last 3 years"'
 LeaderboardPeriodParam = Annotated[
-    AnswerPeriod | dict[str, Any] | None,
-    Field(description=f"All time by default; or dates or a season. {_TOURNAMENTS}"),
+    str | None,
+    Field(description=f"All time by default; or {_PERIOD_RANGES}. {_TOURNAMENTS}"),
 ]
 ComparisonPeriodParam = Annotated[
-    AnswerPeriod | dict[str, Any] | None,
+    str | None,
     Field(
         description=(
-            "The player's career span by default; or all_time, first_years, last_years, dates "
-            f"or a season. {_TOURNAMENTS}"
+            'For the span the player played, leave it out or give "career": crickey reads its '
+            'dates from Statsguru. Otherwise "all time", '
+            f"{_PLAYER_SPANS}, {_PERIOD_RANGES}. {_TOURNAMENTS}"
         )
     ),
 ]
 RecordPeriodParam = Annotated[
-    AnswerPeriod | dict[str, Any] | None,
+    str | None,
     Field(
         description=(
-            "The whole record by default; or first_years, last_years, dates or a season. "
-            f"{_TOURNAMENTS}"
+            f"The whole record by default; or {_PLAYER_SPANS}, {_PERIOD_RANGES}. {_TOURNAMENTS}"
         )
     ),
 ]
@@ -669,7 +635,7 @@ async def _leaderboard_tool(
     format: str | int,
     discipline: AnswerDiscipline | str,
     metric_key: str,
-    period: AnswerPeriod | dict[str, Any] | None,
+    period: str | None,
     team: str | list[str] | None,
     opposition: str | list[str] | None,
     host_country: str | list[str] | None,
@@ -689,8 +655,7 @@ async def _leaderboard_tool(
         discipline_value = _answer_discipline(discipline)
         metric = _answer_metric(discipline_value, metric_key)
         metric.require_supported(class_id)
-        _validate_period_shape(period)
-        resolved_period = _parse_period(period)
+        resolved_period = _parse_period(period, for_player=False)
     except (ValueError, QuerySpecError) as error:
         raise ToolError(str(error)) from error
     progress = _progress_callback(ctx)
@@ -822,7 +787,7 @@ async def _better_than_player_tool(
     discipline: AnswerDiscipline | str,
     metric_keys: list[AnswerMetric | str],
     match_mode: str,
-    period: AnswerPeriod | dict[str, Any] | None,
+    period: str | None,
     team: str | list[str] | None,
     opposition: str | list[str] | None,
     host_country: str | list[str] | None,
@@ -843,7 +808,8 @@ async def _better_than_player_tool(
         class_id = _format_class(format)
         discipline_value = _answer_discipline(discipline)
         metrics = tuple(_answer_metric(discipline_value, key) for key in metric_keys)
-        _validate_period_shape(period)
+        # Without a period, the comparison covers the player's career span.
+        requested_period = _parse_period(period) if _has_text(period) else _CAREER
         for metric in metrics:
             metric.require_supported(class_id)
     except ValueError as error:
@@ -870,7 +836,9 @@ async def _better_than_player_tool(
             with _target_page_errors(
                 target_id, class_id, discipline_value, name=known_name, by_id=by_id
             ):
-                period_value = await _comparison_period(fetcher, target_id, class_id, period, call)
+                period_value = await _player_period(
+                    fetcher, target_id, class_id, requested_period, call
+                )
             filters = await _answer_filters(
                 fetcher,
                 class_id,
@@ -1132,7 +1100,7 @@ async def _player_record_tool(
     player_id: int | None,
     format: str | int,
     discipline: RecordDiscipline | str,
-    period: AnswerPeriod | dict[str, Any] | None,
+    period: str | None,
     opposition: str | list[str] | None,
     host_country: str | list[str] | None,
     continent: str | list[str] | None,
@@ -1148,7 +1116,7 @@ async def _player_record_tool(
         class_id = _format_class(format)
         discipline_value = _record_discipline(discipline)
         split_key = _split_by(split_by)
-        _validate_period_shape(period)
+        requested_period = _parse_period(period)
     except ValueError as error:
         raise ToolError(str(error)) from error
     progress = _progress_callback(ctx)
@@ -1172,7 +1140,9 @@ async def _player_record_tool(
             with _target_page_errors(
                 target_id, class_id, discipline_value, name=known_name, by_id=by_id
             ):
-                period_value = await _record_period(fetcher, target_id, class_id, period, call)
+                period_value = await _player_period(
+                    fetcher, target_id, class_id, requested_period, call
+                )
             filters = await _answer_filters(
                 fetcher,
                 class_id,
@@ -1527,70 +1497,143 @@ def _filter_items(value: str | list[str]) -> tuple[str, ...]:
     return (str(value),)
 
 
-def _parse_period(value: AnswerPeriod | Mapping[str, Any] | None) -> Period:
-    if value is None:
+def _has_text(value: str | None) -> bool:
+    return value is not None and bool(value.strip())
+
+
+# The period forms crickey reads (D42). Matching ignores case, reads underscores as spaces and
+# any dash as a hyphen, since models write periods those ways.
+_CAREER = SymbolicPeriod(kind=SymbolicPeriodKind.CAREER)
+_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+_DASHES = str.maketrans(dict.fromkeys("\u2010\u2011\u2012\u2013\u2014\u2015\u2212", "-"))
+_PERIOD_DATE = r"\d{4}-\d{1,2}-\d{1,2}|\d{1,2} [a-z]+ \d{4}"
+_PERIOD_TO = r"\s*(?:-|to|until|through|and)\s*"
+_ALL_TIME_PERIOD = re.compile(r"all[ -]?time")
+_CAREER_PERIOD = re.compile(
+    r"(?:(?:the|his|her|their) )?(?:(?:whole|full|entire) )?career(?: span)?"
+)
+_PLAYER_YEARS_PERIOD = re.compile(
+    rf"(?:the )?(?P<side>first|last) (?P<count>\d+|{'|'.join(_NUMBER_WORDS)}) years?"
+    r"(?: of (?:(?:his|her|their|the) )?career)?"
+)
+_UNCOUNTED_YEARS_PERIOD = re.compile(r"(?:the )?(?:first|last) years?")
+_DATES_PERIOD = re.compile(
+    rf"(?:from |between )?(?P<start>{_PERIOD_DATE}){_PERIOD_TO}(?P<end>{_PERIOD_DATE})"
+)
+# "from" and "between" only with an end: "from 2000" alone means 2000 onwards, which isn't a form.
+_YEARS_PERIOD = re.compile(
+    rf"(?:in )?(?P<year>\d{{4}})|(?:from |between )?(?P<start>\d{{4}}){_PERIOD_TO}(?P<end>\d{{4}})"
+)
+_SEASON_PERIOD = re.compile(
+    r"season (?P<year>\d{4})(?:\s*[/-]\s*(?P<next>\d{2}|\d{4}))?"
+    r"|(?P<bare>\d{4})\s*/\s*(?P<bare_next>\d{2}|\d{4})"
+)
+
+
+def _parse_period(text: str | None, *, for_player: bool = True) -> Period:
+    """The period a tool call gives as text (D42); None means all time.
+
+    A bare year is the calendar year, and a season needs the word or the 2011/12 form.
+    `for_player` is False for leaderboard, which has no player whose career a period follows.
+    """
+    if text is None or not text.strip():
         return None
-    data = value.model_dump() if isinstance(value, BaseModel) else dict(value)
-    if not data or data == {"kind": "all_time"}:
+    words = " ".join(text.casefold().replace("_", " ").translate(_DASHES).split()).strip(".\"' ")
+    period: Period
+    if _ALL_TIME_PERIOD.fullmatch(words):
         return None
-    kind = data.get("kind")
-    if kind is None:
-        raise QuerySpecError(
-            "period.kind is required; expected one of all_time, career, first_years, "
-            "last_years, dates or season"
+    if _CAREER_PERIOD.fullmatch(words):
+        period = _CAREER
+    elif match := _PLAYER_YEARS_PERIOD.fullmatch(words):
+        count = match["count"]
+        years = _NUMBER_WORDS[count] if count in _NUMBER_WORDS else int(count)
+        if years < 1:
+            raise QuerySpecError(f'period "{text}" needs at least 1 year.')
+        side = (
+            SymbolicPeriodKind.FIRST_YEARS
+            if match["side"] == "first"
+            else SymbolicPeriodKind.LAST_YEARS
         )
-    if kind in {"dates", "date_range"}:
-        return ResolvedPeriod(start=_date_value(data["start"]), end=_date_value(data["end"]))
-    if kind == "season":
-        return SeasonPeriod(season=str(data["season"]))
-    if kind in {"career", "first_years", "last_years"}:
-        years = data.get("years")
-        return SymbolicPeriod(kind=SymbolicPeriodKind(kind), years=years)
-    raise QuerySpecError(f"unsupported period kind {kind!r}")
-
-
-def _validate_period_shape(value: AnswerPeriod | Mapping[str, Any] | None) -> None:
-    if isinstance(value, Mapping) and value and "kind" not in value:
-        raise QuerySpecError(
-            "period.kind is required; expected one of all_time, career, first_years, "
-            "last_years, dates or season"
+        period = SymbolicPeriod(kind=side, years=years)
+    elif _UNCOUNTED_YEARS_PERIOD.fullmatch(words):
+        raise QuerySpecError(f'period "{text}" needs a number of years, such as "last 3 years".')
+    elif match := _DATES_PERIOD.fullmatch(words):
+        start = _period_date(text, match["start"])
+        period = _dated_period(text, start, _period_date(text, match["end"]))
+    elif match := _YEARS_PERIOD.fullmatch(words):
+        first_year, last_year = (
+            int(match["year"] or match["start"]),
+            int(match["year"] or match["end"]),
         )
+        period = _dated_period(text, date(first_year, 1, 1), date(last_year, 12, 31))
+    elif match := _SEASON_PERIOD.fullmatch(words):
+        year = match["year"] or match["bare"]
+        period = SeasonPeriod(season=_season(text, year, match["next"] or match["bare_next"]))
+    else:
+        raise QuerySpecError(
+            f'period "{text}" can\'t be read; use {_period_forms(for_player=for_player)}.'
+        )
+    if isinstance(period, SymbolicPeriod) and not for_player:
+        raise QuerySpecError(
+            f'period "{text}" follows one player\'s career, but leaderboard ranks every '
+            f"player; use {_period_forms(for_player=False)}."
+        )
+    return period
 
 
-async def _comparison_period(
-    fetcher: Fetcher,
-    player_id: int,
-    class_id: int,
-    value: AnswerPeriod | Mapping[str, Any] | None,
-    call,
+def _period_forms(*, for_player: bool) -> str:
+    spans = f'"career", {_PLAYER_SPANS}, ' if for_player else ""
+    return f'"all time", {spans}{_PERIOD_RANGES}'
+
+
+def _period_date(text: str, value: str) -> date:
+    for pattern in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
+        try:
+            return datetime.strptime(value, pattern).date()
+        except ValueError:
+            continue
+    raise QuerySpecError(f'period "{text}" has a date that can\'t be read: "{value}".')
+
+
+def _dated_period(text: str, start: date, end: date) -> ResolvedPeriod:
+    if start > end:
+        raise QuerySpecError(f'period "{text}" ends before it starts.')
+    return ResolvedPeriod(start=start, end=end)
+
+
+def _season(text: str, year: str, following: str | None) -> str:
+    """Statsguru's name for a season: a year, or two years in a row, as in 2011/12."""
+    if following is None:
+        return year
+    next_year = int(year) + 1
+    if following not in {str(next_year), f"{next_year % 100:02d}"}:
+        raise QuerySpecError(
+            f'period "{text}" isn\'t a season; a season is a year or two years in a row, '
+            'such as "season 2011" or "season 2011/12".'
+        )
+    return f"{year}/{next_year % 100:02d}"
+
+
+async def _player_period(
+    fetcher: Fetcher, player_id: int, class_id: int, period: Period, call
 ) -> Period:
-    period = _parse_period(value or CareerPeriod(kind="career"))
+    """The period, with a span of the player's career resolved to dates (plan › Calculations)."""
     if isinstance(period, SymbolicPeriod):
         return await PeriodResolver(fetcher).resolve_symbolic(
             player_id, class_id=class_id, period=period, call=call
         )
     return period
-
-
-async def _record_period(
-    fetcher: Fetcher,
-    player_id: int,
-    class_id: int,
-    value: AnswerPeriod | Mapping[str, Any] | None,
-    call,
-) -> Period:
-    period = _parse_period(value)
-    if isinstance(period, SymbolicPeriod):
-        return await PeriodResolver(fetcher).resolve_symbolic(
-            player_id, class_id=class_id, period=period, call=call
-        )
-    return period
-
-
-def _date_value(value: Any) -> date:
-    if isinstance(value, date):
-        return value
-    return date.fromisoformat(str(value))
 
 
 def _period_text(period: Period, *, as_of: date) -> str:

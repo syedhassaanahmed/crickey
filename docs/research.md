@@ -770,6 +770,32 @@ Measured on the owner's laptop (i7-1370P, 14 cores, 32 GB of RAM, no discrete GP
 - **Prompt reuse:** Ollama keeps the last prompt it read, so a call that starts the same way only reads what's new: a repeat call read 1 new token.
 - **Prompt cache:** Ollama 0.40's llama-server saves the previous conversation whenever a new one starts, up to 8 GiB or one context's worth of tokens (`--cache-ram`, default 8192 MiB). `LLAMA_ARG_CACHE_RAM=0` in Ollama's environment reaches llama-server and turns it off.
 
+### Periods as text
+Measured on 28 Oct 2026 for #78 (D42), on the owner's MacBook Pro (Apple M5 Max, 36 GB of unified memory) with Ollama 0.40.12 at a 64k context. Each run asked the golden questions whose cases have a period (1, 2, 3, 4 and 7) for 3 epochs, as evals/README.md says.
+- **Before:** Ollama's tool renderers for `gpt-oss:20b` (its harmony format) and `gemma4:31b` dropped the period object's kinds and fields. In a run of all nine golden questions on 27 Oct 2026, with Ollama 0.40.11, gpt-oss invented fields such as `{"kind": "dates", "from": …, "to": …}`, and gemma4 wrote every period as a string, such as "2000 to 2009". Neither passed golden question 1's arguments check in any epoch, nor gemma4 question 4's. On 0.40.12 the same request read the same number of tokens, so the renderers hadn't changed.
+- **Size:** the eval's request for golden question 4, with the tools as Inspect sends them:
+
+  | Model | Without tools | main | #78 | The tools |
+  |---|---|---|---|---|
+  | `gpt-oss:20b` | 199 | 1,642 | 1,522 | −8.3% |
+  | `gemma4:31b` | 156 | 3,059 | 3,112 | +1.8% |
+  | `qwen3.8:27b` | 149 | 7,992 | 7,220 | −9.8% |
+
+  gemma4's grows because its renderer used to drop `period` altogether, and now shows its forms. tiktoken's `o200k_base`, on `tools/list`'s JSON: 11,109 before, 9,503 after (−14.5%).
+- **Scores**, epochs out of 3 that passed, on 27 Oct (main) and then 28 Oct (#78):
+
+  | Model | Check | Q1 | Q2 | Q3 | Q4 | Q7 |
+  |---|---|---|---|---|---|---|
+  | `gpt-oss:20b` | arguments | 0 → 3 | 1 → 1 | 2 → 2 | 2 → 3 | 0 → 1 |
+  | | all checks | 0 → 0 | 0 → 1 | 1 → 1 | 0 → 1 | 0 → 1 |
+  | `gemma4:31b` | arguments | 0 → 3 | 3 → 3 | 3 → 3 | 0 → 3 | 3 → 3 |
+  | | all checks | 0 → 2 | 0 → 0 | 2 → 2 | 0 → 0 | 2 → 2 |
+  | `qwen3.8:27b` | arguments | 3 → 3 | 3 → 3 | 3 → 3 | 3 → 3 | 3 → 2 |
+  | | all checks | 3 → 2 | 1 → 1 | 2 → 3 | 3 → 3 | 0 → 1 |
+
+  Calls per question fell from 7.1 to 2.7 for gpt-oss, with 1.1 errors instead of 4.9, and from 7.4 to 1.1 for gemma4, with 0.1 errors instead of 5.5. Most of gemma4's remaining failures are answers without the proof link (#80). qwen3.8's two lower cells are a figure it wrote (question 1) and extra metrics (question 7), with the periods right.
+- **Guessed spans:** with a first wording, "The player's career span by default; or …", `gpt-oss:20b` gave its own guess of McCullum's span for golden question 3 in all 3 epochs ("2005 to 2013", "2006 to 2009" and "2004 to 2016"), where it had passed the arguments check in 2 of 3 before. Saying to leave the period out or give "career" for the span the player played, since crickey reads its dates from Statsguru, brought question 3 back to 2 of 3. Over the five questions, gpt-oss then gave "career" 11 times and its own span 3 times (question 7, one epoch); gemma4 and qwen3.8 never guessed one.
+
 ### GitHub's runners
 Measured on 9 Oct 2026 with Ollama 0.40.2 ([run](https://github.com/syedhassaanahmed/crickey/actions/runs/37889876851)). The largest free runners for a public repo have 4 CPUs and 16 GB; bigger runners and GPUs are paid, and the M1 macOS runner has 7 GB. `qwen3:4b-instruct` read the 11,236-token prompt at 32k:
 
