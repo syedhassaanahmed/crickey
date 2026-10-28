@@ -83,10 +83,11 @@ from crickey.resolve import _player_resolution_from_html as player_resolution_fr
 from crickey.settings import Settings
 
 SERVER_INSTRUCTIONS = """\
-Prefer crickey's answer tools and show answer_markdown as-is when they return it.
+Prefer crickey's answer tools.
+Show each answer tool's answer as it is, or keep at least its Answer proof or Input/method link.
 Do not do multi-row arithmetic yourself; use crickey tools for comparisons and derived rates.
 To compare named players, call player_record once for each; better_than_player finds who beat one.
-Cite only links that came from crickey tools.
+Cite only links that came from crickey tools, as full URLs copied exactly.
 Read "T20" as T20I unless a domestic or franchise league is named."""
 
 # Every tool result's `_meta` says what the call cost Statsguru (D38). Models don't see it.

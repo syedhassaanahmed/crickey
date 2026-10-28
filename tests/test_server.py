@@ -219,10 +219,11 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         )
         assert client.instructions == "\n".join(
             [
-                "Prefer crickey's answer tools and show answer_markdown as-is when they return it.",
+                "Prefer crickey's answer tools.",
+                "Show each answer tool's answer as it is, or keep at least its Answer proof or Input/method link.",
                 "Do not do multi-row arithmetic yourself; use crickey tools for comparisons and derived rates.",
                 "To compare named players, call player_record once for each; better_than_player finds who beat one.",
-                "Cite only links that came from crickey tools.",
+                "Cite only links that came from crickey tools, as full URLs copied exactly.",
                 'Read "T20" as T20I unless a domestic or franchise league is named.',
             ]
         )

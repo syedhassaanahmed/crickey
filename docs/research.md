@@ -798,6 +798,41 @@ Measured on 28 Oct 2026 for #78 (D42), on the owner's MacBook Pro (Apple M5 Max,
   Calls per question fell from 7.1 to 2.7 for gpt-oss, with 1.1 errors instead of 4.9, and from 7.4 to 1.1 for gemma4, with 0.1 errors instead of 5.5. Most of gemma4's remaining failures are answers without the proof link (#80). qwen3.8's two lower cells are a figure it wrote (question 1) and extra metrics (question 7), with the periods right.
 - **Guessed spans:** with a first wording, "The player's career span by default; or …", `gpt-oss:20b` gave its own guess of McCullum's span for golden question 3 in all 3 epochs ("2005 to 2013", "2006 to 2009" and "2004 to 2016"), where it had passed the arguments check in 2 of 3 before. Saying to leave the period out or give "career" for the span the player played, since crickey reads its dates from Statsguru, brought question 3 back to 2 of 3. Over the five questions, gpt-oss then gave "career" 11 times and its own span 3 times (question 7, one epoch); gemma4 and qwen3.8 never guessed one.
 
+### Keeping the proof link
+Measured on 28 and 29 Oct 2026 for #80 (D16), on the MacBook Pro below with Ollama 0.40.12 at a 64k context, and 32k for `granite4.1:30b`. Each run asked all nine golden questions for 3 epochs.
+- **Before:** the server instructions said to show `answer_markdown` as-is, a key of the result's structured content. Models read the result's text: the same markdown, where an answer's link is labelled "Answer proof", or "Input/method link" for a derived rate (D13).
+- **Wording:** "Show each answer tool's answer as it is, or keep at least its Answer proof or Input/method link." Two lines on citing were tried with it:
+  - "Cite only links that came from crickey tools, copied exactly.", because `qwen3.8:27b` had retyped an answer's links and given Hayden's profile as player 13395, where the tool said 5616 (golden question 1). With it, `nemotron-3.5-lightning:30b` passed proof in 22 and then 21 of 27, and `lfm2.5:24b` in 11 and 11, under their 23 and 13 on 27 Oct. 6 of nemotron's 11 misses pointed to a tool or a label instead of giving the link, such as "【better_than_player proof link】" or "see the “Answer proof” link in the tool output", and one cited the right link inside 【…】, which the proof check misreads (#82). 18 of lfm2.5's 32 cut fields off a query link, swapped its `;` for `&`, or built one from a profile ID.
+  - "Cite only links that came from crickey tools, as full URLs copied exactly.": nemotron then passed 25 and lfm2.5 13. crickey uses this line.
+- **Scores** on 27 Oct (#18) and with the final instructions, which also have #78's periods and #85's `query` description. Proof and all checks are the share of the 27 answers that passed; questions 5 and 6 count the epochs, of 3, that passed proof:
+
+  | Model | Proof | All checks | Proof on Q5, Q6 |
+  |---|---|---|---|
+  | `gemma4:31b` | 0.19 → 1.00 | 0.15 → 0.81 | 0, 0 → 3, 3 |
+  | `qwen3.8:27b` | 1.00 → 1.00 | 0.63 → 0.78 | 3, 3 → 3, 3 |
+  | `muse-glimmer:30b` | 0.74 → 1.00 | 0.52 → 0.70 | 3, 1 → 3, 3 |
+  | `granite4.1:30b` | 0.89 → 1.00 | 0.37 → 0.44 | 3, 3 → 3, 3 |
+  | `nemotron-3.5-lightning:30b` | 0.85 → 0.93 | 0.52 → 0.48 | 3, 2 → 3, 3 |
+  | `gpt-oss:20b` | 0.63 → 0.89 | 0.15 → 0.19 | 2, 2 → 2, 2 |
+  | `glm-4.7-flash` | 0.44 → 0.52 | 0.15 → 0.33 | 1, 1 → 1, 3 |
+  | `lfm2.5:24b` | 0.48 → 0.48 | 0.11 → 0.15 | 1, 2 → 1, 1 |
+  | `mistral-small3.2:24b` | 0.22 → 0.22 | 0.15 → 0.11 | 0, 0 → 0, 0 |
+  | `olmo-3.1:32b-instruct` | 0.15 → 0.22 | 0.07 → 0.11 | 0, 1 → 0, 1 |
+
+  `deepseek-r1:8b` and `phi4-mini:3.8b`, which made no tool calls on 27 Oct, weren't run again. As the first wording's two runs show, a difference of 1 or 2 answers in 27 can be chance.
+- **Still failing**, with the final instructions:
+  - **No link:** answers in the model's own words, without the link an answer tool had returned: `glm-4.7-flash` 12, `lfm2.5:24b` 8, `mistral-small3.2:24b` 8, `olmo-3.1:32b-instruct` 7, `nemotron-3.5-lightning:30b` 2 and `gpt-oss:20b` 1. Five of them named the label or a tool instead, such as `glm-4.7-flash`'s "Answer proof: Test player batting for 28114, 24 Jan 2009 to 24 Jan 2012", without the URL.
+  - **Altered links:** `lfm2.5:24b` 6, `gpt-oss:20b` 2 and `olmo-3.1:32b-instruct` 1.
+  - **No tool calls:** `olmo-3.1:32b-instruct` 12 and `mistral-small3.2:24b` 6, as in "What the models get wrong" below.
+  - **Other:** 7 answers had no answer tool's link to keep (`mistral-small3.2:24b` 6, `olmo-3.1:32b-instruct` 1); `mistral-small3.2:24b` once cited an invented crickey.ai link; and `glm-4.7-flash` once stopped without an answer after 19 calls.
+- **Size:** tiktoken's `o200k_base`, on the instructions: 85 tokens before, 103 after. As Ollama counts the eval's first request for golden question 5:
+
+  | Model | Without the tools | With the tools |
+  |---|---|---|
+  | `gpt-oss:20b` | 195 → 213 | 1,529 → 1,547 |
+  | `qwen3.8:27b` | 146 → 164 | 7,234 → 7,252 |
+  | `gemma4:31b` | 148 → 167 | 3,122 → 3,141 |
+
 ### GitHub's runners
 Measured on 9 Oct 2026 with Ollama 0.40.2 ([run](https://github.com/syedhassaanahmed/crickey/actions/runs/37889876851)). The largest free runners for a public repo have 4 CPUs and 16 GB; bigger runners and GPUs are paid, and the M1 macOS runner has 7 GB. `qwen3:4b-instruct` read the 11,236-token prompt at 32k:
 
@@ -851,7 +886,7 @@ Single-epoch runs with `qwen3:4b-instruct`, 19 Oct 2026; the scores are in #66 a
 
 ### What the models get wrong
 The run on Apple Silicon above: all nine questions, 3 epochs, 12 models; #18 has the scores.
-- **Proof links:** answers drop the answer tool's Statsguru link more than anything else, 65 times across 8 models (`gemma4:31b` in 22 of 27). The server instructions name `answer_markdown`, which models never see (#80).
+- **Proof links:** answers drop the answer tool's Statsguru link more than anything else, 65 times across 8 models (`gemma4:31b` in 22 of 27). The server instructions named `answer_markdown`, which models never see; "Keeping the proof link" above has what naming the links' labels changed (#80).
 - **Periods:** `gpt-oss:20b` can't see the kinds' fields (above) and invents them, and `gemma4:31b` writes periods as strings, such as `"2000 to 2009"` and `"last 3 years"` (#78). A known kind with other fields, such as `dates` with `from` and `to`, gets an empty error (#79).
 - **`minimum: 0`** makes `better_than_player` too broad for D10, and the error doesn't say to leave it out (#81).
 - **Arithmetic:** answers add figures they worked out, such as differences, ratios and rounded rates, which fail grounding (D13).
