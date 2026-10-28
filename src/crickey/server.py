@@ -9,7 +9,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from math import ceil
-from typing import Annotated, Any
+from typing import Annotated, Any, get_args
 
 import pandas as pd
 from mcp.server import MCPServer
@@ -64,6 +64,7 @@ from crickey.query import (
     ResolvedPeriod,
     SeasonPeriod,
     StatsguruQuery,
+    StatType,
     SymbolicPeriod,
     SymbolicPeriodKind,
     player_search_url,
@@ -99,6 +100,13 @@ DEFAULT_QUERY_STATS_LIMIT = 50
 _READ_ONLY_ANNOTATIONS = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 _QUERY_STATS_SINGLE_VALUE_LIST_FIELDS = (
     ", ".join(SINGLE_VALUE_LIST_FIELDS[:-1]) + f" and {SINGLE_VALUE_LIST_FIELDS[-1]}"
+)
+# Some renderers hide the query's fields, so its description names the two it needs (#85).
+_STAT_TYPES = get_args(StatType)
+_QUERY_STATS_QUERY = (
+    "The Statsguru query. It needs class (1 Test, 2 ODI, 3 T20I, 6 all T20 or 11 all formats) "
+    f"and type ({', '.join(_STAT_TYPES[:-1])} or {_STAT_TYPES[-1]}); filters and sort are "
+    "optional."
 )
 _FORMAT_CLASSES = {
     "test": 1,
@@ -371,10 +379,7 @@ def create_server(
     )
     @_reports_statsguru_cost
     async def query_stats(
-        query: Annotated[
-            StatsguruQuery,
-            Field(description="The Statsguru query: format class, stat type, filters and sort."),
-        ],
+        query: Annotated[StatsguruQuery, Field(description=_QUERY_STATS_QUERY)],
         limit: Annotated[
             int, Field(description=f"Rows to return, up to {MAX_QUERY_STATS_LIMIT}.")
         ] = DEFAULT_QUERY_STATS_LIMIT,

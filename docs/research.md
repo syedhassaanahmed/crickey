@@ -836,6 +836,7 @@ Measured on 27 Oct 2026 on the owner's MacBook Pro: Apple M5 Max (18-core CPU, 3
 - **Runaway replies:** Ollama starts llama-server with `--context-shift`, which lets a reply run on past the end of the context, so one that never ends stops only at Inspect's one-hour timeout. `phi4-mini:3.8b` wrote 22,600 tokens in one reply (golden question 8), which `inspect ctl sample cancel … --action score` ended and scored as it stood.
 - **What renderers drop** (#78): Ollama turns tool schemas into each model's own format, and two of these drop `period`'s kinds:
   - gpt-oss's harmony format shows an object parameter as a bare `object`, without its properties. Its first prompt with crickey's tools is 1,642 tokens, against 6,300–9,200 for most models. Removing `query_stats.query`, 13,273 characters of schema, takes off 25 tokens, and `leaderboard.period` costs the same as a bare object whether or not its fields are listed.
+    - The description still reaches it. Asked 5 times on 28 Oct 2026 to list the leading ODI wicket-takers against Australia with `query_stats`, `gpt-oss:20b` gave a valid `class` and `type` once with the old `query` description, and all 5 times once it named the two (#85). All 10 queries still failed on other fields, such as an opposition given by name rather than ID.
   - gemma4's keeps an object's properties, and `query`'s, but drops `period`'s `anyOf` of kinds: its first prompt is 3,059 tokens, and `period` as sent costs less than a bare object.
 
 ### What a small model gets wrong
