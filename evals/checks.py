@@ -19,10 +19,15 @@ from evals.cases import FILTERS, Case, ExpectedCall, ExpectedPeriod, ExpectedPla
 STATSGURU_HOSTS = frozenset({"stats.cricinfo.com", "stats.espncricinfo.com"})
 COST_KEYS = ("tool_calls", "tool_errors", "statsguru_requests", "cached_pages", "tokens", "seconds")
 
-_URL = re.compile(r"https?://[^\s<>()\[\]\"'`|]+")
+_URL = re.compile(r"https?://[^\s<>()\[\]\"'`|【】]+")
 _NUMBER = re.compile(r"(?<![\w.])\d+(?:,\d{3})*(?:\.\d+)?(?!\w)")
 _LIST_MARKER = re.compile(r"^(\s*)\d+[.)](?=\s)", re.MULTILINE)
 _THOUSANDS = re.compile(r"(?<=\d),(?=\d{3}(?!\d))")
+# Digit groups split by a space, such as "2 779" or "2\u202f779", as some models write them.
+_DIGIT_GROUPS = re.compile(r"(?<![\w.])\d{1,3}(?:[ \u00a0\u202f\u2009]\d{3})+(?:\.\d+)?(?!\w)")
+_GROUP_SPACE = re.compile(r"[ \u00a0\u202f\u2009]")
+_RULE_CELL = re.compile(r":?-+:?")
+_COUNTRY_COUNT = re.compile(r"(\d+) (?:host )?(?:countries|nations)")
 _LOOKUPS: dict[str, Callable[[int, str], LookupResult]] = {
     "team": lookup_team,
     "opposition": lookup_team,
@@ -114,6 +119,8 @@ def check_grounding(case: Case, transcript: Transcript) -> CheckResult:
         *(_numbers(call.result) for call in transcript.calls)
     )
     answer = _LIST_MARKER.sub(r"\1", _URL.sub(" ", transcript.answer))
+    answer = _without_rank_columns(answer)
+    answer = _DIGIT_GROUPS.sub(lambda match: _read_group(match.group(), sources), answer)
     ungrounded = sorted(_numbers(answer) - sources, key=Decimal)
     if ungrounded:
         return CheckResult(False, f"Figures no tool returned: {', '.join(ungrounded)}.")
@@ -254,6 +261,9 @@ def _same_period(expected: ExpectedPeriod | None, actual: Any) -> bool:
         return period is None
     if expected.kind == "dates":
         return period == ResolvedPeriod(start=expected.start, end=expected.end)
+    if expected.kind == "career" and isinstance(period, ResolvedPeriod):
+        # The span crickey resolves for the career makes the same query (R10).
+        return (period.start, period.end) == (expected.start, expected.end)
     years = None if expected.kind == "career" else expected.years
     return period == SymbolicPeriod(kind=SymbolicPeriodKind(expected.kind), years=years)
 
@@ -324,7 +334,61 @@ def _contains(text: str, fact: str) -> bool:
     needle = _plain(fact)
     if _NUMBER.fullmatch(needle):
         return _canonical(needle) in _numbers(text)
-    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", text) is not None
+    if re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", text) is not None:
+        return True
+    # A count of countries also reads as the count before a list of that many, "11 (a, …)".
+    count = _COUNTRY_COUNT.fullmatch(needle)
+    return count is not None and _lists_count(text, int(count.group(1)))
+
+
+def _lists_count(text: str, count: int) -> bool:
+    for match in re.finditer(rf"(?<![\w.]){count} \(([^()]*)\)", text):
+        items = [item for item in re.split(r",|\band\b", match.group(1)) if item.strip()]
+        if len(items) == count:
+            return True
+    return False
+
+
+def _without_rank_columns(text: str) -> str:
+    """Blanks the numbers of table columns that count rows 1, 2, 3, …, which aren't figures."""
+    lines = text.split("\n")
+    start = 0
+    while start < len(lines):
+        end = start
+        while end < len(lines) and lines[end].lstrip().startswith("|"):
+            end += 1
+        if end == start:
+            start += 1
+            continue
+        rows = [_cells(line) for line in lines[start:end]]
+        if len(rows) > 2 and all(_RULE_CELL.fullmatch(cell) for cell in rows[1]):
+            body = rows[2:]
+            for column in range(max(len(row) for row in body)):
+                # Other cells in the column, such as "—" for an unranked row, don't count.
+                cells = [row[column] for row in body if column < len(row)]
+                ranks = [rank for rank in map(_rank, cells) if rank is not None]
+                if len(ranks) >= 3 and ranks == list(range(1, len(ranks) + 1)):
+                    for row in body:
+                        if column < len(row) and _rank(row[column]) is not None:
+                            row[column] = ""
+            lines[start + 2 : end] = ["| " + " | ".join(row) + " |" for row in body]
+        start = end
+    return "\n".join(lines)
+
+
+def _rank(cell: str) -> int | None:
+    value = cell.strip("* ")
+    return int(value) if value.isdigit() else None
+
+
+def _cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def _read_group(group: str, sources: set[str]) -> str:
+    """A digit group reads as one number when a tool returned it, and as separate ones otherwise."""
+    joined = _GROUP_SPACE.sub("", group)
+    return joined if _canonical(joined) in sources else group
 
 
 def _has_words(name: str, words: str) -> bool:

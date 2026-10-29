@@ -10,8 +10,10 @@
 #   a call it made: the same tool, and every argument given here. Formats, metrics, periods,
 #   filters and splits compare as crickey resolves them, and players by ID or by one of their
 #   names. A period here is what the call's text means, so "2000 to 2009" matches its dates (D42).
+#   A career period also matches the span crickey resolves for it, given as start and end (R10).
 # - facts: the known answer, confirmed live (R10). The final answer must contain one text from
-#   each entry.
+#   each entry. A count of countries, such as "11 countries", also matches the count before a
+#   bracketed list of that many, such as "11 (Australia, …)".
 
 [[case]]
 number = 1
@@ -41,7 +43,7 @@ facts = [["6.45"], ["Pujara"], ["Sangakkara"], ["Hayden"], ["Amla"], ["Kallis"],
 player = { id = 35320, names = ["Tendulkar"] }
 format = "Test"
 metrics = [["innings_per_hundred"]]
-period = { kind = "career" }
+period = { kind = "career", start = 1989-11-15, end = 2013-11-14 }
 
 [[case]]
 number = 3
@@ -56,7 +58,7 @@ facts = [["Pietersen"], ["Hales"], ["35.66"], ["136.21"]]
 player = { id = 37737, names = ["McCullum"] }
 format = "T20I"
 metrics = [["average"], ["strike_rate"]]
-period = { kind = "career" }
+period = { kind = "career", start = 2005-02-17, end = 2015-06-23 }
 
 [[case]]
 number = 4
@@ -121,7 +123,7 @@ player = { id = 46973, names = ["Rhodes"] }
 format = "all internationals"
 discipline = "fielding"
 metrics = [["catches", "fielder_catches"]]
-period = { kind = "career" }
+period = { kind = "career", start = 1992-02-26, end = 2003-02-12 }
 
 [[case]]
 number = 8
@@ -130,7 +132,7 @@ id = "q8-test-hundred-in-every-country-younis-and-dravid"
 question = "Have Younis Khan and Rahul Dravid each scored at least 1 Test hundred in every country they've played in?"
 tool = "player_record"
 fixed_because = "Both have retired. A question about every player can't have a fixed answer (D34)."
-facts = [["Younis"], ["Dravid"], ["11 host countries", "11 countries", "eleven host countries", "eleven countries"], ["10 host countries", "10 countries", "ten host countries", "ten countries"]]
+facts = [["Younis"], ["Dravid"], ["11 host countries", "11 countries", "11 host nations", "11 nations", "eleven host countries", "eleven countries", "eleven host nations", "eleven nations"], ["10 host countries", "10 countries", "10 host nations", "10 nations", "ten host countries", "ten countries", "ten host nations", "ten nations"]]
 
 [[case.calls]]
 player = { id = 43652, names = ["Younis"] }
@@ -146,7 +148,7 @@ split_by = "host"
 number = 9
 golden_question = "Take the records of players X, Y and Z against country A. Curious to see who did better in terms of wickets, average and strike rates."
 id = "q9-wasim-waqar-imran-against-india"
-question = "Take the records of Wasim Akram, Waqar Younis and Imran Khan against India. Curious to see who did better in terms of wickets, average and strike rates."
+question = "Take the records of Wasim Akram, Waqar Younis and Imran Khan against India in Tests and ODIs. Curious to see who did better in terms of wickets, average and strike rates."
 tool = "player_record"
 fixed_because = "All three have retired."
 facts = [["Wasim"], ["Waqar"], ["Imran Khan"], ["94"], ["24.04"], ["45"], ["28.86"], ["48.75"], ["80.2"], ["60"], ["25.15"], ["40.4"], ["37"], ["24.48"], ["31.7"], ["35"], ["22.25"], ["34.6"]]

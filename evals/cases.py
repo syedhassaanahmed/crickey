@@ -26,7 +26,8 @@ class ExpectedPlayer(_Strict):
 
 
 class ExpectedPeriod(_Strict):
-    # "career" also accepts no period, which the answer tools read as the player's career.
+    # "career" also accepts no period, which the answer tools read as the player's career, and
+    # with start and end, the span crickey resolves for that career (R10).
     kind: Literal["career", "all_time", "dates", "first_years", "last_years"]
     start: date | None = None
     end: date | None = None

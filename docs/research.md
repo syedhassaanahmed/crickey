@@ -892,4 +892,4 @@ The run on Apple Silicon above: all nine questions, 3 epochs, 12 models; #18 has
 - **Arithmetic:** answers add figures they worked out, such as differences, ratios and rounded rates, which fail grounding (D13).
 - **Golden question 6:** with #74's instruction, most models call `player_record` for each bowler; `glm-4.7-flash` (2 of 3 epochs) and `gpt-oss:20b` (1 of 3) still called only `better_than_player`.
 - **No tool calls:** `mistral-small3.2:24b` answered 7 of 27 from memory, with invented figures and links. `deepseek-r1:8b`'s chat template in Ollama never shows the tool list, and `phi4-mini:3.8b` and often `olmo-3.1:32b-instruct` write tool calls as text that Ollama doesn't parse.
-- **The eval's checks** missed some right answers, and golden question 9 names no format (#82).
+- **The eval's checks** missed some right answers, and golden question 9 named no format. Since #82 the checks accept those answers, and the question names Tests and ODIs: scored again, 13 more of this run's 324 answers pass every check, and 29 more of #80's 567.
