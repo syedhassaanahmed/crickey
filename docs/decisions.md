@@ -121,3 +121,5 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 | Quoting every golden question in the description of the tool that answers it | It copied the golden questions into the code and a test (D41). |
 | pytest tests of the evals: a live test of the cases' known answers, and offline tests of the checks, scorers, bridge and cases | Not needed, the owner said (18 Oct 2026, PR #67): the evals run on their own, and a changed case's known answer is checked live once, by hand (plan › Evals). |
 | A `period` object, kept as it was or with each kind's fields spelled out in its description | Models still had to build a nested object, which some got wrong even when they saw its schema, and some renderers in Ollama hid its kinds (D42, R17). |
+| Accepting all internationals combined as a second known answer for golden question 9 | It needs a second known answer checked live, and cases with alternative answers; the question names Tests and ODIs instead (#82). |
+| Asking golden question 8 "in how many countries" | It tells the model what to count; the answer check reads the count in more forms instead (#82). |
