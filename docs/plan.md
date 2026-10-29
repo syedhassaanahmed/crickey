@@ -75,10 +75,11 @@ Five tools (D14), all read-only.
    - With `fetch=false` it only builds the link, so no request is made.
 
 Server instructions tell the agent to:
-- prefer the answer tools and show `answer_markdown` as-is;
+- prefer the answer tools;
+- show each answer tool's answer as it is, or keep at least its "Answer proof" or "Input/method link", the labels models see in the result's text (D16, R17);
 - not do multi-row arithmetic itself (D13);
 - compare named players with one `player_record` call each, since `better_than_player` finds who beat one player (#72);
-- cite only links that came from the tools (D16);
+- cite only links that came from the tools, as full URLs copied exactly (D16, R17);
 - read "T20" as D3 says.
 
 ## Calculations (inside the answer tools)
