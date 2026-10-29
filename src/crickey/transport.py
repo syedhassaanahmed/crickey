@@ -5,6 +5,7 @@ import hmac
 import ipaddress
 import socket
 from typing import Final
+from urllib.parse import urlsplit
 
 import uvicorn
 from mcp.server import MCPServer
@@ -60,7 +61,7 @@ def bind_host(settings: Settings) -> str:
 def transport_security_settings(settings: Settings) -> TransportSecuritySettings:
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=[*LOCAL_HOSTS, *(_authority(url) for url in settings.urls)],
+        allowed_hosts=[*LOCAL_HOSTS, *(urlsplit(url).netloc for url in settings.urls)],
         allowed_origins=[*LOCAL_ORIGINS, *settings.urls],
     )
 
@@ -142,14 +143,9 @@ def _reach_beyond_this_machine(settings: Settings) -> str | None:
     if settings.host is not None and not _is_loopback(settings.host):
         return f"The bind address {settings.host}"
     for url in settings.urls:
-        if not _is_loopback(_host_name(_authority(url))):
+        if not _is_loopback(urlsplit(url).hostname or ""):
             return f"The URL {url}"
     return None
-
-
-def _authority(url: str) -> str:
-    """The Host value of a URL, such as crickey.example.com in "https://crickey.example.com"."""
-    return url.split("://", 1)[1]
 
 
 def _is_loopback(name: str) -> bool:
@@ -159,13 +155,6 @@ def _is_loopback(name: str) -> bool:
         return ipaddress.ip_address(name).is_loopback
     except ValueError:
         return False
-
-
-def _host_name(value: str) -> str:
-    """The host of a Host value, such as localhost in "localhost:8765" or ::1 in "[::1]:*"."""
-    if value.startswith("["):
-        return value[1 : value.index("]")]
-    return value.split(":", 1)[0]
 
 
 def _bind_socket(host: str, port: int) -> socket.socket:
