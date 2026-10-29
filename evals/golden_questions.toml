@@ -197,7 +197,7 @@ id = "q10-odi-series-of-3-plus-teams-in-pakistan-1990s"
 question = "How many ODI series of 3+ teams were played in Pakistan from 1990 to 1999?"
 tool = "series_count"
 fixed_because = "The period ended in 1999."
-facts = [["3 ODI series", "3 series", "3 tournaments", "3 multi-team", "three ODI series", "three series", "three tournaments", "three multi-team"]]
+facts = [["3 ODI series", "3 series", "3 tournaments", "3 multi-team", "number of series 3", "three ODI series", "three series", "three tournaments", "three multi-team"]]
 
 [[case.calls]]
 format = "ODI"

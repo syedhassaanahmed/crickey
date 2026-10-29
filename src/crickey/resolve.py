@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import string
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
@@ -132,6 +133,11 @@ class NameResolver:
 
     async def resolve_ground(self, name: str, *, class_id: int, call=None) -> LookupResult:
         return await self._id_resolver.lookup_ground(class_id, name, call=call)
+
+    async def series_names(
+        self, series_ids: Iterable[int], *, class_id: int, call=None
+    ) -> dict[int, str]:
+        return await self._id_resolver.series_names(class_id, series_ids, call=call)
 
 
 def _player_resolution_from_html(

@@ -73,7 +73,7 @@ Six tools (D14), all read-only.
 4. **`series_count`** (golden question 10): "How many series …?" (D44)
    - Parameters: format, host country, team, number of teams ("2", "3+", "3-4" or "5+", or the same in words), trophy and period (all time by default, or years, dates or a season).
    - One request to Statsguru's series view, one row per series (R4). The page's total is the count, and its link is the proof (D16).
-   - The answer lists each series' start date, matches and winner, counting only the matches that meet the filters, and links its series page, since the view has no series names (R4).
+   - The answer lists each series' name, start date, matches and winner; the start date and matches count only the matches that meet the filters (R4). The names come from the advanced form's series list (D18), one more request the first time. The proof is its only link (R17).
    - Statsguru counts three- and four-team tournaments together, so "3" alone is an error that offers "3+" and "3-4".
 5. **`find_player`**: candidates with ID, country, formats and career spans (R7).
 6. **`query_stats`**: any Statsguru query (see coverage above).
@@ -106,7 +106,7 @@ Server instructions tell the agent to:
   - dates, "2000-01-01 to 2009-12-31", or as Statsguru writes them, "5 Jan 1971 to 27 Oct 2026";
   - a season, "season 2011" or "season 2011/12", or "2011/12" on its own.
 
-  Anything else is an error that lists the forms, before any request. `leaderboard` ranks every player, so it rejects "career" and the first or last years.
+  Anything else is an error that lists the forms, before any request. `leaderboard` ranks every player and `series_count` counts series, so they reject "career" and the first or last years.
 - **Period resolver:**
   - "X's career span" is X's first and last match start dates in that format, from the player's form page `spanmin0`/`spanmax0` first, with the innings list as the fallback (R6).
   - "The last Y years of X's career" runs from Y years before X's last match to that match.

@@ -299,7 +299,7 @@ MatchResultParam = Annotated[
     str | int | None, Field(description="won, lost, tied, drawn or no result.")
 ]
 SeriesTeamParam = Annotated[
-    str | list[str] | None, Field(description='A team that played in the series, e.g. "Pakistan".')
+    str | list[str] | None, Field(description='A team that played in the series, e.g. "India".')
 ]
 # Text rather than an enum, so plain words such as "three or more" work; the description lists
 # the values crickey reads.
@@ -666,10 +666,10 @@ def create_server(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
             "Example: How many ODI series of 3+ teams have been played in Pakistan? "
-            "Team example: How many Test series has Pakistan played in England? "
-            "Count the series in a format and list them, with a proof link. Filter by the "
-            "country the matches were in, a team that played, the number of teams in each "
-            "series, a tournament and a period."
+            "Team example: How many Test series has India played in Australia? "
+            "Count the series in a format and list them, with a proof link. The country the "
+            "series were played in goes in host_country, and a team that played in them in "
+            "team. Also filter by the number of teams in each series, a tournament and a period."
         ),
     )
     @_reports_statsguru_cost
@@ -723,7 +723,7 @@ async def _leaderboard_tool(
         discipline_value = _answer_discipline(discipline)
         metric = _answer_metric(discipline_value, metric_key)
         metric.require_supported(class_id)
-        resolved_period = _parse_period(period, for_player=False)
+        resolved_period = _parse_period(period, without_player="leaderboard ranks every player")
     except (ValueError, QuerySpecError) as error:
         raise ToolError(str(error)) from error
     progress = _progress_callback(ctx)
@@ -859,7 +859,7 @@ async def _series_count_tool(
     try:
         class_id = _format_class(format)
         size = _series_size(number_of_teams)
-        resolved_period = _parse_period(period, for_player=False)
+        resolved_period = _parse_period(period, without_player="series_count counts series")
     except ValueError as error:
         raise ToolError(str(error)) from error
     as_of = _today(fetcher)
@@ -887,6 +887,17 @@ async def _series_count_tool(
             page = parse_results_page(
                 await call.fetch(url, freshness=_freshness_for_query(query, as_of))
             )
+            rows = [] if page.no_records else page.table.to_dict("records")
+            # The view leaves the series' names out, and the form's series list has them.
+            names = (
+                await NameResolver(fetcher).series_names(
+                    (row["series_id"] for row in rows if row.get("series_id") is not None),
+                    class_id=class_id,
+                    call=call,
+                )
+                if rows
+                else {}
+            )
     except (
         FetcherError,
         StatsguruParseError,
@@ -898,10 +909,10 @@ async def _series_count_tool(
             _validation_message(error) if isinstance(error, ValidationError) else str(error)
         ) from error
 
-    rows = [] if page.no_records else page.table.to_dict("records")
     count = 0 if page.no_records else page.totals.total or len(rows)
     payload_rows = [
         {
+            "series": names.get(row.get("series_id")),
             "start_date": row.get("Start Date"),
             "matches": row.get("Mat"),
             "winner": row.get("Winner"),
@@ -935,24 +946,16 @@ async def _series_count_tool(
     answer = render_answer(
         AnswerRenderInput(
             short_answer=_series_short_answer(query, count, size, as_of=as_of),
+            # Only the proof is linked: models that cited series pages dropped it.
             table=RenderedTable(
-                headers=("Start date", "Matches", "Winner", "Series page"),
+                headers=("Series", "Start date", "Matches", "Winner"),
                 rows=tuple(
-                    (
-                        row["start_date"],
-                        row["matches"],
-                        row["winner"],
-                        f"[series page]({row['series_page']})" if row["series_page"] else None,
-                    )
+                    (row["series"], row["start_date"], row["matches"], row["winner"])
                     for row in payload_rows
                 ),
             ),
             method=tuple(method),
-            assumptions=(
-                f"Period: {_period_text(resolved_period, as_of=as_of)}.",
-                "Statsguru's series view shows no series names, so each row links to its series "
-                "page.",
-            ),
+            assumptions=(f"Period: {_period_text(resolved_period, as_of=as_of)}.",),
             proof_links=(proof,),
             players=(),
             as_of=as_of,
@@ -1530,6 +1533,9 @@ async def _player_record_tool(
 
 
 def _format_class(value: str | int) -> int:
+    # Small models also write Statsguru's class number as text, such as "2".
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value)
     if isinstance(value, int):
         if value in _DEFAULT_FIND_CLASSES:
             return value
@@ -1795,12 +1801,14 @@ _SEASON_PERIOD = re.compile(
 )
 
 
-def _parse_period(text: str | None, *, for_player: bool = True) -> Period:
+def _parse_period(text: str | None, *, without_player: str | None = None) -> Period:
     """The period a tool call gives as text (D42); None means all time.
 
     A bare year is the calendar year, and a season needs the word or the 2011/12 form.
-    `for_player` is False for leaderboard, which has no player whose career a period follows.
+    `without_player` says why a tool has no player whose career a period could follow, such as
+    "leaderboard ranks every player".
     """
+    for_player = without_player is None
     if text is None or not text.strip():
         return None
     words = " ".join(text.casefold().replace("_", " ").translate(_DASHES).split()).strip(".\"' ")
@@ -1840,8 +1848,8 @@ def _parse_period(text: str | None, *, for_player: bool = True) -> Period:
         )
     if isinstance(period, SymbolicPeriod) and not for_player:
         raise QuerySpecError(
-            f'period "{text}" follows one player\'s career, but leaderboard ranks every '
-            f"player; use {_period_forms(for_player=False)}."
+            f'period "{text}" follows one player\'s career, but {without_player}; '
+            f"use {_period_forms(for_player=False)}."
         )
     return period
 

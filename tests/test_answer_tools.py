@@ -1158,7 +1158,13 @@ async def test_golden_question_9_three_bowlers_against_one_opposition() -> None:
         assert record.structured_content["proof"]["confirmed"] is True
 
 
-def series_page(rows: list[tuple[str, int, str | None, int, int]]) -> str:
+SeriesRow = tuple[str, str, int, str | None, int, int]
+ODI_FORM_URL = (
+    "https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;filter=advanced;type=batting"
+)
+
+
+def series_page(rows: list[SeriesRow]) -> str:
     """Statsguru's series view: blank series names, and each row's IDs in its investigate menu."""
     body = "".join(
         f'<tr class="data1"><td class="left"></td><td>{matches}</td><td>{matches}</td><td>0</td>'
@@ -1166,13 +1172,13 @@ def series_page(rows: list[tuple[str, int, str | None, int, int]]) -> str:
         f'<td nowrap="nowrap"><b>{start}</b></td><td></td><td class="left">{winner or "-"}</td>'
         f'<td class="padDD"><a href="javascript:void(0)" onmouseover="menuLayers.show('
         f'\'engine-dd{index}\', event); return true"><img alt="investigate this query" /></a></td></tr>'
-        for index, (start, matches, winner, _series, _page) in enumerate(rows, start=1)
+        for index, (_name, start, matches, winner, _series, _page) in enumerate(rows, start=1)
     )
     menus = "".join(
         f'<div id="engine-dd{index}"><a href="/ci/content/series/{page}.html">Series home page</a>'
         f'<a href="/ci/engine/stats/index.html?class=2;series={series};type=aggregate;view=series">'
         "Query for this series</a></div>"
-        for index, (_start, _matches, _winner, series, page) in enumerate(rows, start=1)
+        for index, (_name, _start, _matches, _winner, series, page) in enumerate(rows, start=1)
     )
     if not rows:
         body = '<tr class="data1"><td>No records available to match this query</td></tr>'
@@ -1188,25 +1194,40 @@ def series_page(rows: list[tuple[str, int, str | None, int, int]]) -> str:
     """
 
 
+def series_form(rows: list[SeriesRow]) -> str:
+    """The advanced form, whose series list names each series."""
+    options = "".join(f'<option value="{row[4]}">{row[0]}</option>' for row in rows)
+    return f'<form name="gurumenu"><select name="series">{options}</select></form>'
+
+
 def series_query(**fields: object) -> StatsguruQuery:
     return StatsguruQuery(
         **{"class": 2, "type": "aggregate", "view": "series", "size": 200, **fields}
     )
 
 
-NINETIES_SERIES_IN_PAKISTAN = [
-    ("12 Oct 1994", 9, "Australia", 701, 60960),
-    ("16 Feb 1996", 16, "Sri Lanka", 722, 60981),
-    ("1 Nov 1997", 7, "South Africa", 755, 61014),
+NINETIES_SERIES_IN_PAKISTAN: list[SeriesRow] = [
+    ("Wills Triangular Series, 1994/95", "12 Oct 1994", 9, "Australia", 701, 60960),
+    ("Wills World Cup, 1995/96", "16 Feb 1996", 16, "Sri Lanka", 722, 60981),
+    ("Wills Quadrangular Tournament, 1997/98", "1 Nov 1997", 7, "South Africa", 755, 61014),
+]
+HOME_SERIES: list[SeriesRow] = [
+    ("India in Pakistan ODI Series, 1978/79", "1 Oct 1978", 3, "Pakistan", 400, 60000)
 ]
 
 
-# Golden question 10: one request to Statsguru's series view, whose row count is the answer.
+# Golden question 10: Statsguru's series view, whose row count is the answer, and the form's
+# series list for the names.
 async def test_golden_question_10_counts_odi_series_of_three_or_more_teams_in_pakistan() -> None:
     query = series_query(
         host=7, tournament_type=(3, 5), period=ResolvedPeriod(start="1990-01-01", end="1999-12-31")
     )
-    source, client = await client_for({url(query): series_page(NINETIES_SERIES_IN_PAKISTAN)})
+    source, client = await client_for(
+        {
+            url(query): series_page(NINETIES_SERIES_IN_PAKISTAN),
+            ODI_FORM_URL: series_form(NINETIES_SERIES_IN_PAKISTAN),
+        }
+    )
 
     async with client:
         result = await client.call_tool(
@@ -1219,35 +1240,38 @@ async def test_golden_question_10_counts_odi_series_of_three_or_more_teams_in_pa
             },
         )
 
-    assert source.requests == [url(query)]
+    assert source.requests == [url(query), ODI_FORM_URL]
     assert "tournament_type=3;tournament_type=5;type=aggregate;view=series" in url(query)
     structured = result.structured_content
     assert structured["count"] == 3
-    assert [
-        (row["start_date"], row["winner"], row["series_id"], row["series_page"])
-        for row in structured["series"]
-    ][0] == (
-        "1994-10-12",
-        "Australia",
-        701,
-        "https://stats.cricinfo.com/ci/content/series/60960.html",
-    )
+    assert structured["series"][0] == {
+        "series": "Wills Triangular Series, 1994/95",
+        "start_date": "1994-10-12",
+        "matches": 9,
+        "winner": "Australia",
+        "series_id": 701,
+        "series_page": "https://stats.cricinfo.com/ci/content/series/60960.html",
+    }
     assert structured["proof"]["confirmed"] is True
     answer = structured["answer_markdown"]
     assert answer.startswith(
         "3 ODI series of 3+ teams were played in Pakistan, 1990-01-01 to 1999-12-31.\n"
     )
+    assert re.search(r"\| Wills World Cup, 1995/96 +\| 1996-02-16 +\| 16 +\| Sri Lanka", answer)
     assert "- Answer proof: [Confirmed Statsguru results: ODI aggregate, view series" in answer
     assert f"]({url(query)})" in answer
+    # The proof is the only Statsguru link, so a model that keeps one link keeps it.
+    assert "/ci/content/series/" not in answer
 
 
-async def test_series_count_reads_number_of_teams_in_plain_words() -> None:
+async def test_series_count_reads_plain_words_and_rejects_unclear_ones() -> None:
     two_teams = series_query(host=7, team=7, tournament_type=2)
     three_or_more = series_query(host=7, tournament_type=(3, 5))
     source, client = await client_for(
         {
-            url(two_teams): series_page([("10 Nov 1978", 3, "Pakistan", 400, 60000)]),
+            url(two_teams): series_page(HOME_SERIES),
             url(three_or_more): series_page(NINETIES_SERIES_IN_PAKISTAN),
+            ODI_FORM_URL: series_form(HOME_SERIES + NINETIES_SERIES_IN_PAKISTAN),
         }
     )
     arguments = {"format": "ODI", "host_country": "Pakistan"}
@@ -1257,11 +1281,12 @@ async def test_series_count_reads_number_of_teams_in_plain_words() -> None:
             "series_count", {**arguments, "team": "Pakistan", "number_of_teams": 2}
         )
         words = await client.call_tool(
-            "series_count", {**arguments, "number_of_teams": "three or more teams"}
+            "series_count", {**arguments, "format": "2", "number_of_teams": "three or more teams"}
         )
         ambiguous = await client.call_tool("series_count", {**arguments, "number_of_teams": "3"})
+        career = await client.call_tool("series_count", {**arguments, "period": "first 10 years"})
 
-    assert source.requests == [url(two_teams), url(three_or_more)]
+    assert source.requests == [url(two_teams), ODI_FORM_URL, url(three_or_more)]
     assert home.structured_content["answer_markdown"].startswith(
         "1 ODI series of 2 teams involving Pakistan was played in Pakistan, all time through "
     )
@@ -1271,6 +1296,7 @@ async def test_series_count_reads_number_of_teams_in_plain_words() -> None:
         'number_of_teams \'3\' isn\'t one crickey reads: give "2", "3+" for three or more, '
         '"3-4" or "5+".'
     ) in ambiguous.content[0].text
+    assert "career, but series_count counts series; use" in career.content[0].text
 
 
 async def test_series_count_names_a_tournament_and_counts_none() -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import string
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -238,6 +238,27 @@ class StatsguruIdResolver:
         return await self._with_call(
             call, lambda fetch_call: self._lookup_form_field(class_id, "series", name, fetch_call)
         )
+
+    async def series_names(
+        self, class_id: int, series_ids: Iterable[int], *, call: FetchCall | None = None
+    ) -> dict[int, str]:
+        """Names from the form's series list, which is fetched again once if it lacks one."""
+        wanted = set(series_ids)
+
+        async def names(fetch_call: FetchCall) -> dict[int, str]:
+            table, can_refetch = await self._form_table(
+                class_id, "series", fetch_call, force_refetch=False
+            )
+            if can_refetch and not wanted <= table.keys():
+                table, _ = await self._form_table(
+                    class_id, "series", fetch_call, force_refetch=True
+                )
+            return {series_id: table[series_id] for series_id in wanted if series_id in table}
+
+        if call is not None:
+            return await names(call)
+        async with self._fetcher.call(budget=self._budget) as fetch_call:
+            return await names(fetch_call)
 
     async def lookup_player_involve(
         self, class_id: int, name: str, *, call: FetchCall | None = None

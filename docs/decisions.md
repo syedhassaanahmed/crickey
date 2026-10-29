@@ -92,7 +92,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 44. **Series questions have their own answer tool.** The owner's choice (29 Oct 2026, #97): `series_count` answers golden question 10, rather than `query_stats`, so that small models can answer it too (D13). It takes plain parameters and makes one request to Statsguru's series view, whose total is the count and whose link is the proof (R4, D16).
     - `number_of_teams` takes "2", "3+", "3-4" or "5+", or the same in words, such as "three or more". It's text rather than an enum, so a model can write it its own way, and the description lists the values, since descriptions reach every model (R17). Statsguru can't tell three teams from four (R4), so "3" alone is an error that offers "3+" and "3-4".
     - Series count as Statsguru counts them: a series counts when any of its matches meets the filters, so a co-hosted tournament counts for each host country, and `team` counts the series a team played in.
-    - The view shows no series names, so the answer links each series' page instead.
+    - The view shows no series names, so the tool reads them from the advanced form's series list, as lookups do (D18): one more request, the first time. The answer links only its proof, because models given each series' page cited those links instead (R17).
 
 ## Considered and dropped
 
