@@ -253,9 +253,9 @@ PlayerIdParam = Annotated[
 ]
 # A period is plain text in one of a few forms (D42); the descriptions and errors show them.
 _PERIOD_RANGES = (
-    'years ("2000 to 2009"), dates ("2000-01-01 to 2009-12-31") or a season ("season 2011/12")'
+    'years ("2010 to 2019"), dates ("2010-01-01 to 2019-12-31") or a season ("season 2011/12")'
 )
-_PLAYER_SPANS = '"first 3 years", "last 3 years"'
+_PLAYER_SPANS = '"first 5 years", "last 5 years"'
 LeaderboardPeriodParam = Annotated[
     str | None,
     Field(description=f"All time by default; or {_PERIOD_RANGES}. {_TOURNAMENTS}"),
@@ -279,7 +279,7 @@ RecordPeriodParam = Annotated[
     ),
 ]
 TeamParam = Annotated[
-    str | list[str] | None, Field(description='The players\' team, e.g. "India".')
+    str | list[str] | None, Field(description='The players\' team, e.g. "New Zealand".')
 ]
 OppositionParam = Annotated[
     str | list[str] | None, Field(description='The opposing team, e.g. "Australia".')
@@ -288,18 +288,19 @@ HostCountryParam = Annotated[
     str | list[str] | None, Field(description='Country the matches were in, e.g. "England".')
 ]
 ContinentParam = Annotated[
-    str | list[str] | None, Field(description='Continent the matches were in, e.g. "Asia".')
+    str | list[str] | None, Field(description='Continent the matches were in, e.g. "Europe".')
 ]
 GroundParam = Annotated[str | list[str] | None, Field(description='A ground, e.g. "Lord\'s".')]
 TrophyParam = Annotated[
-    str | list[str] | None, Field(description='A tournament, e.g. "World Cup".')
+    str | list[str] | None, Field(description='A tournament or trophy, e.g. "The Ashes".')
 ]
 HomeOrAwayParam = Annotated[str | int | None, Field(description="home, away or neutral.")]
 MatchResultParam = Annotated[
     str | int | None, Field(description="won, lost, tied, drawn or no result.")
 ]
 SeriesTeamParam = Annotated[
-    str | list[str] | None, Field(description='A team that played in the series, e.g. "India".')
+    str | list[str] | None,
+    Field(description='A team that played in the series, e.g. "New Zealand".'),
 ]
 # Text rather than an enum, so plain words such as "three or more" work; the description lists
 # the values crickey reads.
@@ -347,7 +348,7 @@ def create_server(
             str | int | None, Field(description="Only candidates who played this format.")
         ] = None,
         country: Annotated[
-            str | None, Field(description='Only candidates from this country, e.g. "Pakistan".')
+            str | None, Field(description='Only candidates from this country, e.g. "England".')
         ] = None,
         ctx: Context | None = None,
     ) -> CallToolResult:
@@ -490,10 +491,11 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: Average number of innings taken per ODI century (minimum X number "
-            "of centuries). Bowling example: Which Test bowlers have the best bowling "
-            "average in Asia? Fielding example: Who has taken the most catches as a fielder "
-            "in ODIs? Return a batting, bowling or fielding leaderboard with proof links."
+            "Example: Who has the best ODI batting average, with at least 50 innings? Who "
+            "reached T20I fifties most often? Bowling example: Which bowlers have the best "
+            "Test economy rate in Australia? Fielding example: Which wicketkeepers have made "
+            "the most ODI stumpings? Return a batting, bowling or fielding leaderboard with "
+            "proof links."
         ),
     )
     @_reports_statsguru_cost
@@ -543,12 +545,10 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: Which players have scored Test hundreds more frequently than "
-            "Babar Azam? Which batters had better average and strike rate in T20 "
-            "than Babar Azam, in the same period that Babar Azam played? Bowling example: "
-            "Which Test bowlers had a better bowling average than Glenn McGrath? "
-            "Fielding example: Who has taken more catches across all formats compared to "
-            "Jonty Rhodes? "
+            "Example: Who has reached ODI fifties more often than Kane Williamson? Who beat "
+            "Babar Azam's T20I average and strike rate during his career? Bowling example: "
+            "Which T20I bowlers have a better economy rate than Rashid Khan? Fielding "
+            "example: Which fielders have taken more ODI catches than Ravindra Jadeja? "
             "Find the players who beat one player. To see which of two or more named players "
             "did better, call player_record once for each instead. Name the player with "
             "player_name, or with player_id from find_player or a clarification when names clash."
@@ -607,21 +607,18 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: What was Babar Azam's Test batting average in the last Y years "
-            "of his career? How many hundreds has Babar Azam scored in ODI World Cups? "
-            "Bowling examples: Which bowler between James Anderson and Dale Steyn performed "
-            "better in Asia in Tests? Take the records of Wasim Akram, Waqar Younis and Imran "
-            "Khan against India. Curious to see who did better in terms of wickets, average "
-            "and strike rates. "
-            "Split example: Who has scored at least 1 Test hundred in every country they've "
-            "played in? "
+            "Example: What was Steve Smith's ODI strike rate in his first 5 years? How many "
+            "runs has Joe Root scored in the Ashes? Bowling examples: Who bowled better in "
+            "England, Trent Boult or Mitchell Starc? Compare the T20I bowling of Jasprit "
+            "Bumrah, Shaheen Shah Afridi and Kagiso Rabada against Australia. Split example: "
+            "In which countries has Babar Azam not made an ODI hundred? "
             "Return one player's batting or bowling record with a proof link; split_by "
             "(host, opposition, year or continent) splits it into Statsguru's grouped rows "
             "from the same page and counts the groups with a hundred, or a five-wicket haul "
             "for bowling. One player per call: compare players with one call each, and a "
-            "question about every player, such as the split example, needs player-by-player "
-            "checks. Name the player with player_name, or with player_id "
-            "from find_player or a clarification when names clash."
+            "question about all players needs player-by-player checks. Name the player with "
+            "player_name, or with player_id from find_player or a clarification when names "
+            "clash."
         ),
     )
     @_reports_statsguru_cost
@@ -665,8 +662,8 @@ def create_server(
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
-            "Example: How many ODI series of 3+ teams have been played in Pakistan? "
-            "Team example: How many Test series has India played in Australia? "
+            "Example: How many T20I tournaments of five or more teams have been held in the "
+            "UAE? Team example: How many Test series has New Zealand played in England? "
             "Count the series in a format and list them, with a proof link. The country the "
             "series were played in goes in host_country, and a team that played in them in "
             "team. Also filter by the number of teams in each series, a tournament and a period."
@@ -1829,7 +1826,7 @@ def _parse_period(text: str | None, *, without_player: str | None = None) -> Per
         )
         period = SymbolicPeriod(kind=side, years=years)
     elif _UNCOUNTED_YEARS_PERIOD.fullmatch(words):
-        raise QuerySpecError(f'period "{text}" needs a number of years, such as "last 3 years".')
+        raise QuerySpecError(f'period "{text}" needs a number of years, such as "last 5 years".')
     elif match := _DATES_PERIOD.fullmatch(words):
         start = _period_date(text, match["start"])
         period = _dated_period(text, start, _period_date(text, match["end"]))

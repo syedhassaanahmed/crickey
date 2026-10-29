@@ -201,16 +201,6 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert by_name["leaderboard"].description.startswith("Example:")
         assert by_name["better_than_player"].description.startswith("Example:")
         assert by_name["player_record"].description.startswith("Example:")
-        assert (
-            "Average number of innings taken per ODI century" in by_name["leaderboard"].description
-        )
-        assert (
-            "Which players have scored Test hundreds more frequently"
-            in by_name["better_than_player"].description
-        )
-        assert "better average and strike rate" in by_name["better_than_player"].description
-        assert "Test batting average in the last Y years" in by_name["player_record"].description
-        assert "ODI World Cups" in by_name["player_record"].description
         assert "Which Babar played ODIs?" in by_name["find_player"].description
         assert (
             "Who has the most ODI wickets against Australia?" in by_name["query_stats"].description
@@ -242,11 +232,8 @@ async def test_player_answer_tools_take_an_optional_player_id() -> None:
     async with client:
         by_name = {tool.name: tool for tool in (await client.list_tools()).tools}
 
-    examples = {
-        "player_record": "ODI World Cups?",
-        "better_than_player": "same period that Babar Azam played?",
-    }
-    for name, example in examples.items():
+    last_examples = {"player_record": "Split example:", "better_than_player": "Fielding example:"}
+    for name, example in last_examples.items():
         schema = by_name[name].input_schema
         assert list(schema["properties"])[:2] == ["player_name", "player_id"]
         assert schema["properties"]["player_id"]["anyOf"] == [
@@ -273,7 +260,6 @@ async def test_comparison_and_leaderboard_descriptions_add_a_fielding_example() 
         description = by_name[name].description
         assert description.index("Bowling example:") < description.index("Fielding example:")
     assert "batting, bowling or fielding leaderboard" in by_name["leaderboard"].description
-    assert "compared to Jonty Rhodes?" in by_name["better_than_player"].description
     assert "Fielding example:" not in by_name["player_record"].description
 
 
@@ -313,12 +299,8 @@ async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
     description = tool.description
     assert description.startswith("Example:")
     assert (
-        description.index("ODI World Cups?")
-        < description.index("Bowling examples:")
-        < description.index(
-            "Split example: Who has scored at least 1 Test hundred in every country they've "
-            "played in?"
-        )
+        description.index("Bowling examples:")
+        < description.index("Split example:")
         < description.index("split_by")
         < description.index("player_id")
     )
@@ -341,7 +323,7 @@ async def test_every_tool_parameter_has_a_one_line_description() -> None:
     # What small models got wrong in the eval (#66): a tournament as a season, and no player.
     for tool in ("leaderboard", "better_than_player", "player_record"):
         assert "A tournament goes in trophy." in descriptions[(tool, "period")]
-        assert '"World Cup"' in descriptions[(tool, "trophy")]
+        assert descriptions[(tool, "trophy")].startswith("A tournament")
     for tool in ("better_than_player", "player_record"):
         assert "Give this or player_id." in descriptions[(tool, "player_name")]
         assert "Give this or player_name." in descriptions[(tool, "player_id")]
