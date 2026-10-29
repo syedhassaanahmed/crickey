@@ -2,7 +2,7 @@
 # Requirements: bash 4+, docker, curl, jq, timeout.
 set -Eeuo pipefail
 
-readonly EXPECTED_TOOLS='["better_than_player","find_player","leaderboard","player_record","query_stats"]'
+readonly EXPECTED_TOOLS='["better_than_player","find_player","leaderboard","player_record","query_stats","series_count"]'
 readonly HEALTH_BODY='{"status":"ok"}'
 readonly PROTOCOL_VERSION='2026-07-28'
 readonly STOP_GRACE_SECONDS=10
