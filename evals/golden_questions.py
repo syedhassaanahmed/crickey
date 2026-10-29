@@ -81,7 +81,10 @@ def sample(case: Case) -> Sample:
         id=case.id,
         input=case.question,
         target="; ".join(" or ".join(facts) for facts in case.facts),
-        metadata={"case": case.model_dump(mode="json")},
+        metadata={
+            "case": case.model_dump(mode="json"),
+            "set": "held_out" if case.held_out else "golden",
+        },
     )
 
 

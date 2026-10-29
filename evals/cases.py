@@ -95,10 +95,15 @@ class ExpectedCall(_Strict):
 
 
 class Case(_Strict):
-    # The golden question, in its general form, and its number in the docs.
+    # The golden question's number in the docs, and its general form. A held-out case takes the
+    # general form from its golden case.
     number: int = Field(ge=1)
-    golden_question: str
+    golden_question: str | None = None
     id: str
+    # A held-out case asks the same kind of question in other words, about other players,
+    # teams, formats or periods. Nothing in crickey quotes it, so it shows how models handle a
+    # question they haven't been shown (D45).
+    held_out: bool = False
     # What the eval asks: the golden question with real players and an answer that can't change.
     question: str
     # The answer tool the question needs (plan › MCP tools).
@@ -108,6 +113,12 @@ class Case(_Strict):
     # of each.
     facts: tuple[tuple[str, ...], ...] = Field(min_length=1)
     fixed_because: str
+
+    @model_validator(mode="after")
+    def _general_form_on_golden_cases(self) -> Case:
+        if not self.held_out and self.golden_question is None:
+            raise ValueError(f"{self.id}: a golden case needs golden_question")
+        return self
 
     @model_validator(mode="after")
     def _calls_default_to_the_case_tool(self) -> Case:
@@ -121,4 +132,23 @@ class Case(_Strict):
 
 def load_cases(path: Path = GOLDEN_QUESTIONS_FILE) -> list[Case]:
     data = tomllib.loads(path.read_text("utf-8"))
-    return [Case.model_validate(item) for item in data["case"]]
+    repeated = [
+        item["id"] for item in data["case"] if item.get("held_out") and "golden_question" in item
+    ]
+    if repeated:
+        raise ValueError(f"held-out cases take golden_question from their golden case: {repeated}")
+    cases = [Case.model_validate(item) for item in data["case"]]
+    general_forms = {case.number: case.golden_question for case in cases if not case.held_out}
+    if len(general_forms) != sum(not case.held_out for case in cases):
+        raise ValueError("each golden question has one golden case")
+    if len({case.id for case in cases}) != len(cases):
+        raise ValueError("case ids must be unique")
+    missing = [case.id for case in cases if case.number not in general_forms]
+    if missing:
+        raise ValueError(f"held-out cases without a golden case: {missing}")
+    return [
+        case.model_copy(update={"golden_question": general_forms[case.number]})
+        if case.held_out
+        else case
+        for case in cases
+    ]
