@@ -2,7 +2,7 @@
 
 Language models answer crickey's golden questions through crickey, and deterministic checks score each answer (#18). Use the scores to see which models can use crickey, to catch regressions, and to find where tool descriptions trip small models up (D13, D14).
 
-[golden_questions.toml](golden_questions.toml) is the one place the golden questions are listed (D41). Each has its general form, and the case the eval asks: real players filled in, the calls it needs and its known answer, which can't change (D37). The questions ask live Statsguru through a running crickey, so a run follows D7–D12: one request every 15 seconds, and a block stops the run. [docs/plan.md › Evals](../docs/plan.md#evals) has the design, and [docs/research.md › 17](../docs/research.md#17-evals-with-inspect-ai-and-ollama) the facts behind it.
+[golden_questions.toml](golden_questions.toml) is the one place the golden questions are listed (D41). Each has its general form, and the case the eval asks: real players filled in, the calls it needs and its known answer, which can't change (D37). Each also has a held-out case, the same kind of question in other words about other players, teams, formats or periods, which nothing in crickey quotes (D45). The questions ask live Statsguru through a running crickey, so a run follows D7–D12: one request every 15 seconds, and a block stops the run. [docs/plan.md › Evals](../docs/plan.md#evals) has the design, and [docs/research.md › 17](../docs/research.md#17-evals-with-inspect-ai-and-ollama) the facts behind it.
 
 ## Run it
 The steps are the same on Windows, Linux (including WSL) and macOS, and the commands work in Bash, zsh and PowerShell. Run them from the repository root.
@@ -41,17 +41,19 @@ The steps are the same on Windows, Linux (including WSL) and macOS, and the comm
 ## Results
 `uv run --group evals --env-file evals/inspect.env inspect view` opens the logs: each question's conversation, tool calls and scores. The logs hold Statsguru's figures, so `evals/logs/` is gitignored and logs are never committed (D25).
 
-Each question gets these scores, averaged over its epochs:
+Each question gets these scores, averaged over its epochs. Each check reports the golden cases (`golden`) apart from the held-out ones (`held_out`):
 
 | Score | Passes when |
 |---|---|
-| `all_checks` | Every check below passes. A model's headline score is its mean. |
+| `all_checks` | Every check below passes. A model's headline score is its golden mean. |
 | `known_answer` | The final answer contains every fact in the case's known answer (R10), outside its links. |
 | `answer_tool` | The answer tool the question needs was called and answered with a Statsguru query link, rather than only `query_stats`. A clarification doesn't count. |
-| `arguments` | Each call the question needs was made, with the format, player, discipline, metrics, filters, period, minimum and split that decide its answer. A player named rather than given by ID counts once crickey resolves the name to them. |
+| `arguments` | Each call the question needs was made, with the format, player, discipline, metrics, filters, period, minimum, split and number of teams that decide its answer. A player named rather than given by ID counts once crickey resolves the name to them. |
 | `proof` | The answer cites a Statsguru query link, not just a profile link, and every link it cites came from a tool result (D16). |
 | `grounding` | Every figure in the answer appears in a tool result or in the question (D13). |
 | `cost` | Not a check: tool calls, tool errors, Statsguru requests and cached pages (from each result's `_meta`, D38), tokens and seconds. |
 
 ## Adding or changing a golden question
-Edit `golden_questions.toml`; nothing else lists the golden questions. Check the case's known answer live with crickey's tools, within D7–D12, and record it in R10.
+Edit `golden_questions.toml`; nothing else lists the golden questions. Give a new golden question a held-out case too. Check each case's known answer live with crickey's tools, within D7–D12, and record it in R10.
+
+Never copy a case's wording, players or values into crickey's tool descriptions, parameter descriptions or server instructions, and check a change made for a failing case on the held-out cases too (D45).

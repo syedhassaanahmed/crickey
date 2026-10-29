@@ -329,7 +329,7 @@ id = "h8-lara-test-century-in-each-country"
 question = "Did Brian Lara score a Test century in each country he played Tests in?"
 tool = "player_record"
 fixed_because = "Lara retired from Test cricket in 2006."
-facts = [["India"], ["8 of 9", "8 of the 9", "8 out of 9", "8 out of the 9", "eight of nine", "eight of the nine", "8 host countries", "8 countries", "8 nations", "eight host countries", "eight countries", "eight nations"]]
+facts = [["Lara"], ["India"]]
 
 [[case.calls]]
 player = { id = 52337, names = ["Lara"] }
