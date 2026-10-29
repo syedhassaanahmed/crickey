@@ -64,7 +64,6 @@ copilot mcp add --transport http --timeout 300000 crickey http://127.0.0.1:8765/
 | `CRICKEY_CACHE_MAX_MB` | `64` | In-memory page cache size in MB. |
 | `CRICKEY_RECENT_TTL` | `1h` | Cache time for pages that include recent matches; up to `168h`. |
 | `CRICKEY_PORT` | `8765` | HTTP port inside the container; changing it needs a matching `-p` mapping. |
-| `CRICKEY_IN_CONTAINER` | `0` | Set to `1` by the image so it can listen inside Docker. |
 | `CRICKEY_HOST` | `127.0.0.1`; `0.0.0.0` in the image | Address to listen on. |
 | `CRICKEY_URL` | none | Your instance's public URL, such as `https://crickey.example.com`, which crickey then answers to as well as localhost; a comma-separated list for more than one. |
 | `CRICKEY_TOKEN` | none | Secret of at least 32 characters that clients send as `Authorization: Bearer <token>`. Required when other machines can reach crickey. |
