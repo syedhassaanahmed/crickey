@@ -492,10 +492,10 @@ def create_server(
         annotations=_READ_ONLY_ANNOTATIONS,
         description=(
             "Example: Who has the best ODI batting average, with at least 50 innings? Who "
-            "reached T20I fifties most often? Bowling example: Which bowlers have the best "
-            "Test economy rate in Australia? Fielding example: Which wicketkeepers have made "
-            "the most ODI stumpings? Return a batting, bowling or fielding leaderboard with "
-            "proof links."
+            "scored T20I hundreds most often, with at least 3 hundreds? Bowling example: Which "
+            "bowlers have the best Test economy rate in Australia? Fielding example: Which "
+            "wicketkeepers have made the most ODI stumpings? Return a batting, bowling or "
+            "fielding leaderboard with proof links."
         ),
     )
     @_reports_statsguru_cost
