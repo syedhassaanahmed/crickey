@@ -23,10 +23,13 @@ from starlette.testclient import TestClient
 
 from crickey.fetcher import Fetcher, MemoryPageSource
 from crickey.server import create_server
+from crickey.settings import Settings
 from crickey.transport import (
     CONTAINER_HOST,
     GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
     NATIVE_HOST,
+    TransportError,
+    _bind_socket,
     bind_host,
     create_uvicorn_server,
     serve_http,
@@ -83,21 +86,25 @@ def discover_body() -> dict[str, object]:
     }
 
 
+TOKEN = "0123456789abcdef" * 4
+
+
 @contextmanager
-def transport_test_client(host: str) -> Iterator[TestClient]:
-    app = streamable_http_app(create_server(settings()), host=host)
+def transport_test_client(settings_: Settings | None = None) -> Iterator[TestClient]:
+    settings_ = settings_ or settings()
+    app = streamable_http_app(create_server(settings_), settings_)
     with TestClient(app) as client:
         yield client
 
 
-@pytest.mark.parametrize("app_host", [NATIVE_HOST, CONTAINER_HOST])
-def test_host_origin_allowlist_for_native_and_container_modes(app_host: str) -> None:
+@pytest.mark.parametrize("in_container", [False, True])
+def test_host_origin_allowlist_for_native_and_container_modes(in_container: bool) -> None:
     allowed_pairs = [
         ("127.0.0.1:8765", "http://127.0.0.1:8765"),
         ("localhost:8765", "http://localhost:8765"),
         ("[::1]:8765", "http://[::1]:8765"),
     ]
-    with transport_test_client(app_host) as client:
+    with transport_test_client(settings(in_container=in_container)) as client:
         for host, origin in allowed_pairs:
             response = client.post(
                 "/mcp", json=discover_body(), headers=modern_headers(host=host, origin=origin)
@@ -125,7 +132,7 @@ def test_host_origin_allowlist_for_native_and_container_modes(app_host: str) -> 
 
 
 def test_health_returns_exact_ok() -> None:
-    with transport_test_client(NATIVE_HOST) as client:
+    with transport_test_client() as client:
         response = client.get("/health")
 
     assert response.status_code == 200
@@ -136,6 +143,93 @@ def test_health_returns_exact_ok() -> None:
 def test_bind_host_native_and_container_rules() -> None:
     assert bind_host(settings()) == NATIVE_HOST
     assert bind_host(settings(in_container=True)) == CONTAINER_HOST
+    assert bind_host(settings(host="10.0.0.5")) == "10.0.0.5"
+    assert bind_host(settings(host="::1", in_container=True)) == "::1"
+
+
+def test_url_adds_its_host_and_origin_to_localhost() -> None:
+    hosted = settings(urls=("https://crickey.example.com",), token=TOKEN)
+
+    def post(host: str, origin: str | None) -> int:
+        headers = {**modern_headers(host=host, origin=origin), "authorization": f"Bearer {TOKEN}"}
+        return client.post("/mcp", json=discover_body(), headers=headers).status_code
+
+    with transport_test_client(hosted) as client:
+        assert post("crickey.example.com", None) == 200
+        assert post("crickey.example.com", "https://crickey.example.com") == 200
+        assert post("localhost:8765", "http://localhost:8765") == 200
+        assert post("other.example.com", None) == 421
+        assert post("crickey.example.com", "https://other.example.com") == 403
+
+
+def test_token_guards_every_request_but_health() -> None:
+    def post(authorization: str | None):
+        headers = modern_headers(host="127.0.0.1:8765", origin=None)
+        if authorization is not None:
+            headers["authorization"] = authorization
+        return client.post("/mcp", json=discover_body(), headers=headers)
+
+    with transport_test_client(settings(token=TOKEN)) as client:
+        missing = post(None)
+        assert missing.status_code == 401
+        assert missing.headers["www-authenticate"] == "Bearer"
+        assert post("Bearer wrong").status_code == 401
+        assert post(f"Bearer {TOKEN}x").status_code == 401
+        assert post(f"Basic {TOKEN}").status_code == 401
+        assert post(f"bearer {TOKEN}").status_code == 200
+        assert client.get("/health").status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"host": "0.0.0.0"}, "The bind address 0.0.0.0"),
+        (
+            {"in_container": True, "urls": ("https://crickey.example.com",)},
+            "The URL https://crickey.example.com",
+        ),
+    ],
+)
+def test_a_server_other_machines_can_reach_needs_a_token(
+    overrides: dict[str, object], reason: str
+) -> None:
+    exposed = settings(port=free_port(), **overrides)
+
+    with pytest.raises(TransportError) as exc_info:
+        create_uvicorn_server(create_server(exposed), exposed)
+
+    assert str(exc_info.value) == (
+        f"{reason} lets other machines reach crickey, so set CRICKEY_TOKEN to a secret of at "
+        'least 32 characters, which clients send as "Authorization: Bearer <token>".'
+    )
+    with_token = settings(port=free_port(), token=TOKEN, **overrides)
+    _server, sock = create_uvicorn_server(create_server(with_token), with_token)
+    sock.close()
+
+
+def test_loopback_settings_need_no_token() -> None:
+    local = settings(
+        port=free_port(), host="127.0.0.1", urls=("http://localhost:9000", "http://[::1]:9000")
+    )
+
+    _server, sock = create_uvicorn_server(create_server(local), local)
+    sock.close()
+
+
+def test_an_address_this_machine_lacks_is_a_clear_error() -> None:
+    # 192.0.2.0/24 is reserved for documentation, so no machine has it.
+    with pytest.raises(TransportError, match="crickey can't listen on 192.0.2.1: .*CRICKEY_HOST"):
+        _bind_socket("192.0.2.1", 0)
+
+
+def test_an_ipv6_bind_address_listens_on_ipv6() -> None:
+    try:
+        socket.create_server(("::1", 0), family=socket.AF_INET6).close()
+    except OSError:
+        pytest.skip("this machine has no IPv6 loopback")
+
+    with _bind_socket("::1", 0) as sock:
+        assert sock.family == socket.AF_INET6
 
 
 @contextmanager
@@ -182,7 +276,7 @@ async def test_http_sse_carries_progress_notifications() -> None:
             }
         )
         fetcher = Fetcher(settings_, clock=clock, page_source=source)
-        app = streamable_http_app(create_server(settings_, fetcher=fetcher), host=NATIVE_HOST)
+        app = streamable_http_app(create_server(settings_, fetcher=fetcher), settings_)
         port = free_port()
         progress: list[tuple[float, float | None, str | None]] = []
 

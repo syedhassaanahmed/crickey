@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import logging
 import os
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,6 +26,13 @@ _BLOCK_PAUSES_EXPECTED = (
     "a comma-separated list of positive durations in seconds, or numbers with an s, m or h suffix "
     "(examples: 90, 5m, 1h), each no more than 168h"
 )
+# An instance's URL: a host name or an IPv6 address in brackets, with an optional port.
+_URL_RE = re.compile(r"https?://(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])(?::\d{1,5})?/?")
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+TOKEN_MIN_LENGTH = 32
+_TOKEN_EXPECTED = f"at least {TOKEN_MIN_LENGTH} characters, with no spaces"
+LOCAL_HOSTS = ("127.0.0.1:*", "localhost:*", "[::1]:*")
+LOCAL_ORIGINS = ("http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*")
 
 
 class SettingsError(ValueError):
@@ -46,6 +55,12 @@ class Settings:
     recent_ttl: timedelta = timedelta(hours=1)
     port: int = 8765
     in_container: bool = False
+    # None binds 127.0.0.1 natively and 0.0.0.0 in a container (D20).
+    host: str | None = None
+    # The instance's public URLs; the Host and Origin checks accept them as well as localhost.
+    urls: tuple[str, ...] = ()
+    # A secret, so it stays out of repr and error messages.
+    token: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -79,7 +94,17 @@ _SPECS: tuple[_SettingSpec, ...] = (
         "--in-container",
         "1/0, true/false, yes/no, or empty",
     ),
+    _SettingSpec("host", "CRICKEY_HOST", "--host", "an IP address, such as 127.0.0.1 or 0.0.0.0"),
+    _SettingSpec(
+        "urls",
+        "CRICKEY_URL",
+        "--url",
+        "a comma-separated list of http:// or https:// URLs without a path, "
+        "such as https://crickey.example.com",
+    ),
 )
+# CRICKEY_TOKEN has no flag, which would show it in process lists and shell history.
+_TOKEN_ENV = "CRICKEY_TOKEN"
 
 _SPECS_BY_FIELD = {spec.field_name: spec for spec in _SPECS}
 
@@ -108,6 +133,11 @@ def load_settings(
         if raw is None:
             continue
         values[spec.field_name] = _parse_value(spec, raw, source)
+    token = environ.get(_TOKEN_ENV)
+    if token:
+        if len(token) < TOKEN_MIN_LENGTH or not all("!" <= char <= "~" for char in token):
+            raise SettingsError(f"{_TOKEN_ENV} is invalid; expected {_TOKEN_EXPECTED}.")
+        values["token"] = token
 
     settings = Settings(**values)
     if settings.min_interval < timedelta(seconds=2):
@@ -153,6 +183,10 @@ def _parse_value(spec: _SettingSpec, raw: str, source: str) -> object:
             return port
         if spec.field_name == "in_container":
             return _parse_bool(raw)
+        if spec.field_name == "host":
+            return str(ipaddress.ip_address(raw))
+        if spec.field_name == "urls":
+            return _parse_urls(raw)
     except ValueError as error:
         raise SettingsError(_invalid_message(source, raw, spec.expected)) from error
     raise AssertionError(f"unhandled setting {spec.field_name}")
@@ -196,6 +230,21 @@ def _parse_positive_int(raw: str) -> int:
     if value <= 0:
         raise ValueError
     return value
+
+
+def _parse_urls(raw: str) -> tuple[str, ...]:
+    """Each URL as its origin, the form browsers send: lower case, without a default port."""
+    urls = []
+    for item in raw.split(","):
+        url = item.strip().lower()
+        if not _URL_RE.fullmatch(url):
+            raise ValueError
+        parts = urlsplit(url)
+        host = f"[{parts.hostname}]" if ":" in (parts.hostname or "") else parts.hostname
+        port = parts.port  # Raises ValueError above 65535.
+        default = port is None or port == _DEFAULT_PORTS[parts.scheme]
+        urls.append(f"{parts.scheme}://{host}" + ("" if default else f":{port}"))
+    return tuple(urls)
 
 
 def _parse_bool(raw: str) -> bool:

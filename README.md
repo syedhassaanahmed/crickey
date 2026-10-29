@@ -64,7 +64,9 @@ copilot mcp add --transport http --timeout 300000 crickey http://127.0.0.1:8765/
 | `CRICKEY_CACHE_MAX_MB` | `64` | In-memory page cache size in MB. |
 | `CRICKEY_RECENT_TTL` | `1h` | Cache time for pages that include recent matches; up to `168h`. |
 | `CRICKEY_PORT` | `8765` | HTTP port inside the container; changing it needs a matching `-p` mapping. |
-| `CRICKEY_IN_CONTAINER` | `0` | Set to `1` by the image so it can listen inside Docker. |
+| `CRICKEY_HOST` | `127.0.0.1`; `0.0.0.0` in the image | Address to listen on. |
+| `CRICKEY_URL` | none | Your instance's public URL, such as `https://crickey.example.com`, which crickey then answers to as well as localhost; a comma-separated list for more than one. |
+| `CRICKEY_TOKEN` | none | Secret of at least 32 characters that clients send as `Authorization: Bearer <token>`. Required when other machines can reach crickey. |
 
 Requests are slow because crickey waits 15 seconds between Cricinfo requests by default. The cache is only in memory, so it resets when the container stops. Run one container for all your clients so they share the cache, request spacing and block pause.
 
@@ -73,5 +75,20 @@ Debug stdio:
 ```sh
 docker run -i --rm --read-only ghcr.io/syedhassaanahmed/crickey:0.3 stdio
 ```
+
+## Host it in the cloud
+
+To use your crickey from any device, run the image on a container platform that serves it over HTTPS, such as Azure Container Apps or Google Cloud Run. It's still for your own use. Set:
+
+- `CRICKEY_URL` to its URL, such as `https://crickey.example.com`;
+- `CRICKEY_TOKEN` to a long random secret, such as the output of `openssl rand -hex 32`. crickey won't start without one once other machines can reach it.
+
+The platform provides TLS: point it at port 8765, or set `CRICKEY_PORT` to the port it expects. `/health` needs no token, for the platform's health checks. Connect with the token:
+
+```sh
+copilot mcp add --transport http --timeout 300000 --header "Authorization: Bearer <token>" crickey https://crickey.example.com/mcp
+```
+
+In JSON, add `"headers": { "Authorization": "Bearer <token>" }` next to `"url"`. Your devices share the instance's request spacing and block pause, and Cricinfo may challenge a cloud IP more often than a home one. If your own reverse proxy forwards to crickey on `127.0.0.1`, set `CRICKEY_TOKEN` anyway: crickey can't tell that the proxy exposes it.
 
 Contributors: see [AGENTS.md](AGENTS.md).

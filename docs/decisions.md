@@ -48,7 +48,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
     - Everyone runs Streamable HTTP on 127.0.0.1, started manually: natively, or in Docker with the port published only on the host's loopback address.
     - One long-running process per person serves all their clients, so the cache, request spacing and block pause carry across sessions.
     - stdio is kept only for debugging, because each stdio session starts a fresh process that forgets all three.
-    - No authentication: binding to localhost plus the SDK's Host and Origin checks (R12) keeps web pages out.
+    - No authentication: binding to localhost plus the SDK's Host and Origin checks (R12) keeps web pages out. An instance other machines can reach needs a token (D43).
 21. **Stack.** Python with uv and the MCP Python SDK (`mcp[cli]`); httpx, cachetools, lxml, pydantic, pandas, rapidfuzz and uvicorn, with pytest, respx and ruff for development.
 22. **Latest stable versions.** Use the latest stable releases of Python, uv, the SDK and libraries, the Docker base image and GitHub Actions; R15 lists them. Pre-releases aren't used.
 23. **Package index.** Public PyPI by default. No index URL is committed, so each machine can point uv or pip at another index, including for local image builds. `uv.lock` isn't committed.
@@ -82,6 +82,13 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
     - The file belongs to the evals, so crickey's code doesn't read it, and the image doesn't ship it.
     - The answer tools' descriptions keep example questions written for models, which don't have to match the golden questions. The evals measure whether they're enough, and failures become issues (D14). This replaces plan.md's rule that each description quotes the golden questions its tool answers.
 42. **Periods are plain text.** The owner's choice (28 Oct 2026, #78): the answer tools take `period` as a string, such as "last 3 years", "2000 to 2009", "2000-01-01 to 2009-12-31" or "season 2011/12", instead of an object with a `kind` and its fields. In Ollama, the tool renderers of some models drop the object's kinds, and several models wrote periods as strings anyway (R17). A string is the plain parameter D13 asks for, and every renderer can show one. crickey reads only the forms plan.md lists, and rejects anything else before any request, with a message that lists them. A bare year is the calendar year; a season needs the word "season" or the 2011/12 form. The object form stopped working, which the owner accepted while crickey has few users.
+43. **Anyone can host their own crickey in the cloud.** The owner's choice (29 Oct 2026, #40): crickey stays for personal use (D6), but a user who wants it on every device can run their own instance on a cloud platform. Settings make that possible, and leave D20's local defaults as they were:
+    - `CRICKEY_HOST` (`--host`) sets the bind address.
+    - `CRICKEY_URL` (`--url`) names the instance's public URLs, which the Host and Origin checks then accept as well as localhost; they would answer a cloud hostname with 421. One setting covers both checks, because without CORS no other web page can call crickey anyway.
+    - With `CRICKEY_TOKEN` set, every request but `/health` needs `Authorization: Bearer <token>`. The token comes only from the environment, so it stays out of process lists, and needs at least 32 characters. crickey refuses to start without one when another machine could reach it: a bind address other than loopback, or a URL other than localhost. The image's 0.0.0.0 doesn't count, because Docker publishes it on the host's loopback (D20). `/health` stays open for the platform's health checks.
+    - TLS is the hosting platform's.
+
+    A hosted instance is still one person's: their devices share its request spacing and block pause (D9, D11), and Cricinfo may challenge a datacenter IP more often than a home one (R1).
 
 ## Considered and dropped
 
@@ -96,8 +103,8 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 | Recomputing averages and strike rates exactly from totals | The owner accepts Statsguru's displayed values; exact values only differ below the last decimal shown (R2, R8). |
 | More answer tools (`compare_players`, `player_milestones`, `player_form`, `records`), a safe calculator, `compose_answer`, MCP resources and prompts, tool profiles | More than needed for now; added when real questions call for them. |
 | stdio only, then stdio as the Docker default | Each stdio session is a fresh process, so the cache, request spacing and block pause reset every session. HTTP is the default everywhere; stdio is kept for debugging. |
-| A bearer token (first required, then optional) | Removed; localhost plus Host and Origin checks is enough for now. |
-| Access from other devices or the internet, OAuth and TLS | Not needed for personal use. |
+| A bearer token for local use (first required, then optional) | Localhost plus the Host and Origin checks is enough; only an instance other machines can reach needs one (D43). |
+| OAuth, and TLS inside crickey | A static token is enough for one person's hosted instance, and the hosting platform terminates TLS (D43). |
 | Starting automatically at login | Manual start is enough. |
 | Starting the pause after a block at 15 minutes | Shortened to start at 5 minutes. |
 | A daily request budget | Unnecessary with on-demand fetching and the per-call page cap. |
