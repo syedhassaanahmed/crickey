@@ -212,7 +212,7 @@ The eval suite in `evals/` (D37) asks the golden questions through language mode
   6. **Cost:** tool calls, tool errors, Statsguru requests and cached pages (D38), tokens and seconds.
 
   A question passes when it passes checks 1–5; a model's headline score is the share of its questions that pass, averaged over epochs.
-- **Results:** JSON logs in `evals/logs/`, which is gitignored; they hold Statsguru's figures, so they're never committed (D25). `inspect view` opens them. #65 will run the evals in CI every week and keep the logs with each run.
+- **Results:** JSON logs in `evals/logs/`, which is gitignored; they hold Statsguru's figures, so they're never committed (D25). `inspect view` opens them. The evals run on demand, not in CI (D37).
 
 ## Risks and open items
 - **Small tool set (D14):** questions outside the three answer tools go through `query_stats`, which a weak model may struggle with.
