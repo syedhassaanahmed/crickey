@@ -888,7 +888,7 @@ Single-epoch runs with `qwen3:4b-instruct`, 19 Oct 2026; the scores are in #66 a
 The run on Apple Silicon above: all nine questions, 3 epochs, 12 models; #18 has the scores.
 - **Proof links:** answers drop the answer tool's Statsguru link more than anything else, 65 times across 8 models (`gemma4:31b` in 22 of 27). The server instructions named `answer_markdown`, which models never see; "Keeping the proof link" above has what naming the links' labels changed (#80).
 - **Periods:** `gpt-oss:20b` can't see the kinds' fields (above) and invents them, and `gemma4:31b` writes periods as strings, such as `"2000 to 2009"` and `"last 3 years"` (#78). A known kind with other fields, such as `dates` with `from` and `to`, gets an empty error (#79).
-- **`minimum: 0`** makes `better_than_player` too broad for D10, and the error doesn't say to leave it out (#81).
+- **`minimum: 0`** makes `better_than_player` too broad for D10, and the error didn't say to leave it out; since #81 it does.
 - **Arithmetic:** answers add figures they worked out, such as differences, ratios and rounded rates, which fail grounding (D13).
 - **Golden question 6:** with #74's instruction, most models call `player_record` for each bowler; `glm-4.7-flash` (2 of 3 epochs) and `gpt-oss:20b` (1 of 3) still called only `better_than_player`.
 - **No tool calls:** `mistral-small3.2:24b` answered 7 of 27 from memory, with invented figures and links. `deepseek-r1:8b`'s chat template in Ollama never shows the tool list, and `phi4-mini:3.8b` and often `olmo-3.1:32b-instruct` write tool calls as text that Ollama doesn't parse.

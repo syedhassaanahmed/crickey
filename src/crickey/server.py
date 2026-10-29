@@ -918,7 +918,21 @@ async def _better_than_player_tool(
             if target_floor_read:
                 floor_value = _floor_for_target(floor_value, await target_floor())
             query = comparison_query(floor_value)
-            pages = await _fetch_all_result_pages(call, query, fetcher, settings)
+            try:
+                pages = await _fetch_all_result_pages(call, query, fetcher, settings)
+            except TooBroadError as error:
+                if minimum is None:
+                    raise
+                # Leaving minimum out helps only when crickey's own floor is higher (D10, #81).
+                fix = (
+                    "leave minimum out so crickey picks a floor, or raise it"
+                    if minimum < default_floor
+                    else "raise it"
+                )
+                raise TooBroadError(
+                    f"{error} The minimum ({min_field} >= {minimum}) lets in too many "
+                    f"players: {fix}."
+                ) from error
             result_pages_used = len(pages)
             target = _target_row(pages, target_id)
             if target is None and minimum is None and not target_floor_read:
@@ -950,6 +964,12 @@ async def _better_than_player_tool(
                     f"({min_field} >= {floor_value}). {target_label(start=True)}'s {min_field} "
                     "for that team can't be read from the player page, which has no team filter; "
                     "pass minimum to set a lower one."
+                )
+            if target is None and minimum is not None and minimum > 0:
+                raise ToolError(
+                    f"{target_label(start=True)} was not in {rows_text} "
+                    f"({min_field} >= {minimum}), so {target_label()} has less than that "
+                    "minimum. Lower minimum, or leave it out so crickey picks a floor."
                 )
             if target is None:
                 raise ToolError(f"{target_label(start=True)} was not in {rows_text}.")
