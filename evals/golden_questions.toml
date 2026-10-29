@@ -8,9 +8,10 @@
 # - tool: the answer tool the question needs.
 # - calls: the calls the question needs. A model passes the arguments check when each one matches
 #   a call it made: the same tool, and every argument given here. Formats, metrics, periods,
-#   filters and splits compare as crickey resolves them, and players by ID or by one of their
-#   names. A period here is what the call's text means, so "2000 to 2009" matches its dates (D42).
-#   A career period also matches the span crickey resolves for it, given as start and end (R10).
+#   filters, splits and numbers of teams compare as crickey resolves them, and players by ID or
+#   by one of their names. A period here is what the call's text means, so "2000 to 2009"
+#   matches its dates (D42). A career period also matches the span crickey resolves for it,
+#   given as start and end (R10).
 # - facts: the known answer, confirmed live (R10). The final answer must contain one text from
 #   each entry. A count of countries, such as "11 countries", also matches the count before a
 #   bracketed list of that many, such as "11 (Australia, …)".
@@ -188,3 +189,18 @@ player = { id = 40560, names = ["Imran Khan"] }
 format = "ODI"
 discipline = "bowling"
 filters = { opposition = "India" }
+
+[[case]]
+number = 10
+golden_question = "How many ODI series of 3+ teams have been played in country A?"
+id = "q10-odi-series-of-3-plus-teams-in-pakistan-1990s"
+question = "How many ODI series of 3+ teams were played in Pakistan from 1990 to 1999?"
+tool = "series_count"
+fixed_because = "The period ended in 1999."
+facts = [["3 ODI series", "3 series", "3 tournaments", "3 multi-team", "three ODI series", "three series", "three tournaments", "three multi-team"]]
+
+[[case.calls]]
+format = "ODI"
+number_of_teams = "3+"
+period = { kind = "dates", start = 1990-01-01, end = 1999-12-31 }
+filters = { host_country = "Pakistan" }

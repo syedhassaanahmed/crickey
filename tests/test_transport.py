@@ -432,6 +432,7 @@ async def test_stdio_subprocess_lists_tools_and_stdout_is_protocol() -> None:
         "leaderboard",
         "player_record",
         "query_stats",
+        "series_count",
     }
 
 

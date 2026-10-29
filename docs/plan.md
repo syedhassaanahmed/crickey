@@ -23,7 +23,7 @@ flowchart LR
     debug["Debugging<br/>MCP Inspector · tests"]
 
     subgraph server["crickey MCP server (one per person, state in memory only)"]
-        tools["Tools<br/>leaderboard · better_than_player · player_record<br/>find_player · query_stats"]
+        tools["Tools<br/>leaderboard · better_than_player · player_record<br/>series_count · find_player · query_stats"]
         logic["Shared logic<br/>metric registry · name and period resolvers<br/>proof-link builder · answer renderer"]
         query["Query spec + built-in ID tables<br/>URL compiler: standard form, pinned dates"]
         fetch["Polite fetcher<br/>spacing · retries · block pause<br/>in-memory cache · page cap"]
@@ -44,13 +44,13 @@ flowchart LR
 `query_stats` exposes Statsguru's own basic and advanced forms for every stat type, with Statsguru's field names and values (R4) and its minimum and sort options (R5). Nothing is renamed or regrouped. It accepts checkbox groups and the dropdown filters R2 lists as repeated values, sorted for stable URLs. It also accepts all three result qualifications that Statsguru supports (R2).
 
 ## MCP tools (v1)
-Five tools (D14), all read-only.
+Six tools (D14), all read-only.
 - **Answer tools** return `answer_markdown` plus structured data. The markdown has a short answer, a table, the method and assumptions, labelled pinned links and profile links (D16), the "as of" date and the freshness line (D17). Fielding answers also say that Statsguru's fielding figures leave out run-outs (D35).
 - **What a call cost:** every tool result's `_meta`, errors included, has `crickey/statsguru`, with the Statsguru requests the call sent and the pages it read from the cache (D38). Models don't see it; the evals' cost check reads it.
 - **Ambiguous names** (players, teams, grounds, trophies) return `needs_clarification` with the candidates. Player candidates list each one's ID, country, span and match count in the requested format, and the text says to call again with `player_id`.
 - **Players by ID:** `better_than_player` and `player_record` take the player's name or `player_id`, the ID from `find_player` or a player clarification; players with the same name and country can only be told apart by ID (R7). An ID skips the name search, and the name shown comes from the pages the tool reads anyway (X's results row or player page, R6). If `player_name` clearly names someone else (no surname-like word in common), the ID wins and the assumptions say so. An ID with no record in the format is an error naming the ID and the format; errors by ID name the player only as Statsguru does, or by ID.
 - **Descriptions** for answer tools start with example questions, followed by bowling and fielding examples where applicable and, for `player_record`, a split example. The examples are written for models, to show what each tool answers; they don't have to match the golden questions, and the evals show whether they're enough (D13, D41). `better_than_player` and `player_record` then mention `player_id`. `find_player` and `query_stats` start with their own example question.
-- **Parameter descriptions:** every top-level parameter has a one-line description of what it takes, with an example where that helps, such as "World Cup" for `trophy` (#66, D13). A period's description shows the forms it takes, such as "last 3 years" and "2000 to 2009" (D42), and says that a tournament goes in `trophy`; `player_name` and `player_id` each say to give one or the other. Defaults and allowed values stay in the schema, not the description, except where a model's renderer may hide them: `query_stats`'s `query` says it needs `class` and `type`, and lists their values (#85, R17). The descriptions add under 10% to the tool definitions (R17).
+- **Parameter descriptions:** every top-level parameter has a one-line description of what it takes, with an example where that helps, such as "World Cup" for `trophy` (#66, D13). A period's description shows the forms it takes, such as "last 3 years" and "2000 to 2009" (D42), and says that a tournament goes in `trophy`; `player_name` and `player_id` each say to give one or the other. Defaults and allowed values stay in the schema, not the description, except where a model's renderer may hide them: `query_stats`'s `query` says it needs `class` and `type`, and lists their values (#85, R17). `series_count`'s `number_of_teams` takes text, so its description lists the values crickey reads (D44). The descriptions add under 10% to the tool definitions (R17).
 
 1. **`leaderboard`** (golden question 1): "Who has the best or fastest …?"
    - Parameters: format, discipline (batting by default, bowling or fielding), metric, period (all time by default, or years, dates or a season), filters by name (team, opposition, host country, continent, ground, trophy, home or away, match result), minimum and top N.
@@ -70,8 +70,13 @@ Five tools (D14), all read-only.
    - Proof link: the player's Statsguru batting or bowling page with the same filters (R6).
    - Golden questions 6 and 9 compare two or three players, so they take one call per player, and per format when the question names none; the answers are read side by side.
    - **Splits (D34):** `split_by` (host, opposition, year or continent) answers with the same page's grouped rows (R6). `host` gives host countries only. The answer counts the groups with at least one hundred, or a five-wicket haul for bowling, and names those without. The rows must add up to the record's matches, or the call fails rather than show rows that may not cover the filters. One call covers one player: a question about every player, such as golden question 8, would need every player's page, beyond D10's page limit, so answers suggest checking players one at a time.
-4. **`find_player`**: candidates with ID, country, formats and career spans (R7).
-5. **`query_stats`**: any Statsguru query (see coverage above).
+4. **`series_count`** (golden question 10): "How many series …?" (D44)
+   - Parameters: format, host country, team, number of teams ("2", "3+", "3-4" or "5+", or the same in words), trophy and period (all time by default, or years, dates or a season).
+   - One request to Statsguru's series view, one row per series (R4). The page's total is the count, and its link is the proof (D16).
+   - The answer lists each series' start date, matches and winner, counting only the matches that meet the filters, and links its series page, since the view has no series names (R4).
+   - Statsguru counts three- and four-team tournaments together, so "3" alone is an error that offers "3+" and "3-4".
+5. **`find_player`**: candidates with ID, country, formats and career spans (R7).
+6. **`query_stats`**: any Statsguru query (see coverage above).
    - Returns up to `limit` rows (default 50, maximum 200), the total row count, the table's columns and the pinned link.
    - With `fetch=false` it only builds the link, so no request is made.
 
@@ -206,7 +211,7 @@ The eval suite in `evals/` (D37) asks the golden questions through language mode
 - **Checks**, all deterministic:
   1. **Answer:** the final answer contains the case's facts outside its links. Numbers compare by value, names as whole words. A count of countries also reads as the count before a bracketed list of that many, such as "11 (Australia, …)" (#82).
   2. **Tool:** the case's answer tool was called and answered with a Statsguru query link; a clarification doesn't count.
-  3. **Arguments:** each call the case needs was made, with the same format, player, discipline, metrics, filters, period, minimum and split, compared as crickey resolves them. A career period also matches the span crickey resolves for that career, which the case records (R10, #82). A player named rather than given by ID counts once crickey's answer links that player's page. Arguments that change the answer fail it, such as an all-time period, or any period narrower than the whole record when the case names none.
+  3. **Arguments:** each call the case needs was made, with the same format, player, discipline, metrics, filters, period, minimum, split and number of teams, compared as crickey resolves them. A career period also matches the span crickey resolves for that career, which the case records (R10, #82). A player named rather than given by ID counts once crickey's answer links that player's page. Arguments that change the answer fail it, such as an all-time period, or any period narrower than the whole record when the case names none.
   4. **Proof:** the answer cites a Statsguru query link, not just a profile link, and every link it cites came from a tool result (D16).
   5. **Grounding:** every figure in the answer appears in a tool result or the question (D13). List markers and a table column that numbers its rows 1, 2, 3, … aren't figures, and a digit group such as "2 779" reads as one number when a tool returned it (#82).
   6. **Cost:** tool calls, tool errors, Statsguru requests and cached pages (D38), tokens and seconds.
@@ -215,7 +220,7 @@ The eval suite in `evals/` (D37) asks the golden questions through language mode
 - **Results:** JSON logs in `evals/logs/`, which is gitignored; they hold Statsguru's figures, so they're never committed (D25). `inspect view` opens them. The evals run on demand, not in CI (D37).
 
 ## Risks and open items
-- **Small tool set (D14):** questions outside the three answer tools go through `query_stats`, which a weak model may struggle with.
+- **Small tool set (D14):** questions outside the four answer tools go through `query_stats`, which a weak model may struggle with.
 - **Built-in IDs go stale slowly:** new teams or leagues are missing until the generator script is re-run. The on-demand form lookup covers the gap.
 - **Speed:** D9's spacing makes uncached multi-step answers slow. Mitigations: answer tools keep the number of requests low, plus caching, progress notifications and longer client timeouts.
 - **No authentication (D20):** any program running on the machine can call the HTTP server. In Docker, publishing the port beyond loopback would expose it to the network; the README only shows loopback publishing.

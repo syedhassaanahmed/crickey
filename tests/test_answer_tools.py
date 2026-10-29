@@ -1158,6 +1158,146 @@ async def test_golden_question_9_three_bowlers_against_one_opposition() -> None:
         assert record.structured_content["proof"]["confirmed"] is True
 
 
+def series_page(rows: list[tuple[str, int, str | None, int, int]]) -> str:
+    """Statsguru's series view: blank series names, and each row's IDs in its investigate menu."""
+    body = "".join(
+        f'<tr class="data1"><td class="left"></td><td>{matches}</td><td>{matches}</td><td>0</td>'
+        f"<td>0</td><td>4000</td><td>120</td><td>5000</td><td>33.33</td><td>4.8</td>"
+        f'<td nowrap="nowrap"><b>{start}</b></td><td></td><td class="left">{winner or "-"}</td>'
+        f'<td class="padDD"><a href="javascript:void(0)" onmouseover="menuLayers.show('
+        f'\'engine-dd{index}\', event); return true"><img alt="investigate this query" /></a></td></tr>'
+        for index, (start, matches, winner, _series, _page) in enumerate(rows, start=1)
+    )
+    menus = "".join(
+        f'<div id="engine-dd{index}"><a href="/ci/content/series/{page}.html">Series home page</a>'
+        f'<a href="/ci/engine/stats/index.html?class=2;series={series};type=aggregate;view=series">'
+        "Query for this series</a></div>"
+        for index, (_start, _matches, _winner, series, page) in enumerate(rows, start=1)
+    )
+    if not rows:
+        body = '<tr class="data1"><td>No records available to match this query</td></tr>'
+    return f"""
+    <html><body>
+    <table class="engineTable"><caption>Series averages</caption>
+    <tr><th>Series</th><th>Mat</th><th>Won</th><th>Tied</th><th>NR</th><th>Runs</th><th>Wkts</th><th>Balls</th><th>Ave</th><th>RPO</th><th>Start Date</th><th></th><th>Winner</th><th></th></tr>
+    {body}
+    </table>
+    <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>{min(len(rows), 1)}</b> - <b>{len(rows)}</b> of <b>{len(rows)}</b></td></tr></table>
+    {menus}
+    </body></html>
+    """
+
+
+def series_query(**fields: object) -> StatsguruQuery:
+    return StatsguruQuery(
+        **{"class": 2, "type": "aggregate", "view": "series", "size": 200, **fields}
+    )
+
+
+NINETIES_SERIES_IN_PAKISTAN = [
+    ("12 Oct 1994", 9, "Australia", 701, 60960),
+    ("16 Feb 1996", 16, "Sri Lanka", 722, 60981),
+    ("1 Nov 1997", 7, "South Africa", 755, 61014),
+]
+
+
+# Golden question 10: one request to Statsguru's series view, whose row count is the answer.
+async def test_golden_question_10_counts_odi_series_of_three_or_more_teams_in_pakistan() -> None:
+    query = series_query(
+        host=7, tournament_type=(3, 5), period=ResolvedPeriod(start="1990-01-01", end="1999-12-31")
+    )
+    source, client = await client_for({url(query): series_page(NINETIES_SERIES_IN_PAKISTAN)})
+
+    async with client:
+        result = await client.call_tool(
+            "series_count",
+            {
+                "format": "ODI",
+                "host_country": "Pakistan",
+                "number_of_teams": "3+",
+                "period": "1990 to 1999",
+            },
+        )
+
+    assert source.requests == [url(query)]
+    assert "tournament_type=3;tournament_type=5;type=aggregate;view=series" in url(query)
+    structured = result.structured_content
+    assert structured["count"] == 3
+    assert [
+        (row["start_date"], row["winner"], row["series_id"], row["series_page"])
+        for row in structured["series"]
+    ][0] == (
+        "1994-10-12",
+        "Australia",
+        701,
+        "https://stats.cricinfo.com/ci/content/series/60960.html",
+    )
+    assert structured["proof"]["confirmed"] is True
+    answer = structured["answer_markdown"]
+    assert answer.startswith(
+        "3 ODI series of 3+ teams were played in Pakistan, 1990-01-01 to 1999-12-31.\n"
+    )
+    assert "- Answer proof: [Confirmed Statsguru results: ODI aggregate, view series" in answer
+    assert f"]({url(query)})" in answer
+
+
+async def test_series_count_reads_number_of_teams_in_plain_words() -> None:
+    two_teams = series_query(host=7, team=7, tournament_type=2)
+    three_or_more = series_query(host=7, tournament_type=(3, 5))
+    source, client = await client_for(
+        {
+            url(two_teams): series_page([("10 Nov 1978", 3, "Pakistan", 400, 60000)]),
+            url(three_or_more): series_page(NINETIES_SERIES_IN_PAKISTAN),
+        }
+    )
+    arguments = {"format": "ODI", "host_country": "Pakistan"}
+
+    async with client:
+        home = await client.call_tool(
+            "series_count", {**arguments, "team": "Pakistan", "number_of_teams": 2}
+        )
+        words = await client.call_tool(
+            "series_count", {**arguments, "number_of_teams": "three or more teams"}
+        )
+        ambiguous = await client.call_tool("series_count", {**arguments, "number_of_teams": "3"})
+
+    assert source.requests == [url(two_teams), url(three_or_more)]
+    assert home.structured_content["answer_markdown"].startswith(
+        "1 ODI series of 2 teams involving Pakistan was played in Pakistan, all time through "
+    )
+    assert words.structured_content["count"] == 3
+    assert ambiguous.is_error is True
+    assert (
+        'number_of_teams \'3\' isn\'t one crickey reads: give "2", "3+" for three or more, '
+        '"3-4" or "5+".'
+    ) in ambiguous.content[0].text
+
+
+async def test_series_count_names_a_tournament_and_counts_none() -> None:
+    query = series_query(
+        host=7, trophy=12, period=ResolvedPeriod(start="2010-01-01", end="2019-12-31")
+    )
+    source, client = await client_for({url(query): series_page([])})
+
+    async with client:
+        result = await client.call_tool(
+            "series_count",
+            {
+                "format": "ODI",
+                "host_country": "Pakistan",
+                "trophy": "World Cup",
+                "period": "2010 to 2019",
+            },
+        )
+
+    assert source.requests == [url(query)]
+    assert result.structured_content["count"] == 0
+    assert result.structured_content["series"] == []
+    assert result.structured_content["answer_markdown"].startswith(
+        "0 ODI series in the World Cup were played in Pakistan, 2010-01-01 to 2019-12-31.\n"
+    )
+
+
 async def test_player_record_without_filtered_row_reports_no_matches() -> None:
     spec = PlayerPageSpec(player_id=348144, **{"class": 2, "type": "batting", "trophy": 12})
     source, client = await client_for(

@@ -187,6 +187,7 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
             "leaderboard",
             "player_record",
             "query_stats",
+            "series_count",
         }
         assert by_name["find_player"].annotations.read_only_hint is True
         assert by_name["find_player"].annotations.open_world_hint is True
@@ -194,6 +195,7 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert by_name["leaderboard"].annotations.read_only_hint is True
         assert by_name["better_than_player"].annotations.read_only_hint is True
         assert by_name["player_record"].annotations.read_only_hint is True
+        assert by_name["series_count"].annotations.read_only_hint is True
         assert by_name["find_player"].description.startswith("Example:")
         assert by_name["query_stats"].description.startswith("Example:")
         assert by_name["leaderboard"].description.startswith("Example:")

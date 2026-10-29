@@ -18,6 +18,8 @@ from crickey.parsers.convert import clean_text, convert_cell, parse_date
 _PAGE_RE = re.compile(r"Page\s+(\d+)\s+of\s+(\d+)", re.I)
 _SHOWING_RE = re.compile(r"Showing\s+(\d+)\s+-\s+(\d+)\s+of\s+(\d+)", re.I)
 _TEAMS_RE = re.compile(r"\(([^()]*)\)\s*$")
+_MENU_RE = re.compile(r"menuLayers\.show\('([\w-]+)'")
+_SERIES_ID_RE = re.compile(r"[;?]series=(\d+)")
 _DATA_ROWS_XPATH = (
     './/tr[(contains(concat(" ", normalize-space(@class), " "), " data1 ")'
     ' or contains(concat(" ", normalize-space(@class), " "), " data2 "))'
@@ -203,9 +205,28 @@ def _rows_to_frame(
                 link = cells[index].xpath('.//a[contains(@href, "/ci/engine/match/")][1]')
                 if link:
                     record["match_id"] = first_int_from_path(link[0].get("href"), "/match/")
+            if header == "Series":
+                record["series_id"], record["series_page_id"] = _series_ids(row)
         records.append(record)
     frame = pd.DataFrame(records, dtype=object)
     return frame.where(pd.notna(frame), None)
+
+
+def _series_ids(row: HtmlElement) -> tuple[int | None, int | None]:
+    """The series' Statsguru ID and its home page's ID, from the row's "investigate" menu.
+
+    Statsguru's series view leaves the series name blank, but each row's menu queries the series
+    by ID and links to its home page.
+    """
+    match = _MENU_RE.search(" ".join(row.xpath(".//a/@onmouseover")))
+    menus = row.getroottree().getroot().xpath(f'//*[@id="{match.group(1)}"]') if match else []
+    series_id = page_id = None
+    for href in menus[0].xpath(".//a/@href") if menus else ():
+        if series_id is None and (found := _SERIES_ID_RE.search(href)):
+            series_id = int(found.group(1))
+        if page_id is None and "/ci/content/series/" in href:
+            page_id = first_int_from_path(href, "/series/")
+    return series_id, page_id
 
 
 def parse_player_cell(cell: HtmlElement) -> PlayerCell:

@@ -206,6 +206,13 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 
 **Views (`view`)** beyond the batting list: all-round adds `results` and `awards`; team adds `results`, `extras` and `extras_innings`; aggregate has overall, `match`, `results`, `series`, `ground`, `host`, `year`, `season` and `extras`.
 
+**The aggregate series view** (`type=aggregate;view=series`), checked on ODIs on 29 Oct 2026 for #97:
+- One row per series, ordered by start date, under the caption "Series averages". The columns are Series, Mat, Won, Tied, NR, Runs, Wkts, Balls, Ave, RPO, Start Date and Winner, which is "-" while the series is in progress.
+- The Series column is blank. Each row's "investigate" menu has the series' ID, in its "Query for this series" link (`series=617`), and its home page, `/ci/content/series/60876.html`, which redirects to www.espncricinfo.com.
+- The page's total ("Showing 1 - 11 of 11") is the number of series, and `tournament_type` takes repeated keys: `tournament_type=3;tournament_type=5` gives the series of three or more teams.
+- A series counts when any of its matches meets the filters, and Mat and Start Date count only those matches. With `host=7`, 11 ODI series of three or more teams were in Pakistan, including the 1987 and 1996 World Cups, which it co-hosted; the 1996 World Cup's row has 16 matches, from 16 Feb 1996. With `team=7` instead, Pakistan played in 95, and the same row has its 6 matches, from 24 Feb 1996.
+- The 2020–23 ODI Super League is one series of five or more teams.
+
 ### Values
 **Teams (`team`, `opposition`):** 40 Afghanistan, 2 Australia, 25 Bangladesh, 1 England, 140 ICC World XI, 6 India, 29 Ireland, 5 New Zealand, 7 Pakistan, 3 South Africa, 8 Sri Lanka, 4 West Indies, 9 Zimbabwe. Player pages also list 32 Nepal, 15 Netherlands and 27 United Arab Emirates as oppositions.
 
@@ -493,6 +500,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
   - Counting wicketkeepers' catches, 26 players have more than his 139, led by wicketkeepers MV Boucher (417), IA Healy (379) and AC Gilchrist (369), and G Kirsten is level.
   - As a fielder, 12 have more: ME Waugh 256, SP Fleming 205, BC Lara 191, M Azharuddin 175, CL Hooper 174, MA Taylor 166, SK Warne 165, R Dravid 163, Inzamam-ul-Haq 149, and ST Jayasuriya, SR Tendulkar and SR Waugh 142 each. These 12 are on both lists, so they're the case's facts and either reading passes.
 - **Golden question 9** matches the figures above for Tests and ODIs (6 requests).
+- **Golden question 10**, ODI series of three or more teams in Pakistan from 1 Jan 1990 to 31 Dec 1999 (`series_count`, checked live on 29 Oct 2026 for #97, 1 request): 3 series, starting 12 Oct 1994 (9 matches, won by Australia), 16 Feb 1996 (the World Cup's 16 matches in Pakistan, won by Sri Lanka) and 1 Nov 1997 (7 matches, won by South Africa). All time, there were 11 by 29 Oct 2026 (R4).
 
 **Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
 - Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`
