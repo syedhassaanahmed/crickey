@@ -38,6 +38,7 @@ TOOL_NAMES = {
     "leaderboard",
     "player_record",
     "query_stats",
+    "series_count",
 }
 LAUNCHER = Path(__file__).with_name("e2e_server.py")
 REPO = Path(__file__).resolve().parents[1]

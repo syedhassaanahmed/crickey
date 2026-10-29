@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 from crickey.ids import LookupResult, lookup_continent, lookup_host, lookup_team, lookup_trophy
 from crickey.query import ResolvedPeriod, SymbolicPeriod, SymbolicPeriodKind
-from crickey.server import _answer_metric, _format_class, _parse_period, _split_by
+from crickey.server import _answer_metric, _format_class, _parse_period, _series_size, _split_by
 from evals.cases import FILTERS, Case, ExpectedCall, ExpectedPeriod, ExpectedPlayer
 
 STATSGURU_HOSTS = frozenset({"stats.cricinfo.com", "stats.espncricinfo.com"})
@@ -180,6 +180,8 @@ def _matches(expected: ExpectedCall, call: ToolCall) -> bool:
         return False
     if _number(arguments.get("minimum")) != _number(expected.minimum):
         return False
+    if not _same_series_size(expected.number_of_teams, arguments.get("number_of_teams")):
+        return False
     return _same_split(expected.split_by, arguments.get("split_by"))
 
 
@@ -300,6 +302,13 @@ def _same_split(expected: str | None, actual: Any) -> bool:
     try:
         return _split_by(actual) == _split_by(expected)
     except Exception:
+        return False
+
+
+def _same_series_size(expected: str | None, actual: Any) -> bool:
+    try:
+        return _series_size(actual) == _series_size(expected)
+    except ValueError:
         return False
 
 

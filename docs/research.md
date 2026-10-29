@@ -206,6 +206,13 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 
 **Views (`view`)** beyond the batting list: all-round adds `results` and `awards`; team adds `results`, `extras` and `extras_innings`; aggregate has overall, `match`, `results`, `series`, `ground`, `host`, `year`, `season` and `extras`.
 
+**The aggregate series view** (`type=aggregate;view=series`), checked on ODIs on 29 Oct 2026 for #97:
+- One row per series, ordered by start date, under the caption "Series averages". The columns are Series, Mat, Won, Tied, NR, Runs, Wkts, Balls, Ave, RPO, Start Date and Winner, which is "-" while the series is in progress.
+- The Series column is blank. Each row's "investigate" menu has the series' ID, in its "Query for this series" link (`series=617`), and its home page, `/ci/content/series/60876.html`, which redirects to www.espncricinfo.com. The advanced form's series list, 983 for ODIs, has the names for those IDs: 617 is "Reliance World Cup, 1987/88" and 701 "Wills Triangular Series, 1994/95".
+- The page's total ("Showing 1 - 11 of 11") is the number of series, and `tournament_type` takes repeated keys: `tournament_type=3;tournament_type=5` gives the series of three or more teams.
+- A series counts when any of its matches meets the filters, and Mat and Start Date count only those matches. With `host=7`, 11 ODI series of three or more teams were in Pakistan, including the 1987 and 1996 World Cups, which it co-hosted; the 1996 World Cup's row has 16 matches, from 16 Feb 1996. With `team=7` instead, Pakistan played in 95, and the same row has its 6 matches, from 24 Feb 1996.
+- The 2020–23 ODI Super League is one series of five or more teams.
+
 ### Values
 **Teams (`team`, `opposition`):** 40 Afghanistan, 2 Australia, 25 Bangladesh, 1 England, 140 ICC World XI, 6 India, 29 Ireland, 5 New Zealand, 7 Pakistan, 3 South Africa, 8 Sri Lanka, 4 West Indies, 9 Zimbabwe. Player pages also list 32 Nepal, 15 Netherlands and 27 United Arab Emirates as oppositions.
 
@@ -493,6 +500,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
   - Counting wicketkeepers' catches, 26 players have more than his 139, led by wicketkeepers MV Boucher (417), IA Healy (379) and AC Gilchrist (369), and G Kirsten is level.
   - As a fielder, 12 have more: ME Waugh 256, SP Fleming 205, BC Lara 191, M Azharuddin 175, CL Hooper 174, MA Taylor 166, SK Warne 165, R Dravid 163, Inzamam-ul-Haq 149, and ST Jayasuriya, SR Tendulkar and SR Waugh 142 each. These 12 are on both lists, so they're the case's facts and either reading passes.
 - **Golden question 9** matches the figures above for Tests and ODIs (6 requests).
+- **Golden question 10**, ODI series of three or more teams in Pakistan from 1 Jan 1990 to 31 Dec 1999 (`series_count`, checked live on 29 Oct 2026 for #97, 2 requests: the series view and the form's series list): 3 series: the Wills Triangular Series, 1994/95, from 12 Oct 1994 (9 matches, won by Australia); the Wills World Cup, 1995/96, from 16 Feb 1996 (its 16 matches in Pakistan, won by Sri Lanka); and the Wills Quadrangular Tournament, 1997/98, from 1 Nov 1997 (7 matches, won by South Africa). All time, there were 11 by 29 Oct 2026 (R4).
 
 **Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
 - Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`
@@ -893,3 +901,10 @@ The run on Apple Silicon above: all nine questions, 3 epochs, 12 models; #18 has
 - **Golden question 6:** with #74's instruction, most models call `player_record` for each bowler; `glm-4.7-flash` (2 of 3 epochs) and `gpt-oss:20b` (1 of 3) still called only `better_than_player`.
 - **No tool calls:** `mistral-small3.2:24b` answered 7 of 27 from memory, with invented figures and links. `deepseek-r1:8b`'s chat template in Ollama never shows the tool list, and `phi4-mini:3.8b` and often `olmo-3.1:32b-instruct` write tool calls as text that Ollama doesn't parse.
 - **The eval's checks** missed some right answers, and golden question 9 named no format. Since #82 the checks accept those answers, and the question names Tests and ODIs: scored again, 13 more of this run's 324 answers pass every check, and 29 more of #80's 567.
+
+### Series answers
+Golden question 10 alone, 3 epochs, 29 Oct 2026 (#97), with the 10 models above that run at 64k, all but `granite4.1:30b`:
+- **Series pages:** while `series_count`'s table linked each series' page, 4 of the 30 answers cited only those links and left out the proof, and 2 made up what the series were. With each series' name from the form's series list (R4) and the proof as the only link, no answer left out the proof for a series page.
+- **Host or team:** `lfm2.5:24b` put "played in Pakistan" in `team` in all 3 epochs, when the description's team example was "How many Test series has Pakistan played in England?" and `team`'s was "Pakistan". With India as the team in both, and the description saying the country the series were played in goes in `host_country`, it put Pakistan in `host_country` in all 6 epochs since, once in `team` as well.
+- **Class numbers as text:** `qwen3:4b-instruct` gave the format as "2", Statsguru's ODI class, in 3 of its first 6 epochs, and `mistral-small3.2:24b` in 2 of 6; crickey refused it, and mistral gave up once. crickey now reads "2" as it reads 2, and `qwen3:4b-instruct` passed with it twice.
+- **Scores:** 16 of the 30 answers passed every check with the series pages, and 22 with the final tool. `qwen3:4b-instruct`, `gpt-oss:20b`, `glm-4.7-flash`, `qwen3.8:27b`, `gemma4:31b` and `muse-glimmer:30b` passed all 3 epochs. The rest: no tool call (`mistral-small3.2:24b` once, `olmo-3.1:32b-instruct` twice); an extra `team` and made-up names (`mistral-small3.2:24b`); no proof link (`lfm2.5:24b` twice, `olmo-3.1:32b-instruct` once); and "Number of ODI series … 1999: 3" (`nemotron-3.5-lightning:30b`), right, but none of the case's phrasings.

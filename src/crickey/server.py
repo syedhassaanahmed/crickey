@@ -18,6 +18,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, PositiveInt, ValidationError
 
+from crickey import id_tables
 from crickey.fetcher import (
     Fetcher,
     FetcherError,
@@ -129,7 +130,14 @@ _FORMAT_CLASSES = {
     "combined internationals": 11,
 }
 _DEFAULT_FIND_CLASSES = (1, 2, 3, 6, 11)
-_METADATA_COLUMNS = {"player_name", "player_id", "player_team_codes", "match_id"}
+_METADATA_COLUMNS = {
+    "player_name",
+    "player_id",
+    "player_team_codes",
+    "match_id",
+    "series_id",
+    "series_page_id",
+}
 _BOWLING_RATE_METRICS = {"bowling_average", "economy_rate", "bowling_strike_rate"}
 _FILTERED_BOWLING_RATE_MINIMUMS = {1: 30, 2: 30, 3: 20, 6: 50, 11: 50}
 _FIELDING_RATE_METRICS = {"dismissals_per_innings"}
@@ -290,6 +298,29 @@ HomeOrAwayParam = Annotated[str | int | None, Field(description="home, away or n
 MatchResultParam = Annotated[
     str | int | None, Field(description="won, lost, tied, drawn or no result.")
 ]
+SeriesTeamParam = Annotated[
+    str | list[str] | None, Field(description='A team that played in the series, e.g. "India".')
+]
+# Text rather than an enum, so plain words such as "three or more" work; the description lists
+# the values crickey reads.
+NumberOfTeamsParam = Annotated[
+    str | int | None, Field(description='Teams in each series: "2", "3+", "3-4" or "5+".')
+]
+# Statsguru's tournament types: 2 two-team series, 3 three- or four-team tournaments, 5 five or
+# more teams. It can't tell three teams from four.
+_SERIES_SIZES = {"2": (2,), "3+": (3, 5), "3-4": (3,), "5+": (5,)}
+_SERIES_SIZE_SYNONYMS = {
+    "two": "2",
+    "3 or more": "3+",
+    "three or more": "3+",
+    "at least 3": "3+",
+    "more than 2": "3+",
+    "3 or 4": "3-4",
+    "three or four": "3-4",
+    "5 or more": "5+",
+    "five or more": "5+",
+    "at least 5": "5+",
+}
 
 
 def create_server(
@@ -631,6 +662,37 @@ def create_server(
             ctx=ctx,
         )
 
+    @mcp.tool(
+        annotations=_READ_ONLY_ANNOTATIONS,
+        description=(
+            "Example: How many ODI series of 3+ teams have been played in Pakistan? "
+            "Team example: How many Test series has India played in Australia? "
+            "Count the series in a format and list them, with a proof link. The country the "
+            "series were played in goes in host_country, and a team that played in them in "
+            "team. Also filter by the number of teams in each series, a tournament and a period."
+        ),
+    )
+    @_reports_statsguru_cost
+    async def series_count(
+        format: FormatParam,
+        host_country: HostCountryParam = None,
+        team: SeriesTeamParam = None,
+        number_of_teams: NumberOfTeamsParam = None,
+        trophy: TrophyParam = None,
+        period: LeaderboardPeriodParam = None,
+        ctx: Context | None = None,
+    ) -> CallToolResult:
+        return await _series_count_tool(
+            fetcher,
+            format=format,
+            host_country=host_country,
+            team=team,
+            number_of_teams=number_of_teams,
+            trophy=trophy,
+            period=period,
+            ctx=ctx,
+        )
+
     return mcp
 
 
@@ -661,7 +723,7 @@ async def _leaderboard_tool(
         discipline_value = _answer_discipline(discipline)
         metric = _answer_metric(discipline_value, metric_key)
         metric.require_supported(class_id)
-        resolved_period = _parse_period(period, for_player=False)
+        resolved_period = _parse_period(period, without_player="leaderboard ranks every player")
     except (ValueError, QuerySpecError) as error:
         raise ToolError(str(error)) from error
     progress = _progress_callback(ctx)
@@ -781,6 +843,175 @@ async def _leaderboard_tool(
             "request_pages": len(pages),
         },
     )
+
+
+async def _series_count_tool(
+    fetcher: Fetcher,
+    *,
+    format: str | int,
+    host_country: str | list[str] | None,
+    team: str | list[str] | None,
+    number_of_teams: str | int | None,
+    trophy: str | list[str] | None,
+    period: str | None,
+    ctx: Context | None,
+) -> CallToolResult:
+    try:
+        class_id = _format_class(format)
+        size = _series_size(number_of_teams)
+        resolved_period = _parse_period(period, without_player="series_count counts series")
+    except ValueError as error:
+        raise ToolError(str(error)) from error
+    as_of = _today(fetcher)
+    progress = _progress_callback(ctx)
+    try:
+        async with fetcher.call(budget=FETCH_BUDGET_SECONDS, progress=progress) as call:
+            filters = await _answer_filters(
+                fetcher, class_id, call=call, team=team, host_country=host_country, trophy=trophy
+            )
+            if filters.get("needs_clarification"):
+                return _tool_result("A filter needs clarification.", filters)
+            # One row per series, ordered by start date; the page's total is the count.
+            query = StatsguruQuery(
+                **{
+                    "class": class_id,
+                    "type": "aggregate",
+                    "view": "series",
+                    "period": resolved_period,
+                    "size": 200,
+                    **({"tournament_type": _SERIES_SIZES[size]} if size else {}),
+                    **filters["query"],
+                }
+            )
+            url = query.results_url(as_of=as_of)
+            page = parse_results_page(
+                await call.fetch(url, freshness=_freshness_for_query(query, as_of))
+            )
+            rows = [] if page.no_records else page.table.to_dict("records")
+            # The view leaves the series' names out, and the form's series list has them.
+            names = (
+                await NameResolver(fetcher).series_names(
+                    (row["series_id"] for row in rows if row.get("series_id") is not None),
+                    class_id=class_id,
+                    call=call,
+                )
+                if rows
+                else {}
+            )
+    except (
+        FetcherError,
+        StatsguruParseError,
+        ValidationError,
+        QuerySpecError,
+        ValueError,
+    ) as error:
+        raise ToolError(
+            _validation_message(error) if isinstance(error, ValidationError) else str(error)
+        ) from error
+
+    count = 0 if page.no_records else page.totals.total or len(rows)
+    payload_rows = [
+        {
+            "series": names.get(row.get("series_id")),
+            "start_date": row.get("Start Date"),
+            "matches": row.get("Mat"),
+            "winner": row.get("Winner"),
+            "series_id": row.get("series_id"),
+            "series_page": _series_url(row.get("series_page_id")),
+        }
+        for row in rows
+    ]
+    proof = ProofLink(
+        label=f"Confirmed Statsguru results: {query.label(as_of=as_of)}",
+        url=url,
+        confirmed=True,
+        fetched=True,
+        row_count=count,
+    )
+    method = ["Counted the rows of Statsguru's series view, one row per series."]
+    if filters["query"] or resolved_period is not None:
+        method.append(
+            "A series counts when any of its matches meets the filters, and its start date and "
+            "matches count only those matches."
+        )
+    if "host" in filters["query"]:
+        method.append("A co-hosted tournament counts in each of its host countries.")
+    if size in {"3+", "3-4"}:
+        method.append("Statsguru counts three- and four-team tournaments together.")
+    if count > len(rows):
+        method.append(
+            f"Listed the first {len(rows)} of {count} series, by start date; the proof link has "
+            "them all."
+        )
+    answer = render_answer(
+        AnswerRenderInput(
+            short_answer=_series_short_answer(query, count, size, as_of=as_of),
+            # Only the proof is linked: models that cited series pages dropped it.
+            table=RenderedTable(
+                headers=("Series", "Start date", "Matches", "Winner"),
+                rows=tuple(
+                    (row["series"], row["start_date"], row["matches"], row["winner"])
+                    for row in payload_rows
+                ),
+            ),
+            method=tuple(method),
+            assumptions=(f"Period: {_period_text(resolved_period, as_of=as_of)}.",),
+            proof_links=(proof,),
+            players=(),
+            as_of=as_of,
+            current_or_recent_matches=page.current_or_recent_matches,
+        )
+    )
+    return _tool_result(
+        f"Counted {count} series.",
+        {
+            "status": "ok",
+            "answer_markdown": answer,
+            "count": count,
+            "series": payload_rows,
+            "proof": _jsonable(proof),
+            "request_pages": 1,
+        },
+    )
+
+
+def _series_size(value: str | int | None) -> str | None:
+    if value is None or str(value).strip() == "":
+        return None
+    text = " ".join(str(value).casefold().removesuffix("teams").removesuffix("team").split())
+    text = _SERIES_SIZE_SYNONYMS.get(text, text)
+    if text not in _SERIES_SIZES:
+        raise ValueError(
+            f'number_of_teams {value!r} isn\'t one crickey reads: give "2", "3+" for three or '
+            'more, "3-4" or "5+". Statsguru counts three- and four-team tournaments together.'
+        )
+    return text
+
+
+def _series_short_answer(
+    query: StatsguruQuery, count: int, size: str | None, *, as_of: date
+) -> str:
+    def names(field: str, table: Mapping[int, Mapping[int, str]]) -> str:
+        values = getattr(query, field)
+        items = values if isinstance(values, tuple | list) else (values,)
+        return " or ".join(table[query.class_][int(item)] for item in items)
+
+    sizes = f" of {size} teams" if size else ""
+    team = f" involving {names('team', id_tables.TEAMS)}" if query.team is not None else ""
+    trophy = f" in the {names('trophy', id_tables.TROPHIES)}" if query.trophy is not None else ""
+    host = f" in {names('host', id_tables.HOSTS)}" if query.host is not None else ""
+    verb = "was" if count == 1 else "were"
+    period = _period_text(query.period, as_of=as_of)
+    return (
+        f"{count} {CLASS_LABELS[query.class_]} series{sizes}{team}{trophy} {verb} played"
+        f"{host}, {period}."
+    )
+
+
+def _series_url(page_id: int | None) -> str | None:
+    if page_id is None:
+        return None
+    return f"https://stats.cricinfo.com/ci/content/series/{page_id}.html"
 
 
 async def _better_than_player_tool(
@@ -1302,6 +1533,9 @@ async def _player_record_tool(
 
 
 def _format_class(value: str | int) -> int:
+    # Small models also write Statsguru's class number as text, such as "2".
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value)
     if isinstance(value, int):
         if value in _DEFAULT_FIND_CLASSES:
             return value
@@ -1567,12 +1801,14 @@ _SEASON_PERIOD = re.compile(
 )
 
 
-def _parse_period(text: str | None, *, for_player: bool = True) -> Period:
+def _parse_period(text: str | None, *, without_player: str | None = None) -> Period:
     """The period a tool call gives as text (D42); None means all time.
 
     A bare year is the calendar year, and a season needs the word or the 2011/12 form.
-    `for_player` is False for leaderboard, which has no player whose career a period follows.
+    `without_player` says why a tool has no player whose career a period could follow, such as
+    "leaderboard ranks every player".
     """
+    for_player = without_player is None
     if text is None or not text.strip():
         return None
     words = " ".join(text.casefold().replace("_", " ").translate(_DASHES).split()).strip(".\"' ")
@@ -1612,8 +1848,8 @@ def _parse_period(text: str | None, *, for_player: bool = True) -> Period:
         )
     if isinstance(period, SymbolicPeriod) and not for_player:
         raise QuerySpecError(
-            f'period "{text}" follows one player\'s career, but leaderboard ranks every '
-            f"player; use {_period_forms(for_player=False)}."
+            f'period "{text}" follows one player\'s career, but {without_player}; '
+            f"use {_period_forms(for_player=False)}."
         )
     return period
 

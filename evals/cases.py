@@ -55,6 +55,7 @@ class ExpectedCall(_Strict):
     filters: dict[str, str] = {}
     minimum: float | None = None
     split_by: str | None = None
+    number_of_teams: str | None = None
 
     @model_validator(mode="after")
     def _known_filters(self) -> ExpectedCall:
@@ -88,6 +89,8 @@ class ExpectedCall(_Strict):
             )
         if self.split_by is not None:
             arguments["split_by"] = self.split_by
+        if self.number_of_teams is not None:
+            arguments["number_of_teams"] = self.number_of_teams
         return arguments
 
 

@@ -530,6 +530,22 @@ def test_on_demand_series_miss_refetches_when_cached_word_order_differs() -> Non
     assert source.requests == [form_url, form_url]
 
 
+def test_series_names_refetch_once_for_a_series_the_cached_form_lacks() -> None:
+    class_id = 2
+    form_url = FORM_URL.format(class_id=class_id)
+    source = MemoryPageSource({form_url: form_html()})
+    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
+    resolver = StatsguruIdResolver(fetcher, budget=20)
+
+    cached = run(resolver.series_names(class_id, [801]))
+    source.pages[form_url] = form_html(include_new_series=True)
+    names = run(resolver.series_names(class_id, [801, 802, 999]))
+
+    assert cached == {801: "Alpha Cup, 2026"}
+    assert names == {801: "Alpha Cup, 2026", 802: "New Series, 2026"}
+    assert source.requests == [form_url, form_url]
+
+
 def test_ground_digits_must_match_exactly_for_fuzzy_typos() -> None:
     digit = resolve_name(1, "ground", "Oval 1", {1: "AAA: Oval 2"})
     short_word = resolve_name(
