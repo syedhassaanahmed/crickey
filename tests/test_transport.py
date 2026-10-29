@@ -147,12 +147,8 @@ def test_bind_host_native_and_container_rules() -> None:
     assert bind_host(settings(host="::1", in_container=True)) == "::1"
 
 
-def test_allowed_hosts_and_origins_replace_the_localhost_lists() -> None:
-    hosted = settings(
-        allowed_hosts=("crickey.example.com",),
-        allowed_origins=("https://crickey.example.com",),
-        token=TOKEN,
-    )
+def test_url_adds_its_host_and_origin_to_localhost() -> None:
+    hosted = settings(urls=("https://crickey.example.com",), token=TOKEN)
 
     def post(host: str, origin: str | None) -> int:
         headers = {**modern_headers(host=host, origin=origin), "authorization": f"Bearer {TOKEN}"}
@@ -161,8 +157,9 @@ def test_allowed_hosts_and_origins_replace_the_localhost_lists() -> None:
     with transport_test_client(hosted) as client:
         assert post("crickey.example.com", None) == 200
         assert post("crickey.example.com", "https://crickey.example.com") == 200
-        assert post("localhost:8765", None) == 421
-        assert post("crickey.example.com", "http://localhost:8765") == 403
+        assert post("localhost:8765", "http://localhost:8765") == 200
+        assert post("other.example.com", None) == 421
+        assert post("crickey.example.com", "https://other.example.com") == 403
 
 
 def test_token_guards_every_request_but_health() -> None:
@@ -188,12 +185,8 @@ def test_token_guards_every_request_but_health() -> None:
     [
         ({"host": "0.0.0.0"}, "The bind address 0.0.0.0"),
         (
-            {"in_container": True, "allowed_hosts": ("crickey.example.com",)},
-            "The allowed host crickey.example.com",
-        ),
-        (
-            {"allowed_origins": ("https://crickey.example.com",)},
-            "The allowed origin https://crickey.example.com",
+            {"in_container": True, "urls": ("https://crickey.example.com",)},
+            "The URL https://crickey.example.com",
         ),
     ],
 )
@@ -216,10 +209,7 @@ def test_a_server_other_machines_can_reach_needs_a_token(
 
 def test_loopback_settings_need_no_token() -> None:
     local = settings(
-        port=free_port(),
-        host="127.0.0.1",
-        allowed_hosts=("localhost:8765", "127.0.0.2:*", "[::1]:8765"),
-        allowed_origins=("http://localhost:8765",),
+        port=free_port(), host="127.0.0.1", urls=("http://localhost:9000", "http://[::1]:9000")
     )
 
     _server, sock = create_uvicorn_server(create_server(local), local)

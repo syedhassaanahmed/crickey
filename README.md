@@ -66,8 +66,7 @@ copilot mcp add --transport http --timeout 300000 crickey http://127.0.0.1:8765/
 | `CRICKEY_PORT` | `8765` | HTTP port inside the container; changing it needs a matching `-p` mapping. |
 | `CRICKEY_IN_CONTAINER` | `0` | Set to `1` by the image so it can listen inside Docker. |
 | `CRICKEY_HOST` | `127.0.0.1`; `0.0.0.0` in the image | Address to listen on. |
-| `CRICKEY_ALLOWED_HOSTS` | `127.0.0.1:*,localhost:*,[::1]:*` | Hostnames crickey answers to; `:*` allows any port. |
-| `CRICKEY_ALLOWED_ORIGINS` | `http://127.0.0.1:*,http://localhost:*,http://[::1]:*` | Web page origins crickey answers to. |
+| `CRICKEY_URL` | none | Your instance's public URL, such as `https://crickey.example.com`, which crickey then answers to as well as localhost; a comma-separated list for more than one. |
 | `CRICKEY_TOKEN` | none | Secret of at least 32 characters that clients send as `Authorization: Bearer <token>`. Required when other machines can reach crickey. |
 
 Requests are slow because crickey waits 15 seconds between Cricinfo requests by default. The cache is only in memory, so it resets when the container stops. Run one container for all your clients so they share the cache, request spacing and block pause.
@@ -82,7 +81,7 @@ docker run -i --rm --read-only ghcr.io/syedhassaanahmed/crickey:0.3 stdio
 
 To use your crickey from any device, run the image on a container platform that serves it over HTTPS, such as Azure Container Apps or Google Cloud Run. It's still for your own use. Set:
 
-- `CRICKEY_ALLOWED_HOSTS` to its hostname, such as `crickey.example.com`;
+- `CRICKEY_URL` to its URL, such as `https://crickey.example.com`;
 - `CRICKEY_TOKEN` to a long random secret, such as the output of `openssl rand -hex 32`. crickey won't start without one once other machines can reach it.
 
 The platform provides TLS: point it at port 8765, or set `CRICKEY_PORT` to the port it expects. `/health` needs no token, for the platform's health checks. Connect with the token:

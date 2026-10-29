@@ -138,8 +138,8 @@ Implements D7–D12 and D17.
 ## HTTP transport
 - **Serving:** `crickey serve`, which plain `crickey` also runs, serves `mcp.streamable_http_app()` with uvicorn on port 8765 (`--port` or `CRICKEY_PORT`), as one process. This is the default mode (D20).
 - **Binding:** natively it binds 127.0.0.1. With `CRICKEY_IN_CONTAINER=1`, which the image sets, it binds 0.0.0.0 inside the container (D20). `CRICKEY_HOST` (`--host`) sets another address (D43).
-- **Host/Origin checks:** an allowlist through `TransportSecuritySettings` with `127.0.0.1:*`, `localhost:*` and `[::1]:*` (R12; D20), which `CRICKEY_ALLOWED_HOSTS` and `CRICKEY_ALLOWED_ORIGINS` replace (D43). No CORS.
-- **Token (D43):** with `CRICKEY_TOKEN` set, every request but `/health` needs `Authorization: Bearer <token>`, or gets 401. crickey refuses to start without one when another machine could reach it: a bind address other than loopback, or an allowed host or origin other than localhost; the image's 0.0.0.0 doesn't count (D20). TLS is the hosting platform's.
+- **Host/Origin checks:** an allowlist through `TransportSecuritySettings` with `127.0.0.1:*`, `localhost:*` and `[::1]:*` (R12; D20). `CRICKEY_URL` (`--url`) adds the instance's public URLs, as both Host and Origin (D43). No CORS.
+- **Token (D43):** with `CRICKEY_TOKEN` set, every request but `/health` needs `Authorization: Bearer <token>`, or gets 401. crickey refuses to start without one when another machine could reach it: a bind address other than loopback, or a URL other than localhost; the image's 0.0.0.0 doesn't count (D20). TLS is the hosting platform's.
 - **Other:** responses stream as SSE, the SDK default, so progress notifications arrive (R12); `/health` returns only `{"status": "ok"}`; startup checks that the port is free.
 - **stdio (debugging only, D20):** `crickey stdio` runs the same server over stdio for the MCP Inspector (`mcp dev`, R12) and tests.
 
@@ -178,7 +178,7 @@ The README's commands work in Bash and PowerShell. It covers:
 - the `docker run` command, which starts the HTTP server published on loopback only, and that it must be running before clients connect (run it again after a reboot);
 - one generic JSON snippet with the URL `http://127.0.0.1:8765/mcp`, and the Copilot CLI one-liner (`copilot mcp add --transport http --timeout 300000 crickey http://127.0.0.1:8765/mcp`);
 - the environment variables;
-- hosting your own instance in the cloud: its hostname, a token, and TLS from the platform (D43);
+- hosting your own instance in the cloud: its URL, a token, and TLS from the platform (D43);
 - why requests are slow (D9), that the cache resets when the container stops (D19), and that one container should serve all your clients (D20);
 - one line on `stdio` for debugging.
 

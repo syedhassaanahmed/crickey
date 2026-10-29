@@ -8,6 +8,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,10 +26,9 @@ _BLOCK_PAUSES_EXPECTED = (
     "a comma-separated list of positive durations in seconds, or numbers with an s, m or h suffix "
     "(examples: 90, 5m, 1h), each no more than 168h"
 )
-# A Host value: a name or an IPv6 address in brackets, with an optional port or any port (:*).
-_HOST = r"(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])(?::(?:\d{1,5}|\*))?"
-_HOST_RE = re.compile(_HOST)
-_ORIGIN_RE = re.compile(rf"https?://{_HOST}")
+# An instance's URL: a host name or an IPv6 address in brackets, with an optional port.
+_URL_RE = re.compile(r"https?://(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*|\[[0-9a-f:.]+\])(?::\d{1,5})?/?")
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 TOKEN_MIN_LENGTH = 32
 _TOKEN_EXPECTED = f"at least {TOKEN_MIN_LENGTH} characters, with no spaces"
 LOCAL_HOSTS = ("127.0.0.1:*", "localhost:*", "[::1]:*")
@@ -57,8 +57,8 @@ class Settings:
     in_container: bool = False
     # None binds 127.0.0.1 natively and 0.0.0.0 in a container (D20).
     host: str | None = None
-    allowed_hosts: tuple[str, ...] = LOCAL_HOSTS
-    allowed_origins: tuple[str, ...] = LOCAL_ORIGINS
+    # The instance's public URLs; the Host and Origin checks accept them as well as localhost.
+    urls: tuple[str, ...] = ()
     # A secret, so it stays out of repr and error messages.
     token: str | None = field(default=None, repr=False)
 
@@ -96,18 +96,11 @@ _SPECS: tuple[_SettingSpec, ...] = (
     ),
     _SettingSpec("host", "CRICKEY_HOST", "--host", "an IP address, such as 127.0.0.1 or 0.0.0.0"),
     _SettingSpec(
-        "allowed_hosts",
-        "CRICKEY_ALLOWED_HOSTS",
-        "--allowed-hosts",
-        "a comma-separated list of hosts, each with an optional :port or :*, "
-        "such as crickey.example.com or localhost:*",
-    ),
-    _SettingSpec(
-        "allowed_origins",
-        "CRICKEY_ALLOWED_ORIGINS",
-        "--allowed-origins",
-        "a comma-separated list of http:// or https:// origins, such as "
-        "https://crickey.example.com",
+        "urls",
+        "CRICKEY_URL",
+        "--url",
+        "a comma-separated list of http:// or https:// URLs without a path, "
+        "such as https://crickey.example.com",
     ),
 )
 # CRICKEY_TOKEN has no flag, which would show it in process lists and shell history.
@@ -192,10 +185,8 @@ def _parse_value(spec: _SettingSpec, raw: str, source: str) -> object:
             return _parse_bool(raw)
         if spec.field_name == "host":
             return str(ipaddress.ip_address(raw))
-        if spec.field_name == "allowed_hosts":
-            return _parse_list(raw, _HOST_RE)
-        if spec.field_name == "allowed_origins":
-            return _parse_list(raw, _ORIGIN_RE)
+        if spec.field_name == "urls":
+            return _parse_urls(raw)
     except ValueError as error:
         raise SettingsError(_invalid_message(source, raw, spec.expected)) from error
     raise AssertionError(f"unhandled setting {spec.field_name}")
@@ -241,12 +232,19 @@ def _parse_positive_int(raw: str) -> int:
     return value
 
 
-def _parse_list(raw: str, pattern: re.Pattern[str]) -> tuple[str, ...]:
-    # Host names are case-insensitive, and clients send them in lower case.
-    items = tuple(item.strip().lower() for item in raw.split(","))
-    if not all(pattern.fullmatch(item) for item in items):
-        raise ValueError
-    return items
+def _parse_urls(raw: str) -> tuple[str, ...]:
+    """Each URL as its origin, the form browsers send: lower case, without a default port."""
+    urls = []
+    for item in raw.split(","):
+        url = item.strip().lower()
+        if not _URL_RE.fullmatch(url):
+            raise ValueError
+        parts = urlsplit(url)
+        host = f"[{parts.hostname}]" if ":" in (parts.hostname or "") else parts.hostname
+        port = parts.port  # Raises ValueError above 65535.
+        default = port is None or port == _DEFAULT_PORTS[parts.scheme]
+        urls.append(f"{parts.scheme}://{host}" + ("" if default else f":{port}"))
+    return tuple(urls)
 
 
 def _parse_bool(raw: str) -> bool:

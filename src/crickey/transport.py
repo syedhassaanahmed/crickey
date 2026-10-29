@@ -14,7 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from crickey.settings import TOKEN_MIN_LENGTH, Settings
+from crickey.settings import LOCAL_HOSTS, LOCAL_ORIGINS, TOKEN_MIN_LENGTH, Settings
 
 MCP_PATH: Final = "/mcp"
 HEALTH_PATH: Final = "/health"
@@ -60,8 +60,8 @@ def bind_host(settings: Settings) -> str:
 def transport_security_settings(settings: Settings) -> TransportSecuritySettings:
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=list(settings.allowed_hosts),
-        allowed_origins=list(settings.allowed_origins),
+        allowed_hosts=[*LOCAL_HOSTS, *(_authority(url) for url in settings.urls)],
+        allowed_origins=[*LOCAL_ORIGINS, *settings.urls],
     )
 
 
@@ -141,13 +141,15 @@ def _reach_beyond_this_machine(settings: Settings) -> str | None:
     """
     if settings.host is not None and not _is_loopback(settings.host):
         return f"The bind address {settings.host}"
-    for host in settings.allowed_hosts:
-        if not _is_loopback(_host_name(host)):
-            return f"The allowed host {host}"
-    for origin in settings.allowed_origins:
-        if not _is_loopback(_host_name(origin.split("://", 1)[1])):
-            return f"The allowed origin {origin}"
+    for url in settings.urls:
+        if not _is_loopback(_host_name(_authority(url))):
+            return f"The URL {url}"
     return None
+
+
+def _authority(url: str) -> str:
+    """The Host value of a URL, such as crickey.example.com in "https://crickey.example.com"."""
+    return url.split("://", 1)[1]
 
 
 def _is_loopback(name: str) -> bool:
