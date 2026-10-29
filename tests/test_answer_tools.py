@@ -2295,7 +2295,10 @@ async def test_batting_comparison_lowers_floor_when_target_is_below_default_unde
         "so Target Batter qualifies." in answer
     )
     assert explicit.is_error is True
-    assert "Target Batter was not in the qualifying Statsguru rows" in explicit.content[0].text
+    assert (
+        "Target Batter was not in the qualifying Statsguru rows (runs >= 1000), so Target Batter "
+        "has less than that minimum. Lower minimum, or leave it out so crickey picks a floor."
+    ) in explicit.content[0].text
     assert source.requests == []
 
 
@@ -2476,7 +2479,10 @@ async def test_comparison_under_team_filter_asks_for_minimum_when_still_missing(
         "no team filter; pass minimum to set a lower one."
     ) in result.content[0].text
     assert explicit.is_error is True
-    assert "Team Target was not in the qualifying Statsguru rows." in explicit.content[0].text
+    assert (
+        f"Team Target was not in the qualifying Statsguru rows ({field} >= {figure}), "
+        "so Team Target has less than that minimum."
+    ) in explicit.content[0].text
     assert "team filter" not in explicit.content[0].text
 
 
@@ -2505,25 +2511,30 @@ async def test_comparison_without_team_filter_reports_a_missing_target_plainly()
             [bowling_row(904, "Costly Bowler", "ENG", "2010-2020", 35, "33.00")]
         ),
     }
+    # With minimum 0 every player with a row qualifies, so a missing player isn't below it.
+    zero = query.model_copy(update={"qualifications": (Qualification(field="wickets", minimum=0),)})
+    pages[url(zero)] = pages[url(query)]
+    arguments = {
+        "player_name": "Team Target",
+        "format": "Test",
+        "discipline": "bowling",
+        "metrics": ["average"],
+        "continent": "Asia",
+        "period": "all time",
+    }
     source, client = await client_for(pages)
 
     async with client:
-        result = await client.call_tool(
-            "better_than_player",
-            {
-                "player_name": "Team Target",
-                "format": "Test",
-                "discipline": "bowling",
-                "metrics": ["average"],
-                "continent": "Asia",
-                "period": "all time",
-            },
-        )
+        result = await client.call_tool("better_than_player", arguments)
+        explicit_zero = await client.call_tool("better_than_player", {**arguments, "minimum": 0})
 
     assert result.is_error is True
     assert source.requests == list(pages)
     assert "Team Target was not in the qualifying Statsguru rows." in result.content[0].text
     assert "team filter" not in result.content[0].text
+    assert explicit_zero.is_error is True
+    assert "Team Target was not in the qualifying Statsguru rows." in explicit_zero.content[0].text
+    assert "less than" not in explicit_zero.content[0].text
 
 
 async def test_comparison_finds_the_target_on_a_later_page_without_the_fallback() -> None:
@@ -2623,6 +2634,54 @@ async def test_batting_comparison_refuses_a_lower_floor_that_cannot_fit_the_page
         "(runs >= 1000), and a lower minimum needs at least 3 more pages, but this call has "
         "1 of its 4 pages left; pass minimum to set one."
     ) in result.content[0].text
+
+
+async def test_comparison_with_a_too_broad_minimum_says_how_to_recover() -> None:
+    def query(floor: int) -> StatsguruQuery:
+        return StatsguruQuery(
+            **{
+                "class": 3,
+                "type": "batting",
+                "host": 27,
+                "qualifications": (Qualification(field="runs", minimum=floor),),
+                "orderby": "batting_average",
+                "size": 200,
+            }
+        )
+
+    home = row(804, "Home Opener", "UAE", "2016-2023", 52, 1450, "31.20", 1200, "120.83", 1, 8)
+    pages = {
+        player_search_url("Target Batter"): search_page(
+            search_row("Target Batter", "TTT", 777, 3, "Twenty20 Internationals", "2016 - 2024")
+        ),
+        url(query(0)): result_page([home], pages=5, total=900),
+        url(query(2000)): result_page([home], pages=5, total=900),
+    }
+    arguments = {
+        "player_name": "Target Batter",
+        "format": "T20I",
+        "metrics": ["average"],
+        "host_country": "United Arab Emirates",
+        "period": "all time",
+    }
+    source, client = await client_for(pages)
+
+    async with client:
+        below = await client.call_tool("better_than_player", {**arguments, "minimum": 0})
+        above = await client.call_tool("better_than_player", {**arguments, "minimum": 2000})
+
+    assert source.requests == list(pages)
+    assert below.is_error is True
+    assert above.is_error is True
+    too_broad = "That query is too broad: it needs 5 pages, but the limit is 4."
+    # crickey's own floor here is runs >= 1000, so leaving minimum out helps only below it.
+    assert (
+        f"{too_broad} The minimum (runs >= 0) lets in too many players: "
+        "leave minimum out so crickey picks a floor, or raise it."
+    ) in below.content[0].text
+    assert (
+        f"{too_broad} The minimum (runs >= 2000) lets in too many players: raise it."
+    ) in above.content[0].text
 
 
 async def test_batting_comparison_lowered_floor_counts_every_result_page() -> None:
@@ -3131,9 +3190,10 @@ async def test_better_than_player_by_id_names_a_missing_target_from_its_page() -
         "the player page, which has no team filter; pass minimum to set a lower one."
     ) in result.content[0].text
     assert explicit.is_error is True
-    assert "Player ID 902 was not in the qualifying Statsguru T20I rows." in (
-        explicit.content[0].text
-    )
+    assert (
+        "Player ID 902 was not in the qualifying Statsguru T20I rows (runs >= 600), "
+        "so player ID 902 has less than that minimum."
+    ) in explicit.content[0].text
 
 
 async def test_player_id_without_a_record_in_the_format_is_a_clear_error() -> None:
@@ -3276,7 +3336,7 @@ async def test_errors_by_id_never_name_the_player_from_player_name() -> None:
     assert "Player ID 316363 (Imran Khan) has no ODI batting record on Statsguru." in texts[0]
     assert "Player ID 999999998 has no Test bowling record on Statsguru." in texts[1]
     assert "Team Target (player ID 902) was not in the qualifying Statsguru T20I rows" in texts[2]
-    assert "Player ID 902 was not in the qualifying Statsguru T20I rows." in texts[3]
+    assert "Player ID 902 was not in the qualifying Statsguru T20I rows (runs >= 600)" in texts[3]
     assert not any("Babar" in text for text in texts)
     assert source.requests == list(pages)
 
