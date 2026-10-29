@@ -21,7 +21,12 @@ ENV_NAMES = (
     "CRICKEY_RECENT_TTL",
     "CRICKEY_PORT",
     "CRICKEY_IN_CONTAINER",
+    "CRICKEY_HOST",
+    "CRICKEY_ALLOWED_HOSTS",
+    "CRICKEY_ALLOWED_ORIGINS",
+    "CRICKEY_TOKEN",
 )
+TOKEN = "0123456789abcdef" * 4
 
 
 def _settings_from_cli(argv: list[str]) -> Settings:
@@ -71,6 +76,10 @@ def test_every_environment_variable_overrides_default(monkeypatch: pytest.Monkey
     monkeypatch.setenv("CRICKEY_RECENT_TTL", "90s")
     monkeypatch.setenv("CRICKEY_PORT", "9999")
     monkeypatch.setenv("CRICKEY_IN_CONTAINER", "yes")
+    monkeypatch.setenv("CRICKEY_HOST", "0.0.0.0")
+    monkeypatch.setenv("CRICKEY_ALLOWED_HOSTS", "Crickey.Example.com, localhost:*")
+    monkeypatch.setenv("CRICKEY_ALLOWED_ORIGINS", "https://crickey.example.com")
+    monkeypatch.setenv("CRICKEY_TOKEN", TOKEN)
 
     settings = load_settings(_empty_args())
 
@@ -86,6 +95,10 @@ def test_every_environment_variable_overrides_default(monkeypatch: pytest.Monkey
     assert settings.recent_ttl == timedelta(seconds=90)
     assert settings.port == 9999
     assert settings.in_container is True
+    assert settings.host == "0.0.0.0"
+    assert settings.allowed_hosts == ("crickey.example.com", "localhost:*")
+    assert settings.allowed_origins == ("https://crickey.example.com",)
+    assert settings.token == TOKEN
 
 
 def test_every_serve_flag_overrides_default() -> None:
@@ -108,6 +121,12 @@ def test_every_serve_flag_overrides_default() -> None:
             "8766",
             "--in-container",
             "true",
+            "--host",
+            "::",
+            "--allowed-hosts",
+            "[::1]:8766",
+            "--allowed-origins",
+            "http://[::1]:8766",
         ]
     )
 
@@ -119,6 +138,9 @@ def test_every_serve_flag_overrides_default() -> None:
     assert settings.recent_ttl == timedelta(hours=2)
     assert settings.port == 8766
     assert settings.in_container is True
+    assert settings.host == "::"
+    assert settings.allowed_hosts == ("[::1]:8766",)
+    assert settings.allowed_origins == ("http://[::1]:8766",)
 
 
 def test_plain_crickey_accepts_serve_flags(
@@ -205,6 +227,12 @@ def test_every_stdio_flag_overrides_default() -> None:
             "1",
             "--in-container",
             "0",
+            "--host",
+            "127.0.0.2",
+            "--allowed-hosts",
+            "localhost:1",
+            "--allowed-origins",
+            "http://localhost:1",
         ]
     )
 
@@ -216,6 +244,9 @@ def test_every_stdio_flag_overrides_default() -> None:
     assert settings.recent_ttl == timedelta(minutes=5)
     assert settings.port == 1
     assert settings.in_container is False
+    assert settings.host == "127.0.0.2"
+    assert settings.allowed_hosts == ("localhost:1",)
+    assert settings.allowed_origins == ("http://localhost:1",)
 
 
 def test_flag_wins_over_environment_variable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,6 +259,9 @@ def test_flag_wins_over_environment_variable(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("CRICKEY_RECENT_TTL", "3h")
     monkeypatch.setenv("CRICKEY_PORT", "8767")
     monkeypatch.setenv("CRICKEY_IN_CONTAINER", "false")
+    monkeypatch.setenv("CRICKEY_HOST", "127.0.0.1")
+    monkeypatch.setenv("CRICKEY_ALLOWED_HOSTS", "env.example.com")
+    monkeypatch.setenv("CRICKEY_ALLOWED_ORIGINS", "https://env.example.com")
     args = build_parser().parse_args(
         [
             "serve",
@@ -247,6 +281,12 @@ def test_flag_wins_over_environment_variable(monkeypatch: pytest.MonkeyPatch) ->
             "8766",
             "--in-container",
             "true",
+            "--host",
+            "0.0.0.0",
+            "--allowed-hosts",
+            "flag.example.com",
+            "--allowed-origins",
+            "https://flag.example.com",
         ]
     )
 
@@ -260,6 +300,9 @@ def test_flag_wins_over_environment_variable(monkeypatch: pytest.MonkeyPatch) ->
     assert settings.recent_ttl == timedelta(hours=2)
     assert settings.port == 8766
     assert settings.in_container is True
+    assert settings.host == "0.0.0.0"
+    assert settings.allowed_hosts == ("flag.example.com",)
+    assert settings.allowed_origins == ("https://flag.example.com",)
 
 
 @pytest.mark.parametrize(
@@ -288,6 +331,19 @@ def test_flag_wins_over_environment_variable(monkeypatch: pytest.MonkeyPatch) ->
         ),
         ("CRICKEY_PORT", "65536", "an integer from 1 to 65535"),
         ("CRICKEY_IN_CONTAINER", "maybe", "1/0, true/false, yes/no, or empty"),
+        ("CRICKEY_HOST", "localhost", "an IP address, such as 127.0.0.1 or 0.0.0.0"),
+        (
+            "CRICKEY_ALLOWED_HOSTS",
+            "https://crickey.example.com",
+            "a comma-separated list of hosts, each with an optional :port or :*, "
+            "such as crickey.example.com or localhost:*",
+        ),
+        (
+            "CRICKEY_ALLOWED_ORIGINS",
+            "crickey.example.com",
+            "a comma-separated list of http:// or https:// origins, such as "
+            "https://crickey.example.com",
+        ),
     ],
 )
 def test_invalid_environment_values_name_setting(
@@ -331,6 +387,19 @@ def test_invalid_environment_values_name_setting(
         ),
         ("--port", "65536", "an integer from 1 to 65535"),
         ("--in-container", "maybe", "1/0, true/false, yes/no, or empty"),
+        ("--host", "999.0.0.1", "an IP address, such as 127.0.0.1 or 0.0.0.0"),
+        (
+            "--allowed-hosts",
+            "crickey.example.com,",
+            "a comma-separated list of hosts, each with an optional :port or :*, "
+            "such as crickey.example.com or localhost:*",
+        ),
+        (
+            "--allowed-origins",
+            "https://crickey.example.com/mcp",
+            "a comma-separated list of http:// or https:// origins, such as "
+            "https://crickey.example.com",
+        ),
     ],
 )
 def test_invalid_flag_values_name_setting(flag_name: str, bad_value: str, expected: str) -> None:
@@ -367,6 +436,30 @@ def test_invalid_stdio_value_stops_startup_before_placeholder(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "ERROR: --port='0' is invalid; expected an integer from 1 to 65535.\n"
+
+
+@pytest.mark.parametrize("bad_token", ["too-short-secret", TOKEN[:16] + " " + TOKEN[:16]])
+def test_token_comes_from_the_environment_and_is_never_shown(
+    bad_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _clear_crickey_env(monkeypatch)
+    monkeypatch.setenv("CRICKEY_TOKEN", "")
+    assert load_settings(_empty_args()).token is None
+
+    monkeypatch.setenv("CRICKEY_TOKEN", TOKEN)
+    settings = load_settings(_empty_args())
+    assert settings.token == TOKEN
+    assert TOKEN not in repr(settings)
+
+    monkeypatch.setenv("CRICKEY_TOKEN", bad_token)
+    with pytest.raises(SettingsError) as exc_info:
+        load_settings(_empty_args())
+    assert str(exc_info.value) == (
+        "CRICKEY_TOKEN is invalid; expected at least 32 characters, with no spaces."
+    )
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["serve", "--token", TOKEN])
 
 
 def test_min_interval_floor() -> None:
