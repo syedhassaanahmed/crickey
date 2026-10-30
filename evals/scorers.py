@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 
 from inspect_ai.model import ChatMessageAssistant, ChatMessageTool
-from inspect_ai.scorer import Score, Scorer, Target, mean, scorer, stderr
+from inspect_ai.scorer import Score, Scorer, Target, grouped, mean, scorer, stderr
 from inspect_ai.solver import TaskState
 
 from evals import checks
@@ -15,6 +15,11 @@ from evals.cases import Case
 
 # The solver stores when the sample started, for the cost check's time.
 STARTED_KEY = "crickey_started"
+# Each check reports golden and held-out cases apart (D45), by the sample's "set".
+CHECK_METRICS = [
+    grouped(mean(), "set", all=False),
+    grouped(stderr(), "set", all=False, name_template="{group_name}_stderr"),
+]
 
 
 def transcript_from_state(state: TaskState) -> checks.Transcript:
@@ -71,37 +76,37 @@ def _check_scorer(check: Callable[[Case, checks.Transcript], checks.CheckResult]
     return score
 
 
-@scorer(metrics=[mean(), stderr()])
+@scorer(metrics=CHECK_METRICS)
 def known_answer() -> Scorer:
     """The final answer contains the known answer's facts."""
     return _check_scorer(checks.check_answer)
 
 
-@scorer(metrics=[mean(), stderr()])
+@scorer(metrics=CHECK_METRICS)
 def answer_tool() -> Scorer:
     """The answer tool the question needs was called, rather than only query_stats."""
     return _check_scorer(checks.check_tool)
 
 
-@scorer(metrics=[mean(), stderr()])
+@scorer(metrics=CHECK_METRICS)
 def arguments() -> Scorer:
     """Format, discipline, metrics, filters and period match the question."""
     return _check_scorer(checks.check_arguments)
 
 
-@scorer(metrics=[mean(), stderr()])
+@scorer(metrics=CHECK_METRICS)
 def proof() -> Scorer:
     """The answer cites a Statsguru link, and only links that tools returned (D16)."""
     return _check_scorer(checks.check_proof)
 
 
-@scorer(metrics=[mean(), stderr()])
+@scorer(metrics=CHECK_METRICS)
 def grounding() -> Scorer:
     """The answer's figures appear in tool results or the question (D13)."""
     return _check_scorer(checks.check_grounding)
 
 
-@scorer(metrics=[mean(), stderr()])
+@scorer(metrics=CHECK_METRICS)
 def all_checks() -> Scorer:
     """The headline: the question passes every check above."""
     return _check_scorer(checks.check_all)

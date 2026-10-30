@@ -3,6 +3,10 @@
 #
 # Each case has:
 # - number and golden_question: the golden question, in its general form.
+# - held_out: true for a held-out case (D45), which asks the same kind of question as golden
+#   question `number` in other words, about other players, teams, formats or periods. Nothing in
+#   crickey quotes it, so it shows how models handle a question they haven't been shown; the eval
+#   reports held-out cases apart. A held-out case takes golden_question from its golden case.
 # - question: what the eval asks. Real players are filled in, and the answer can't change, because
 #   the players have retired or the period has ended (fixed_because, D37).
 # - tool: the answer tool the question needs.
@@ -204,3 +208,172 @@ format = "ODI"
 number_of_teams = "3+"
 period = { kind = "dates", start = 1990-01-01, end = 1999-12-31 }
 filters = { host_country = "Pakistan" }
+
+# Held-out cases (D45): the same kinds of question in other words, about other players, teams,
+# formats or periods. Nothing in crickey quotes them, and the eval reports them apart.
+
+[[case]]
+number = 1
+held_out = true
+id = "h1-test-innings-per-hundred-1980-to-1999"
+question = "Counting only Tests from 1980 to 1999, which batters with at least 15 hundreds needed the fewest innings per hundred?"
+tool = "leaderboard"
+fixed_because = "The period ended in 1999."
+facts = [["Tendulkar"], ["5.23"]]
+
+[[case.calls]]
+format = "Test"
+metrics = [["innings_per_hundred"]]
+minimum = 15
+period = { kind = "dates", start = 1980-01-01, end = 1999-12-31 }
+
+[[case]]
+number = 2
+held_out = true
+id = "h2-odi-hundreds-more-often-than-saeed-anwar"
+question = "Over Saeed Anwar's ODI career, which batters hit hundreds more often than he did?"
+tool = "better_than_player"
+fixed_because = "Saeed Anwar's ODI career span ended in 2003."
+facts = [["12.2"], ["Tendulkar"], ["Gibbs"], ["Ganguly"]]
+
+[[case.calls]]
+player = { id = 42605, names = ["Anwar"] }
+format = "ODI"
+metrics = [["innings_per_hundred"]]
+period = { kind = "career", start = 1989-01-01, end = 2003-03-04 }
+
+[[case]]
+number = 3
+held_out = true
+id = "h3-odi-average-and-strike-rate-beat-hussey"
+question = "Which batters had a higher ODI average and a faster strike rate than Michael Hussey while he played?"
+tool = "better_than_player"
+fixed_because = "Hussey's ODI career span ended in 2012."
+facts = [["ten Doeschate"], ["Amla"], ["Dhoni"], ["de Villiers"], ["48.15"], ["87.16"]]
+
+[[case.calls]]
+player = { id = 5939, names = ["Hussey"] }
+format = "ODI"
+metrics = [["average"], ["strike_rate"]]
+period = { kind = "career", start = 2004-02-01, end = 2012-09-03 }
+
+[[case]]
+number = 4
+held_out = true
+id = "h4-sangakkara-odi-average-final-4-years"
+question = "Over the final four years of his ODI career, what did Kumar Sangakkara average with the bat?"
+tool = "player_record"
+fixed_because = "Sangakkara retired from ODIs in 2015."
+facts = [["Sangakkara"], ["52.3"]]
+
+[[case.calls]]
+player = { id = 50710, names = ["Sangakkara"] }
+format = "ODI"
+period = { kind = "last_years", years = 4 }
+
+[[case]]
+number = 5
+held_out = true
+id = "h5-ganguly-champions-trophy-centuries"
+question = "How many centuries did Sourav Ganguly make in ICC Champions Trophy ODIs?"
+tool = "player_record"
+fixed_because = "Ganguly retired from ODIs in 2007."
+facts = [["Ganguly"], ["hundreds 3", "3 hundreds", "three hundreds", "3 centuries", "three centuries", "centuries 3", "3 Champions Trophy hundreds", "3 Champions Trophy centuries", "3 ICC Champions Trophy hundreds", "3 ICC Champions Trophy centuries"]]
+
+[[case.calls]]
+player = { id = 28779, names = ["Ganguly"] }
+format = "ODI"
+filters = { trophy = "ICC Champions Trophy" }
+
+[[case]]
+number = 6
+held_out = true
+id = "h6-warne-or-kumble-in-africa-in-tests"
+question = "In Tests played in Africa, who had the better bowling record, Shane Warne or Anil Kumble?"
+tool = "player_record"
+fixed_because = "Both have retired from Test cricket."
+facts = [["Warne"], ["Kumble"], ["67"], ["24.17"], ["59"], ["31.33"], ["59.7"], ["80.3"]]
+
+[[case.calls]]
+player = { id = 8166, names = ["Warne"] }
+format = "Test"
+discipline = "bowling"
+filters = { continent = "Africa" }
+
+[[case.calls]]
+player = { id = 30176, names = ["Kumble"] }
+format = "Test"
+discipline = "bowling"
+filters = { continent = "Africa" }
+
+[[case]]
+number = 7
+held_out = true
+id = "h7-more-catches-than-ponting"
+question = "Counting Tests, ODIs and T20Is together, who held more catches than Ricky Ponting while he played?"
+tool = "better_than_player"
+fixed_because = "Ponting's career span ended in 2012."
+facts = [["364"], ["Jayawardene"]]
+
+[[case.calls]]
+player = { id = 7133, names = ["Ponting"] }
+format = "all internationals"
+discipline = "fielding"
+metrics = [["catches", "fielder_catches"]]
+period = { kind = "career", start = 1995-02-15, end = 2012-11-30 }
+
+[[case]]
+number = 8
+held_out = true
+id = "h8-lara-test-century-in-each-country"
+question = "Did Brian Lara score a Test century in each country he played Tests in?"
+tool = "player_record"
+fixed_because = "Lara retired from Test cricket in 2006."
+facts = [["Lara"], ["India"]]
+
+[[case.calls]]
+player = { id = 52337, names = ["Lara"] }
+format = "Test"
+split_by = "host"
+
+[[case]]
+number = 9
+held_out = true
+id = "h9-donald-pollock-ntini-against-west-indies"
+question = "Compare how Allan Donald, Shaun Pollock and Makhaya Ntini bowled against the West Indies in Tests: how many wickets did each take, at what average and strike rate?"
+tool = "player_record"
+fixed_because = "All three have retired from Test cricket."
+facts = [["Donald"], ["Pollock"], ["Ntini"], ["43"], ["20.79"], ["43.1"], ["70"], ["22.95"], ["57.3"], ["63"], ["27.58"], ["50.7"]]
+
+[[case.calls]]
+player = { id = 44716, names = ["Donald"] }
+format = "Test"
+discipline = "bowling"
+filters = { opposition = "West Indies" }
+
+[[case.calls]]
+player = { id = 46774, names = ["Pollock"] }
+format = "Test"
+discipline = "bowling"
+filters = { opposition = "West Indies" }
+
+[[case.calls]]
+player = { id = 46592, names = ["Ntini"] }
+format = "Test"
+discipline = "bowling"
+filters = { opposition = "West Indies" }
+
+[[case]]
+number = 10
+held_out = true
+id = "h10-odi-series-of-3-plus-teams-in-sri-lanka-2000s"
+question = "How many ODI tournaments with three or more teams did Sri Lanka host between 2000 and 2009?"
+tool = "series_count"
+fixed_because = "The period ended in 2009."
+facts = [["8 ODI series", "8 series", "8 tournaments", "8 ODI tournaments", "8 multi-team", "number of series 8", "eight ODI series", "eight series", "eight tournaments", "eight ODI tournaments", "eight multi-team"]]
+
+[[case.calls]]
+format = "ODI"
+number_of_teams = "3+"
+period = { kind = "dates", start = 2000-01-01, end = 2009-12-31 }
+filters = { host_country = "Sri Lanka" }

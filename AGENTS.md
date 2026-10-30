@@ -4,7 +4,7 @@ crickey is an MCP server that answers cricket statistics questions from Cricinfo
 
 ## Read first
 - [docs/plan.md](docs/plan.md): the goal and design.
-- [evals/golden_questions.toml](evals/golden_questions.toml): the golden questions, the one place they're listed (D41). Elsewhere, refer to one by its number.
+- [evals/golden_questions.toml](evals/golden_questions.toml): the golden questions, the one place they're listed (D41), and their held-out cases. Elsewhere, refer to one by its number. Never copy a case's wording, players or values into tool descriptions or the server instructions (D45).
 - [docs/decisions.md](docs/decisions.md): the numbered decisions (D1, D2, …) and the options that were dropped.
 - [docs/research.md](docs/research.md): facts about Statsguru and the tools, in sections R1–R17.
 

@@ -2001,10 +2001,10 @@ def test_period_text_forms(text: str | None, expected: object) -> None:
 @pytest.mark.parametrize(
     ("text", "message"),
     [
-        ("2 years", 'can\'t be read; use "all time", "career", "first 3 years", "last 3 years"'),
+        ("2 years", 'can\'t be read; use "all time", "career", "first 5 years", "last 5 years"'),
         ("from 2000", 'can\'t be read; use "all time"'),
         ("2011-12", 'or a season ("season 2011/12")'),
-        ("last_years", 'needs a number of years, such as "last 3 years"'),
+        ("last_years", 'needs a number of years, such as "last 5 years"'),
         ("2009 to 2000", "ends before it starts"),
         ("season 2011/13", "isn't a season"),
         ("2009-02-30 to 2010-01-01", 'has a date that can\'t be read: "2009-02-30"'),
@@ -2033,7 +2033,7 @@ async def test_periods_are_text_and_unreadable_ones_cost_no_request() -> None:
         assert period["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert source.requests == []
     assert record.is_error is True
-    assert '"last 3 years", years ("2000 to 2009")' in record.content[0].text
+    assert '"last 5 years", years ("2010 to 2019")' in record.content[0].text
     assert record.meta[STATSGURU_META_KEY] == {"requests": 0, "cached_pages": 0}
     assert ranking.is_error is True
     assert "leaderboard ranks every player" in ranking.content[0].text
