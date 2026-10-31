@@ -1132,7 +1132,8 @@ async def test_golden_question_9_three_bowlers_against_one_opposition() -> None:
     }
     records = (wasim, waqar, imran)
     assert [
-        record.structured_content["answer_markdown"].split("\n", 1)[0] for record in records
+        record.structured_content["answer_markdown"].split(" [Answer proof](", 1)[0]
+        for record in records
     ] == [
         "Wasim Akram's record: matches 12, innings 21, wickets 45, average 28.86, economy 2.66, "
         "strike rate 65, five-wicket hauls 2, ten-wicket matches 0, best innings 5/96.",
@@ -1255,7 +1256,7 @@ async def test_golden_question_10_counts_odi_series_of_three_or_more_teams_in_pa
     assert structured["proof"]["confirmed"] is True
     answer = structured["answer_markdown"]
     assert answer.startswith(
-        "3 ODI series of 3+ teams were played in Pakistan, 1990-01-01 to 1999-12-31.\n"
+        "3 ODI series of 3+ teams were played in Pakistan, 1990-01-01 to 1999-12-31. ["
     )
     assert re.search(r"\| Wills World Cup, 1995/96 +\| 1996-02-16 +\| 16 +\| Sri Lanka", answer)
     assert "- Answer proof: [Confirmed Statsguru results: ODI aggregate, view series" in answer
@@ -1320,7 +1321,7 @@ async def test_series_count_names_a_tournament_and_counts_none() -> None:
     assert result.structured_content["count"] == 0
     assert result.structured_content["series"] == []
     assert result.structured_content["answer_markdown"].startswith(
-        "0 ODI series in the World Cup were played in Pakistan, 2010-01-01 to 2019-12-31.\n"
+        "0 ODI series in the World Cup were played in Pakistan, 2010-01-01 to 2019-12-31. ["
     )
 
 
@@ -2001,10 +2002,11 @@ def test_period_text_forms(text: str | None, expected: object) -> None:
 @pytest.mark.parametrize(
     ("text", "message"),
     [
-        ("2 years", 'can\'t be read; use "all time", "career", "first 5 years", "last 5 years"'),
+        ("2 years", 'can\'t be read; use "all time", "career", "first N years", "last N years"'),
         ("from 2000", 'can\'t be read; use "all time"'),
         ("2011-12", 'or a season ("season 2011/12")'),
-        ("last_years", 'needs a number of years, such as "last 5 years"'),
+        ("last_years", "needs a number of years: put the question's number in place of N"),
+        ("last N years of his career", "needs a number of years: put the question's number"),
         ("2009 to 2000", "ends before it starts"),
         ("season 2011/13", "isn't a season"),
         ("2009-02-30 to 2010-01-01", 'has a date that can\'t be read: "2009-02-30"'),
@@ -2033,7 +2035,7 @@ async def test_periods_are_text_and_unreadable_ones_cost_no_request() -> None:
         assert period["anyOf"] == [{"type": "string"}, {"type": "null"}]
     assert source.requests == []
     assert record.is_error is True
-    assert '"last 5 years", years ("2010 to 2019")' in record.content[0].text
+    assert '"last N years", years ("2010 to 2019")' in record.content[0].text
     assert record.meta[STATSGURU_META_KEY] == {"requests": 0, "cached_pages": 0}
     assert ranking.is_error is True
     assert "leaderboard ranks every player" in ranking.content[0].text
@@ -2980,10 +2982,10 @@ async def test_any_mode_short_answer_counts_beaters_on_each_metric() -> None:
     assert source.requests == [search_url, url(query)]
     assert result.structured_content["answer_markdown"].startswith(
         "4 player(s) beat Target Batter's displayed batting average or strike rate: "
-        "3 on batting average and 2 on strike rate.\n"
+        "3 on batting average and 2 on strike rate. ["
     )
     assert single.structured_content["answer_markdown"].startswith(
-        "3 player(s) beat Target Batter's displayed batting average.\n"
+        "3 player(s) beat Target Batter's displayed batting average. ["
     )
 
 
@@ -3321,7 +3323,7 @@ async def test_better_than_player_by_id_finds_the_target_row_without_a_search() 
     assert structured["proof"]["confirmed"] is True
     assert structured["answer_markdown"].startswith(
         "2 player(s) beat Imran Khan's displayed batting average. "
-        "1 player(s) were level with Imran Khan.\n"
+        "1 player(s) were level with Imran Khan. ["
     )
     assert "follows player_id" not in structured["answer_markdown"]
     assert clash.structured_content["player"]["name"] == "Imran Khan"
@@ -3706,7 +3708,7 @@ async def test_golden_question_8_counts_hundreds_in_host_countries_not_continent
     answer = structured["answer_markdown"]
     assert answer.startswith(
         "Sample Centurion's Test batting split by host country: at least one hundred in 3 of 4 "
-        "host countries; none in India.\n"
+        "host countries; none in India. ["
     )
     assert markdown_rows(answer) == [
         ["Host country", "Mat", "Inns", "Runs", "Ave", "SR", "100", "50"],
@@ -3742,7 +3744,7 @@ async def test_split_by_opposition_and_year_read_their_own_grouped_rows() -> Non
     ]
     assert opposition.structured_content["answer_markdown"].startswith(
         "Sample Centurion's Test batting split by opposition: at least one hundred against all 3 "
-        "oppositions.\n"
+        "oppositions. ["
     )
     rows = year.structured_content["split"]["rows"]
     assert [(row["name"], row["year"], row["Span"], row["100"]) for row in rows] == [
@@ -3753,7 +3755,7 @@ async def test_split_by_opposition_and_year_read_their_own_grouped_rows() -> Non
     assert year.structured_content["split"]["without_hundreds"] == ["2005"]
     assert year.structured_content["answer_markdown"].startswith(
         "Sample Centurion's Test batting split by year: at least one hundred in 2 of 3 years; "
-        "none in 2005.\n"
+        "none in 2005. ["
     )
     assert markdown_rows(year.structured_content["answer_markdown"])[0][0] == "Year"
     rows = continent.structured_content["split"]["rows"]
@@ -3812,7 +3814,7 @@ async def test_split_by_host_for_bowling_counts_five_wicket_hauls() -> None:
     answer = result.structured_content["answer_markdown"]
     assert answer.startswith(
         "Sample Swinger's Test bowling split by host country: at least one five-wicket haul in "
-        "2 of 3 host countries; none in India.\n"
+        "2 of 3 host countries; none in India. ["
     )
     assert markdown_rows(answer)[:2] == [
         ["Host country", "Mat", "Wkts", "Ave", "Econ", "SR", "5"],
@@ -3948,14 +3950,14 @@ async def test_split_by_on_filtered_pages_uses_the_filtered_grouped_rows() -> No
     answer = years.structured_content["answer_markdown"]
     assert answer.startswith(
         "Sample Centurion's Test batting split by year: at least one hundred in 1 of 2 years; "
-        "none in 2005.\n"
+        "none in 2005. ["
     )
     assert "- Period: 2005-01-01 to 2012-12-31." in answer
     assert "- Split: the 2 rows by year add up to the record's 20 matches" in answer
     assert [row["name"] for row in hosts.structured_content["split"]["rows"]] == ["U.A.E."]
     assert hosts.structured_content["answer_markdown"].startswith(
         "Sample Centurion's Test batting split by host country: at least one hundred in the "
-        "only host country, U.A.E.\n"
+        "only host country, U.A.E. ["
     )
     assert [row["name"] for row in continents.structured_content["split"]["rows"]] == ["Asia"]
 
@@ -4079,7 +4081,7 @@ async def test_split_by_without_the_counted_column_does_not_claim_a_count() -> N
     assert split["groups"] == 2
     answer = result.structured_content["answer_markdown"]
     assert answer.startswith(
-        "Sample Swinger's Test bowling split by host country: 2 host countries.\n"
+        "Sample Swinger's Test bowling split by host country: 2 host countries. ["
     )
     assert "Counted" not in answer
     assert markdown_rows(answer)[0] == ["Host country", "Mat", "Wkts", "Ave"]
@@ -4457,7 +4459,7 @@ async def test_golden_question_7_catches_across_all_formats_compared_to_rhodes(
     answer = content["answer_markdown"]
     assert answer.startswith(
         f"{len(beaters)} player(s) beat Jonty Rhodes's displayed {label}. "
-        "1 player(s) were level with Jonty Rhodes.\n"
+        "1 player(s) were level with Jonty Rhodes. ["
     )
     assert f"Minimum: {field} >= 100." in answer
     assert "Lowered from the default" not in answer
