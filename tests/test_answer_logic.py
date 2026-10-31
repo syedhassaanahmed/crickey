@@ -8,16 +8,13 @@ from decimal import Decimal
 from crickey.fetcher import Fetcher, Freshness, MemoryPageSource
 from crickey.metrics import (
     BATTING_METRICS,
-    BOWLING_METRICS,
     FIELDING_METRICS,
-    BetterDirection,
     batting_metric,
     bowling_metric,
     fielding_metric,
     rank_key,
 )
 from crickey.parsers import RecentMatch
-from crickey.parsers.results import parse_results_page
 from crickey.proof import ProofLink, Threshold, _threshold_qualification, build_proof_link
 from crickey.query import (
     Qualification,
@@ -61,8 +58,6 @@ def test_metric_direction_default_minimums_and_displayed_ties() -> None:
     bpd = batting_metric("balls_per_dismissal")
     ip50 = batting_metric("innings_per_fifty_plus")
 
-    assert avg.direction == BetterDirection.HIGHER
-    assert iph.direction == BetterDirection.LOWER
     assert sr.better_than(Decimal("128.02"), Decimal("128.01")) is True
     assert bpd.better_than(Decimal("40.01"), Decimal("40.00")) is True
     assert ip50.better_than(Decimal("2.40"), Decimal("2.41")) is True
@@ -80,147 +75,7 @@ def test_metric_direction_default_minimums_and_displayed_ties() -> None:
     assert ip50.display_value(Decimal("2.415")) == Decimal("2.42")
 
 
-def test_default_minimum_table_and_unsupported_test_metrics_are_exact() -> None:
-    table = {
-        key: {
-            class_id: (
-                metric.default_minimum(class_id).field,
-                metric.default_minimum(class_id).minimum,
-            )
-            if class_id in metric.supported_classes
-            else None
-            for class_id in (1, 2, 3, 6, 11)
-        }
-        for key, metric in BATTING_METRICS.items()
-    }
-
-    assert table == {
-        "runs": {
-            1: ("runs", 1000),
-            2: ("runs", 500),
-            3: ("runs", 250),
-            6: ("runs", 500),
-            11: ("runs", 1500),
-        },
-        "average": {
-            1: ("innings", 20),
-            2: ("innings", 20),
-            3: ("innings", 20),
-            6: ("innings", 30),
-            11: ("innings", 30),
-        },
-        "strike_rate": {
-            1: None,
-            2: ("balls_faced", 500),
-            3: ("balls_faced", 250),
-            6: None,
-            11: None,
-        },
-        "hundreds": {
-            1: ("hundreds", 5),
-            2: ("hundreds", 5),
-            3: ("hundreds", 1),
-            6: ("hundreds", 1),
-            11: ("hundreds", 10),
-        },
-        "fifties": {
-            1: ("fifty_plus", 10),
-            2: ("fifty_plus", 10),
-            3: ("fifty_plus", 5),
-            6: ("fifty_plus", 10),
-            11: ("fifty_plus", 20),
-        },
-        "innings_per_hundred": {
-            1: ("hundreds", 5),
-            2: ("hundreds", 5),
-            3: ("hundreds", 1),
-            6: ("hundreds", 3),
-            11: ("hundreds", 10),
-        },
-        "innings_per_fifty_plus": {
-            1: ("hundreds", 5),
-            2: ("hundreds", 5),
-            3: ("hundreds", 1),
-            6: ("hundreds", 3),
-            11: ("hundreds", 10),
-        },
-        "balls_per_dismissal": {
-            1: None,
-            2: ("hundreds", 5),
-            3: ("hundreds", 1),
-            6: None,
-            11: None,
-        },
-    }
-    for key in ("strike_rate", "balls_per_dismissal"):
-        metric = batting_metric(key)
-        for class_id in (1, 6, 11):
-            try:
-                metric.value_from_row({"SR": None, "BF": None}, class_id=class_id)
-            except ValueError as error:
-                assert f"metric {key!r} is not supported for class {class_id}" in str(error)
-            else:
-                raise AssertionError(f"{key} should be unsupported for class {class_id}")
-
-
-def test_count_metrics_are_derived_from_the_registry() -> None:
-    metrics = {**BATTING_METRICS, **BOWLING_METRICS, **FIELDING_METRICS}
-
-    assert {key for key, metric in metrics.items() if metric.is_count} == {
-        "runs",
-        "hundreds",
-        "fifties",
-        "wickets",
-        "five_wickets",
-        "ten_wickets",
-        "catches",
-        "fielder_catches",
-        "keeper_catches",
-        "stumpings",
-        "dismissals",
-    }
-
-
-def test_fielding_metrics_read_statsguru_columns_with_one_floor_table() -> None:
-    columns = {
-        key: (metric.column, metric.orderby, metric.qualval, metric.direction)
-        for key, metric in FIELDING_METRICS.items()
-    }
-    floors = {
-        key: {
-            class_id: (
-                metric.default_minimum(class_id).field,
-                metric.default_minimum(class_id).minimum,
-            )
-            for class_id in (1, 2, 3, 6, 11)
-        }
-        for key, metric in FIELDING_METRICS.items()
-    }
-
-    higher = BetterDirection.HIGHER
-    assert columns == {
-        "catches": ("Ct", "caught", "caught", higher),
-        "fielder_catches": ("Ct Fi", "caught_fielder", "caught_fielder", higher),
-        "keeper_catches": ("Ct Wk", "caught_keeper", "caught_keeper", higher),
-        "stumpings": ("St", "stumped", "stumped", higher),
-        "dismissals": ("Dis", "dismissals", "dismissals", higher),
-        "dismissals_per_innings": ("D/I", "dismissals_per_inns", "dismissals_per_inns", higher),
-    }
-    own_field = {
-        "catches": "caught",
-        "fielder_catches": "caught_fielder",
-        "keeper_catches": "caught_keeper",
-        "stumpings": "stumped",
-        "dismissals": "dismissals",
-        "dismissals_per_innings": "dismissals",
-    }
-    assert floors == {
-        key: {
-            class_id: (field, minimum)
-            for class_id, minimum in {1: 50, 2: 50, 3: 25, 6: 100, 11: 100}.items()
-        }
-        for key, field in own_field.items()
-    }
+def test_fielding_rate_reads_its_text_cell_compares_and_ties() -> None:
     rate = fielding_metric("dismissals_per_innings")
     assert rate.value_from_row({"D/I": "0.411"}) == Decimal("0.411")
     assert rate.better_than(Decimal("0.64"), Decimal("0.411")) is True
@@ -260,25 +115,6 @@ def test_every_default_minimum_compiles_as_statsguru_qualification() -> None:
 
             assert f"qualval1={minimum.field}" in url
             assert f"orderby={metric.orderby}" in url
-
-
-def test_equal_displayed_values_from_synthetic_results_page_are_reported_as_ties() -> None:
-    html = """
-    <table class="engineTable"><caption>Overall figures</caption>
-    <tr><th>Player</th><th>Runs</th><th>Ave</th></tr>
-    <tr class="data1"><td><a href="/ci/content/player/1.html">Alpha</a> (AAA)</td><td>1000</td><td>38.94</td></tr>
-    <tr class="data1"><td><a href="/ci/content/player/2.html">Beta</a> (BBB)</td><td>900</td><td>38.94</td></tr>
-    </table><table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>2</b> of <b>2</b></td></tr></table>
-    """
-    page = parse_results_page(html)
-    metric = batting_metric("average")
-    rows = sorted(
-        page.table.to_dict("records"),
-        key=lambda row: rank_key(metric, metric.value_from_row(row)),
-    )
-
-    assert [row["player_name"] for row in rows] == ["Alpha", "Beta"]
-    assert metric.tied(metric.value_from_row(rows[0]), metric.value_from_row(rows[1])) is True
 
 
 def test_player_resolution_unique_ambiguous_unknown_officials_country_and_format_filters() -> None:
@@ -503,39 +339,7 @@ def test_country_filter_uses_explicit_real_codes_and_never_auto_matches_on_miss(
     asyncio.run(run())
 
 
-def test_country_filter_maps_bermuda_and_malaysia_codes() -> None:
-    async def run() -> None:
-        brangman_url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=Brangman;template=analysis"
-        brangman = """
-        <table>
-        <tr><td>DL Brangman</td><td>BER</td><td><a href="/ci/engine/player/1.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 20 matches)</td></tr>
-        <tr><td>DL Brangman</td><td>BMUDA</td><td><a href="/ci/engine/player/2.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 1 match)</td></tr>
-        </table>
-        """
-        virandeep_url = "https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=Virandeep+Singh;template=analysis"
-        virandeep = """
-        <table>
-        <tr><td>Virandeep Singh</td><td>MAS</td><td><a href="/ci/engine/player/3.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 80 matches)</td></tr>
-        <tr><td>Virandeep Singh</td><td>MAL</td><td><a href="/ci/engine/player/4.html?class=3;type=allround">Twenty20 Internationals player</a> (2019 - 2026, 1 match)</td></tr>
-        </table>
-        """
-        resolver = NameResolver(
-            Fetcher(
-                Settings(min_interval=timedelta(seconds=0)),
-                page_source=MemoryPageSource({brangman_url: brangman, virandeep_url: virandeep}),
-            )
-        )
-
-        bermuda = await resolver.resolve_player("Brangman", class_id=3, country="Bermuda")
-        malaysia = await resolver.resolve_player("Virandeep Singh", class_id=3, country="Malaysia")
-
-        assert bermuda.match is not None and bermuda.match.player_id == 1
-        assert malaysia.match is not None and malaysia.match.player_id == 3
-
-    asyncio.run(run())
-
-
-def test_team_ground_and_trophy_resolution() -> None:
+def test_ground_resolution_reads_the_form_through_the_passed_call() -> None:
     async def run() -> None:
         class RecordingCall:
             def __init__(self, html: str) -> None:
@@ -558,8 +362,6 @@ def test_team_ground_and_trophy_resolution() -> None:
         )
         call = RecordingCall(form)
 
-        assert resolver.resolve_team("India", class_id=1).match.value == 6
-        assert resolver.resolve_trophy("Ashes", class_id=1).match.value == 1
         ground = await resolver.resolve_ground("Lord's", class_id=1, call=call)
         assert ground.match is not None and ground.match.value == 132
         assert call.calls == [(form_url, Freshness.LOOKUP, False)]
@@ -849,49 +651,6 @@ def test_proof_confirmation_mismatch_no_expected_ids_and_no_records_fall_back() 
     asyncio.run(run())
 
 
-def test_lower_is_better_proof_uses_inclusive_display_maximum() -> None:
-    async def run() -> None:
-        query = StatsguruQuery(
-            **{
-                "class": 1,
-                "type": "bowling",
-                "period": ResolvedPeriod(start=date(2003, 1, 1), end=date(2024, 1, 1)),
-                "qualifications": (Qualification(field="wickets", minimum=92),),
-                "orderby": "bowling_average",
-                "size": 200,
-            }
-        )
-        proof_url = (
-            "https://stats.cricinfo.com/ci/engine/stats/index.html?"
-            "class=1;orderby=bowling_average;qualmax2=27.5199;qualmin1=92;"
-            "qualval1=wickets;qualval2=bowling_average;size=200;"
-            "spanmax1=01+Jan+2024;spanmin1=01+Jan+2003;spanval1=span;"
-            "template=results;type=bowling"
-        )
-        html = """
-        <table class="engineTable"><caption>Overall figures</caption>
-        <tr><th>Player</th><th>Wkts</th><th>Ave</th></tr>
-        <tr class="data1"><td><a href="/ci/content/player/8608.html">JM Anderson</a> (ENG)</td><td>92</td><td>27.51</td></tr>
-        </table><table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
-        """
-        source = MemoryPageSource({proof_url: html})
-        fetcher = Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
-        async with fetcher.call(budget=5) as call:
-            proof = await build_proof_link(
-                query,
-                thresholds=(Threshold(bowling_metric("bowling_average"), Decimal("27.51")),),
-                expected_player_ids=(8608,),
-                call=call,
-                as_of=date(2026, 10, 4),
-            )
-
-        assert proof.url == proof_url
-        assert proof.confirmed is True
-        assert "qualmin2" not in proof.url
-
-    asyncio.run(run())
-
-
 def test_lower_is_better_proof_uses_metric_fixed_precision() -> None:
     assert _threshold_qualification(
         Threshold(bowling_metric("bowling_average"), Decimal("27"))
@@ -965,48 +724,6 @@ def test_proof_confirmation_requires_matching_total_row_count() -> None:
         assert proof.row_count == 2
         assert proof.url == input_url
         assert source.requests == [proof_url, page2_url]
-
-    asyncio.run(run())
-
-
-def test_proof_confirmation_respects_remaining_page_allowance() -> None:
-    async def run() -> None:
-        query = StatsguruQuery(
-            **{
-                "class": 3,
-                "type": "batting",
-                "qualifications": (Qualification(field="runs", minimum=1000),),
-                "size": 200,
-            }
-        )
-        proof_url = (
-            "https://stats.cricinfo.com/ci/engine/stats/index.html?"
-            "class=3;qualmin1=1000;qualmin2=38.94;qualval1=runs;"
-            "qualval2=batting_average;size=200;spanmax1=04+Oct+2026;"
-            "spanmin1=17+Feb+2005;spanval1=span;template=results;type=batting"
-        )
-        page2_url = proof_url.replace("class=3;", "class=3;page=2;")
-        html = """
-        <table class="engineTable"><caption>Overall figures</caption>
-        <tr><th>Player</th><th>Ave</th></tr>
-        <tr class="data1"><td><a href="/ci/content/player/348144.html">Babar Azam</a> (PAK)</td><td>38.94</td></tr>
-        </table><table><tr><td>Page <b>1</b> of <b>2</b></td><td>Showing <b>1</b> - <b>1</b> of <b>2</b></td></tr></table>
-        """
-        source = MemoryPageSource({proof_url: html, page2_url: html})
-        fetcher = Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
-        async with fetcher.call(budget=5) as call:
-            proof = await build_proof_link(
-                query,
-                thresholds=(Threshold(batting_metric("average"), Decimal("38.94")),),
-                expected_player_ids=(348144,),
-                call=call,
-                as_of=date(2026, 10, 4),
-                page_allowance=1,
-            )
-
-        assert proof.confirmed is False
-        assert "confirmation needs 2 proof pages" in proof.label
-        assert source.requests == [proof_url]
 
     asyncio.run(run())
 

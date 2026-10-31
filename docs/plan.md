@@ -199,7 +199,7 @@ The work is split into [GitHub issues #1–#18](https://github.com/syedhassaanah
   - The fetcher: rate limiter, page cap, retries (`Retry-After`, jitter limits, time budget), pauses after a block, unavailable URLs, the cache size cap and the freshness rules.
 - **Answer tools:** each one against synthetic pages, with expected answers and proof links. Each golden question has a test named after it.
 - **HTTP tests:** Host and Origin checks (localhost on any port), loopback-only binding natively, binding in container mode, and SSE progress.
-- **End to end:** tests over HTTP and stdio using the synthetic-page hook, a check that no files are written, and the `--read-only` container smoke test. CI runs on Ubuntu. Live smoke tests run only when explicitly enabled.
+- **End to end:** tests over HTTP and stdio using the synthetic-page hook, a check that no files are written, and the `--read-only` container smoke test. CI runs on Ubuntu. A live test, which parses a Statsguru page of each stat type, runs only when explicitly enabled.
 - **Evals:** pytest neither tests nor runs them; they run on their own (Evals below).
 - **Acceptance:** every golden question is answered correctly in the evals by a strong model and a small one, every pinned link shows matching numbers, and the public image works on a machine without the source.
 

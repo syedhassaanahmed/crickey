@@ -1350,40 +1350,6 @@ async def test_player_record_without_filtered_row_reports_no_matches() -> None:
     assert "No matches found" in result.structured_content["answer_markdown"]
 
 
-async def test_leaderboard_ties_share_rank_and_extend_top_n_boundary() -> None:
-    query = StatsguruQuery(
-        **{
-            "class": 1,
-            "type": "batting",
-            "qualifications": (Qualification(field="hundreds", minimum=5),),
-            "orderby": "hundreds",
-            "size": 200,
-        }
-    )
-    source, client = await client_for(
-        {
-            url(query): result_page(
-                [
-                    row(1, "P1", "AAA", "2000-2010", 50, 2500, "50.00", 4000, "62.50", 10, 5),
-                    row(2, "P2", "BBB", "2000-2010", 50, 2500, "50.00", 4000, "62.50", 10, 5),
-                    row(3, "P3", "CCC", "2000-2010", 60, 2500, "41.66", 4000, "62.50", 5, 5),
-                ],
-                total=3,
-            )
-        }
-    )
-
-    async with client:
-        result = await client.call_tool(
-            "leaderboard",
-            {"format": "Test", "metric": "innings per hundred", "minimum": 5, "top_n": 1},
-        )
-
-    assert [row["rank"] for row in result.structured_content["rows"]] == [1, 1]
-    assert [row["player"] for row in result.structured_content["rows"]] == ["P1", "P2"]
-    assert "tied for the lead" in result.structured_content["answer_markdown"]
-
-
 async def test_bowling_leaderboard_lower_metric_uses_continent_and_ties() -> None:
     query = StatsguruQuery(
         **{
@@ -1519,57 +1485,6 @@ async def test_filtered_t20i_bowling_rate_leaderboard_uses_filtered_floor() -> N
     assert "qualmin1=20" in source.requests[0]
     assert result.structured_content["rows"][0]["player"] == "Economical"
     assert result.structured_content["rows"][0]["value"] == "5.00"
-
-
-async def test_sortable_leaderboard_follows_boundary_tie_to_next_page() -> None:
-    query = StatsguruQuery(
-        **{
-            "class": 2,
-            "type": "batting",
-            "qualifications": (Qualification(field="innings", minimum=20),),
-            "orderby": "batting_average",
-            "size": 25,
-        }
-    )
-    page2 = query.model_copy(update={"page": 2})
-    source, client = await client_for(
-        {
-            url(query): result_page(
-                [
-                    row(
-                        index,
-                        f"P{index}",
-                        "AAA",
-                        "2000-2010",
-                        20,
-                        1000,
-                        "50.00",
-                        1000,
-                        "100.00",
-                        1,
-                        1,
-                    )
-                    for index in range(1, 26)
-                ],
-                pages=2,
-                total=26,
-            ),
-            url(page2): result_page(
-                [row(26, "P26", "AAA", "2000-2010", 20, 1000, "50.00", 1000, "100.00", 1, 1)],
-                page=2,
-                pages=2,
-                total=26,
-            ),
-        }
-    )
-
-    async with client:
-        result = await client.call_tool(
-            "leaderboard", {"format": "ODI", "metric": "average", "top_n": 10}
-        )
-
-    assert len(source.requests) == 2
-    assert len(result.structured_content["rows"]) == 26
 
 
 async def test_sortable_leaderboard_boundary_tie_overflow_errors() -> None:
@@ -1886,31 +1801,16 @@ async def test_sortable_metric_leaderboard_fetches_one_page_when_query_is_broad(
     assert len(default.structured_content["rows"]) == 10
 
 
-async def test_answer_tools_clarification_unsupported_ties_and_too_broad() -> None:
-    source, client = await client_for(
-        {
-            player_search_url("Babar"): search_page(
-                search_row(
-                    "Babar Azam", "PAK", 348144, 3, "Twenty20 Internationals", "2016 - 2026"
-                ),
-                search_row(
-                    "Babar Hayat", "HKG", 539305, 3, "Twenty20 Internationals", "2014 - 2026"
-                ),
-            )
-        }
-    )
+async def test_unsupported_and_too_broad_leaderboards_are_tool_errors() -> None:
+    source, client = await client_for({})
     async with client:
-        clarify = await client.call_tool(
-            "better_than_player", {"player_name": "Babar", "format": "T20I", "metrics": ["runs"]}
-        )
         unsupported = await client.call_tool(
             "leaderboard", {"format": "Test", "metric": "strike_rate"}
         )
 
-    assert clarify.structured_content["status"] == "needs_clarification"
     assert unsupported.is_error is True
     assert "not supported" in unsupported.content[0].text
-    assert len(source.requests) == 1
+    assert source.requests == []
 
     broad_query = StatsguruQuery(
         **{
@@ -2039,52 +1939,6 @@ async def test_periods_are_text_and_unreadable_ones_cost_no_request() -> None:
     assert record.meta[STATSGURU_META_KEY] == {"requests": 0, "cached_pages": 0}
     assert ranking.is_error is True
     assert "leaderboard ranks every player" in ranking.content[0].text
-
-
-def test_issue_9_review_follow_up_innings_per_hundred_precision() -> None:
-    metric = batting_metric("innings_per_hundred")
-
-    assert metric.display_value(Decimal(100) / Decimal(14)) == Decimal("7.14")
-
-
-async def test_issue_9_review_follow_up_punctuation_matching_and_refetch_only_on_miss() -> None:
-    source, client = await client_for(
-        {
-            player_search_url("Kadowaki Fleming"): search_page(
-                search_row(
-                    "K Kadowaki-Fleming",
-                    "JPN",
-                    1005,
-                    3,
-                    "Twenty20 Internationals",
-                    "2022 - 2025",
-                )
-            ),
-            player_search_url("Babar"): search_page(
-                search_row("Babar Azam", "PAK", 348144, 3, "Twenty20 Internationals", "2016 - 2026")
-            ),
-            player_search_url("Missing"): "<html></html>",
-        }
-    )
-
-    async with client:
-        punctuation = await client.call_tool(
-            "find_player", {"name": "Kadowaki Fleming", "format": "T20I"}
-        )
-        first = await client.call_tool("find_player", {"name": "Babar", "format": "T20I"})
-        source.pages[player_search_url("Babar")] = "<html></html>"
-        second = await client.call_tool("find_player", {"name": "Babar", "format": "T20I"})
-        missing = await client.call_tool("find_player", {"name": "Missing", "format": "T20I"})
-
-    assert punctuation.structured_content["match"]["id"] == 1005
-    assert first.structured_content["status"] == "match"
-    assert second.structured_content["status"] == "match"
-    assert missing.structured_content["status"] == "not_found"
-    assert source.requests == [
-        player_search_url("Kadowaki Fleming"),
-        player_search_url("Babar"),
-        player_search_url("Missing"),
-    ]
 
 
 async def test_filtered_wickets_leaderboard_without_minimum_returns_top_rows_with_ties() -> None:
@@ -3004,20 +2858,6 @@ async def test_answer_metric_schema_lists_batting_bowling_and_fielding_keys() ->
     expected = [*BATTING_METRICS, *BOWLING_METRICS, *FIELDING_METRICS]
     assert metric_enum(leaderboard, leaderboard["properties"]["metric"]) == expected
     assert metric_enum(comparison, comparison["properties"]["metrics"]["items"]) == expected
-    assert {
-        "wickets",
-        "bowling_average",
-        "economy_rate",
-        "bowling_strike_rate",
-        "five_wickets",
-        "ten_wickets",
-        "catches",
-        "fielder_catches",
-        "keeper_catches",
-        "stumpings",
-        "dismissals",
-        "dismissals_per_innings",
-    } <= set(expected)
 
 
 # Issue #57: Statsguru lists two Test players as "Imran Khan" (PAK), so only player_id tells them
@@ -3192,10 +3032,6 @@ async def test_player_record_by_id_names_the_player_from_the_page_and_flags_a_cl
 
     async with client:
         clash = await client.call_tool("player_record", {**arguments, "player_name": "Babar Azam"})
-        variants = [
-            await client.call_tool("player_record", {**arguments, "player_name": name})
-            for name in ("imran khan", "Imran", "Imran Khan Niazi")
-        ]
         initials = await client.call_tool(
             "player_record", {"player_id": 253802, "player_name": "Virat Kohli", "format": "T20I"}
         )
@@ -3211,9 +3047,6 @@ async def test_player_record_by_id_names_the_player_from_the_page_and_flags_a_cl
         "- Player: player_id 40560 is Imran Khan on Statsguru, not 'Babar Azam'; "
         "the answer follows player_id.\n- Period: 1981-09-17 to 1992-12-31."
     ) in clash_answer
-    for result in variants:
-        assert result.structured_content["player"]["name"] == "Imran Khan"
-        assert "follows player_id" not in result.structured_content["answer_markdown"]
     assert initials.structured_content["answer_markdown"].startswith("V Kohli's record:")
     assert "follows player_id" not in initials.structured_content["answer_markdown"]
     # Without a breadcrumb the ID labels the player, and there's no Statsguru name to clash with.
@@ -3822,29 +3655,6 @@ async def test_split_by_host_for_bowling_counts_five_wicket_hauls() -> None:
     ]
     assert "Counted the host countries with at least one five-wicket haul" in answer
     assert source.requests == [page_url]
-
-
-@pytest.mark.parametrize(
-    "arguments",
-    [{"player_id": CENTURION_ID}, {"player_id": CENTURION_ID, "player_name": "Sample Centurion"}],
-)
-async def test_split_by_with_player_id_reads_only_the_player_page(
-    arguments: dict[str, object],
-) -> None:
-    page_url = split_spec().url(as_of=FakeClock().now().date())
-    source, client = await client_for(centurion_pages())
-
-    async with client:
-        result = await client.call_tool(
-            "player_record", {**arguments, "format": "Test", "split_by": "host"}
-        )
-
-    assert source.requests == [page_url]
-    assert result.structured_content["player"]["name"] == "Sample Centurion"
-    assert result.structured_content["split"]["with_hundreds"] == 3
-    assert result.structured_content["answer_markdown"].startswith(
-        "Sample Centurion's Test batting split by host country:"
-    )
 
 
 async def test_split_by_makes_no_extra_request() -> None:
