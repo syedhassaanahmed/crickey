@@ -139,7 +139,7 @@ def _can_express(query: StatsguruQuery, thresholds: tuple[Threshold, ...]) -> bo
 def _proof_qualifications(
     query: StatsguruQuery, thresholds: tuple[Threshold, ...]
 ) -> tuple[Qualification, ...]:
-    # Statsguru misreads a field repeated across qualifications (R2), so a threshold on a field
+    # Statsguru misreads a field repeated across qualifications, so a threshold on a field
     # the query already qualifies, such as a count comparison's own floor, tightens that one.
     qualifications = list(query.qualifications)
     for threshold in thresholds:

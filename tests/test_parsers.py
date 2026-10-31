@@ -903,7 +903,7 @@ def test_player_page_reads_the_player_name_from_the_breadcrumb() -> None:
 
 
 def grouped_page(page_query: str, groups: list[list[tuple[str, str, str]]]) -> str:
-    """A "Career summary" table shaped like Statsguru's (R6): a blank row between groupings, and
+    """A "Career summary" table shaped like Statsguru's: a blank row between groupings, and
     each row's innings link is the page's own query with the row's filter set."""
     path = "/ci/engine/player/1.html"
     params = page_query.split(";")

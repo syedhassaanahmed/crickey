@@ -55,7 +55,8 @@ class Settings:
     recent_ttl: timedelta = timedelta(hours=1)
     port: int = 8765
     in_container: bool = False
-    # None binds 127.0.0.1 natively and 0.0.0.0 in a container (D20).
+    # None binds 127.0.0.1 natively and 0.0.0.0 in a container, whose port Docker publishes on
+    # the host's loopback.
     host: str | None = None
     # The instance's public URLs; the Host and Origin checks accept them as well as localhost.
     urls: tuple[str, ...] = ()

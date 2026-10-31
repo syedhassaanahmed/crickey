@@ -287,8 +287,8 @@ BOWLING_METRICS: dict[str, Metric] = {
 }
 
 
-# One set of floors for every fielding metric (D35): each count on its own field, and dismissals
-# per innings on dismissals.
+# One set of floors for every fielding metric: each count on its own field, and dismissals per
+# innings on dismissals. No fielding count exceeds dismissals, so one set covers them all.
 _FIELDING_MINIMUMS = {1: 50, 2: 50, 3: 25, 6: 100, 11: 100}
 
 FIELDING_METRICS: dict[str, Metric] = {

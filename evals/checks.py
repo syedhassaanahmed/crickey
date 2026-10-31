@@ -55,7 +55,7 @@ class Transcript:
     answer: str
     tokens: int = 0
     seconds: float = 0.0
-    # From each result's `_meta` (D38).
+    # From each result's `_meta`.
     statsguru_requests: int = 0
     cached_pages: int = 0
 
@@ -101,7 +101,7 @@ def check_arguments(case: Case, transcript: Transcript) -> CheckResult:
 
 
 def check_proof(case: Case, transcript: Transcript) -> CheckResult:
-    """The answer cites a Statsguru query link, and every link it cites came from a tool (D16)."""
+    """The answer cites a Statsguru query link, and every link it cites came from a tool."""
     cited = _urls(transcript.answer)
     returned = set().union(*(_urls(call.result) for call in transcript.calls))
     proof = [url for url in cited if _is_statsguru_query(url)]
@@ -114,7 +114,8 @@ def check_proof(case: Case, transcript: Transcript) -> CheckResult:
 
 
 def check_grounding(case: Case, transcript: Transcript) -> CheckResult:
-    """Every figure in the answer appears in a tool result or the question (D13)."""
+    """Every figure in the answer appears in a tool result or the question, since crickey, not
+    the model, does the maths."""
     sources = _numbers(transcript.question).union(
         *(_numbers(call.result) for call in transcript.calls)
     )
@@ -200,7 +201,7 @@ def _same_player(expected: ExpectedPlayer, call: ToolCall) -> bool:
     if not isinstance(name, str) or not any(_has_words(name, words) for words in expected.names):
         return False
     # A name counts once crickey resolved it to this player, whose page its answer links;
-    # a clarification lists candidates without links (R7).
+    # a clarification lists candidates without links.
     return f"/player/{expected.id}.html" in call.result
 
 
@@ -210,7 +211,7 @@ def _answered(call: ToolCall) -> bool:
 
 
 def _is_statsguru_query(url: str) -> bool:
-    """A Statsguru query or player page: proof, unlike the profile links answers add (D16)."""
+    """A Statsguru query or player page: proof, unlike the profile links answers add."""
     parsed = urlparse(url)
     return parsed.hostname in STATSGURU_HOSTS and parsed.path.startswith("/ci/engine/")
 
@@ -245,7 +246,7 @@ def _metric_key(discipline: str, value: Any) -> str | None:
 
 
 def _same_period(expected: ExpectedPeriod | None, actual: Any) -> bool:
-    """Compares the call's period as crickey reads its text (D42)."""
+    """Compares the call's period as crickey reads its text."""
     text = actual.strip() if isinstance(actual, str) else actual
     if not _given(text):
         # Without a period, the answer tools use the whole record or the player's career span.
@@ -264,7 +265,7 @@ def _same_period(expected: ExpectedPeriod | None, actual: Any) -> bool:
     if expected.kind == "dates":
         return period == ResolvedPeriod(start=expected.start, end=expected.end)
     if expected.kind == "career" and isinstance(period, ResolvedPeriod):
-        # The span crickey resolves for the career makes the same query (R10).
+        # The span crickey resolves for the career makes the same query.
         return (period.start, period.end) == (expected.start, expected.end)
     years = None if expected.kind == "career" else expected.years
     return period == SymbolicPeriod(kind=SymbolicPeriodKind(expected.kind), years=years)

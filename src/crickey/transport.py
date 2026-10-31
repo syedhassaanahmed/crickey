@@ -30,7 +30,8 @@ class TransportError(RuntimeError):
 
 
 class BearerTokenMiddleware:
-    """Answers 401 to any request but /health without `Authorization: Bearer <token>` (D43)."""
+    """Answers 401 to any request but /health without `Authorization: Bearer <token>`. /health
+    stays open for the hosting platform's health checks."""
 
     def __init__(self, app: ASGIApp, token: str) -> None:
         self.app = app
@@ -136,9 +137,9 @@ def _listen_stream_closer(mcp: MCPServer):
 
 
 def _reach_beyond_this_machine(settings: Settings) -> str | None:
-    """The setting that lets other machines reach crickey, if any (D43).
+    """The setting that lets other machines reach crickey, if any. Then crickey needs a token.
 
-    The image's 0.0.0.0 doesn't count: Docker publishes it on the host's loopback (D20).
+    The image's 0.0.0.0 doesn't count: Docker publishes it on the host's loopback.
     """
     if settings.host is not None and not _is_loopback(settings.host):
         return f"The bind address {settings.host}"
