@@ -5,27 +5,34 @@ Language models answer crickey's golden questions through crickey, and determini
 [golden_questions.toml](golden_questions.toml) is the one place the golden questions are listed (D41). Each has its general form, and the case the eval asks: real players filled in, the calls it needs and its known answer, which can't change (D37). Each also has a held-out case, the same kind of question in other words about other players, teams, formats or periods, which nothing in crickey quotes (D45). The questions ask live Statsguru through a running crickey, so a run follows D7–D12: one request every 15 seconds, and a block stops the run. [docs/plan.md › Evals](../docs/plan.md#evals) has the design, and [docs/research.md › 17](../docs/research.md#17-evals-with-inspect-ai-and-ollama) the facts behind it.
 
 ## Run it
-The steps are the same on Windows, Linux (including WSL) and macOS, and the commands work in Bash, zsh and PowerShell. Run them from the repository root.
+The steps are the same on Windows, Linux (including WSL) and macOS. Run the commands from the repository root, in Bash, zsh or PowerShell; where they differ, both forms are shown.
 
 1. **Start crickey** in another terminal, with `uv run crickey serve` or the Docker image ([README](../README.md)).
-2. **Set up Ollama:**
-   - Pull a model that calls tools and doesn't think, such as `qwen3:4b-instruct`:
-     ```shell
-     ollama pull qwen3:4b-instruct
-     ```
-     `qwen3:4b` always thinks first, which takes minutes on a CPU.
-   - Give the Ollama server these settings, then restart it. [Ollama's FAQ](https://docs.ollama.com/faq#how-do-i-configure-ollama-server) shows how to set its environment variables on each system; the Ollama app on Windows and macOS also has a context-length slider in its settings.
-     - `OLLAMA_CONTEXT_LENGTH` of at least `32768`, or `65536` with memory to spare. A model reads about 8,000 tokens of tool definitions and instructions before each question.
-     - `LLAMA_ARG_CACHE_RAM=0`. Otherwise Ollama keeps up to 8 GiB of earlier conversations.
-     - Leave the cache type and flash attention at their defaults. An 8-bit cache reads prompts about 4.6 times slower on a CPU.
-   - If Ollama runs on another machine, or outside WSL while the eval runs inside it, set `OLLAMA_BASE_URL` to its address, such as `http://<host>:11434/v1`. The Ollama server must listen on that address (`OLLAMA_HOST`, in the same FAQ).
-3. **Run the eval:**
+2. **Start Ollama** in another terminal, with the eval's settings. Quit the Ollama app first if it's running, from its menu bar or tray icon (on Linux, `sudo systemctl stop ollama`), because it holds Ollama's port.
    ```shell
-   uv run --group evals --env-file evals/inspect.env inspect eval evals/golden_questions.py --model ollama/qwen3:4b-instruct
+   OLLAMA_CONTEXT_LENGTH=65536 LLAMA_ARG_CACHE_RAM=0 ollama serve
+   ```
+   In PowerShell:
+   ```powershell
+   $env:OLLAMA_CONTEXT_LENGTH="65536"; $env:LLAMA_ARG_CACHE_RAM="0"; ollama serve
+   ```
+   - `OLLAMA_CONTEXT_LENGTH` gives models a 64k-token context. They read about 8,000 tokens of tool definitions and instructions before each question, and Ollama's own default depends on the GPU's memory, from 4k to 256k. `32768` also works, in less memory.
+   - `LLAMA_ARG_CACHE_RAM=0` stops Ollama keeping up to 8 GiB of earlier conversations.
+   - Leave the cache type and flash attention at their defaults. An 8-bit cache reads prompts about 4.6 times slower on a CPU.
+3. **Pull a model** that calls tools, in a third terminal:
+   ```shell
+   ollama pull qwen3.8:27b
+   ```
+   `qwen3.8:27b` does best in the evals: over 3 epochs, it passed every check in 27 of 30 golden answers and 27 of 30 held-out ones. It thinks before each reply, but briefly, and at a 64k context it holds about 26 GiB of GPU memory, and up to 28.5 (R17). With less memory, or no GPU, use `qwen3:4b-instruct`, which passed 15 and 8; `qwen3:4b` always thinks first, which takes minutes on a CPU.
+4. **Run the eval:**
+   ```shell
+   uv run --group evals --env-file evals/inspect.env inspect eval evals/golden_questions.py --model ollama/qwen3.8:27b
    ```
    `evals/inspect.env` writes JSON logs to `evals/logs`, and gives each model request an hour, because Inspect's HTTP clients give up after 10 minutes and a CPU can take longer than that to read the first prompt.
 
-   Keep the machine awake while it runs, because sleep freezes a reply midway: on macOS, run `caffeinate -i` in another terminal (R17).
+   Keep the machine awake while it runs, because sleep freezes a reply midway: on macOS, put `caffeinate -i` in front of the command, which keeps the Mac awake until the eval ends (R17). Closing the lid still sleeps.
+
+If Ollama runs on another machine, or outside WSL while the eval runs inside it, set `OLLAMA_BASE_URL` to its address, such as `http://<host>:11434/v1`, and add `OLLAMA_HOST` to the command that starts Ollama, so that it listens there. To keep the Ollama app running instead, start the eval's Ollama on another port, with `OLLAMA_HOST=127.0.0.1:11435` in the command, and set `OLLAMA_BASE_URL=http://127.0.0.1:11435/v1` for the eval.
 
 `--group evals` adds the eval's tools (the `evals` dependency group, D39), which crickey's own `uv sync` leaves out. On Python 3.15, two of them, zstandard and PyYAML, have no wheels yet, so uv builds them from source, which needs a C compiler: gcc or clang on Linux and macOS, or [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) on Windows (R17). Without Build Tools, the eval also runs in a Linux container, with crickey inside it (R17). The run asks each question three times (epochs), one question at a time.
 

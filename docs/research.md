@@ -950,3 +950,12 @@ Measured on 31 Oct 2026 for #101, as in "Examples that quote the eval" above: 3 
 - **Proof links:** answers citing the proof rose from 71 to 79 of 90 golden and from 68 to 73 held-out. `qwen3:4b-instruct` still left the link out of 20 answers, against 27 and 33 before. In 14 of them the tool had answered, and the model restated the first line without its link, as before (17 and 20).
 - **Runaway reply:** one `qwen3:4b-instruct` reply, to golden question 9, ran for 14 minutes and over 39,000 tokens; it was cancelled and scored as it stood.
 - 190 Statsguru requests, with no blocks.
+
+### Starting Ollama with one command
+Checked on 31 Oct 2026 for #105, on the MacBook Pro above with Ollama 0.40.12, by following evals/README.md with `qwen3.8:27b`: all 20 cases, 1 epoch.
+- **Settings:** variables set in front of `ollama serve` reach its server: its config listed `OLLAMA_CONTEXT_LENGTH:65536`, and `/api/ps` showed the model at a 65,536-token context. While the Ollama app runs, a second `ollama serve` on its port stops with "bind: address already in use", so this check ran on port 11435. In PowerShell 7, `$env:` variables reach the programs it starts.
+- **Defaults:** `ollama serve --help` gives the default context as 4k, 32k or 256k, by VRAM. Without `OLLAMA_NUM_PARALLEL`, the server's config shows it as 1.
+- **Thinking:** `qwen3.8:27b` thinks before every reply. In #101's run above, all 126 of its replies began with reasoning, a median of 253 characters and at most 1,709.
+- **Sleep:** with `caffeinate -i` in front of the eval's command, `pmset -g assertions` listed caffeinate's `PreventUserIdleSystemSleep` until the eval ended, and not after.
+- **Memory:** macOS's `footprint` gave the runner 20 GB once the model had loaded, 26 GB by the end of the run, and a peak of 29 GB, as in "Ollama on Apple Silicon" above.
+- **Run:** 9 of the 10 golden and 9 of the 10 held-out answers passed every check, in 18 minutes from an empty cache, with 68 Statsguru requests and no blocks. Golden question 6 gave Asia, then three Asian countries, as `host_country` instead of the continent, and held-out 9 added a total no tool returned.
