@@ -935,3 +935,18 @@ Measured on 29 and 30 Oct 2026 for #99 (D45), with Ollama 0.40.12 at a 64k conte
 - **Copied values:** where quoting helped, it was through a value. Golden question 4 asks about the last 3 years, the period example's own value, and `qwen3:4b-instruct` passed it in all 3 epochs; with "last 5 years" as the example, it guessed year ranges such as "2013 to 2016" instead. Calls used a value from a description's example that the question didn't have in 2 of the 180 answers before: "last 3 years" for held-out 4, which asks about four years, and the trophy "World Cup" for held-out 10. After, in 4: "last 5 years" for held-out 4 in all 3 epochs, and the opposition "Australia" for held-out 6, all from `qwen3:4b-instruct`. No call named an example's player.
 - **Examples teach a kind of question:** a first rewrite showed a per-fifty rate but no per-hundred one, and `gpt-oss:20b` sent golden question 1 to `query_stats` in 2 of 3 epochs, and held-out 1 once. Golden and held-out questions 1 and 2, which are about hundreds, passed 8 of their 36 answers, against 15 before. With "Who scored T20I hundreds most often, with at least 3 hundreds?" among the examples, they passed 17 of 36, and the run above has that example.
 - 671 Statsguru requests, with no blocks: 40 to check the held-out answers (R10), and 631 for the runs.
+
+### The first line and "last N years"
+Measured on 31 Oct 2026 for #101, as in "Examples that quote the eval" above: 3 epochs of all 20 cases. Before is that section's run after, and for `qwen3:4b-instruct` also the owner's run on 30 Oct with the same code. After, each answer's first line ends with its main link, and the period descriptions show the career forms as "first N years" and "last N years". Answers that passed every check, of 30:
+
+| Model | Golden before | Golden after | Held-out before | Held-out after |
+|---|---|---|---|---|
+| `qwen3:4b-instruct` | 12 and 11 | 15 | 5 and 2 | 8 |
+| `gpt-oss:20b` | 10 | 13 | 11 | 15 |
+| `qwen3.8:27b` | 24 | 27 | 27 | 27 |
+| All three, of 90 | 46 | 55 | 43 | 50 |
+
+- **Periods:** `qwen3:4b-instruct` gave golden question 4 "last 3 years" and held-out 4 "last 4 years" in all 6 epochs. Before, it was right in 0 of 6, and 2 of 6 in the owner's run, giving held-out 4 "last 5 years" or guessing year ranges such as "2013 to 2016". `gpt-oss:20b` still guessed year ranges in 4 of 6, as before, and `qwen3.8:27b` was right in all 6 both times. No call used the "first 5 years" of `player_record`'s example question.
+- **Proof links:** answers citing the proof rose from 71 to 79 of 90 golden and from 68 to 73 held-out. `qwen3:4b-instruct` still left the link out of 20 answers, against 27 and 33 before. In 14 of them the tool had answered, and the model restated the first line without its link, as before (17 and 20).
+- **Runaway reply:** one `qwen3:4b-instruct` reply, to golden question 9, ran for 14 minutes and over 39,000 tokens; it was cancelled and scored as it stood.
+- 190 Statsguru requests, with no blocks.
