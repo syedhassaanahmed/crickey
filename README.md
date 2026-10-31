@@ -86,7 +86,7 @@ docker run -i --rm --read-only ghcr.io/syedhassaanahmed/crickey:0.4 stdio
 
 ## Host it in the cloud
 
-To use your crickey from any device, run the image on a container platform that serves it over HTTPS, such as Azure Container Apps or Google Cloud Run. It's still for your own use. Set:
+To use your crickey from any device, run the image on a container platform that serves it over HTTPS, such as Azure Container Apps. It's still for your own use. Set:
 
 - `CRICKEY_URL` to its URL, such as `https://crickey.example.com`;
 - `CRICKEY_TOKEN` to a long random secret, such as the output of `openssl rand -hex 32`. crickey won't start without one once other machines can reach it.

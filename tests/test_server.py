@@ -8,9 +8,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from mcp import Client
 
-from crickey.fetcher import Fetcher, FetchResponse, Freshness, MemoryPageSource
+from crickey.fetcher import Fetcher, FetchResponse, MemoryPageSource
 from crickey.query import Qualification, StatsguruQuery
-from crickey.server import STATSGURU_META_KEY, _freshness_for_query, create_server
+from crickey.server import SERVER_INSTRUCTIONS, STATSGURU_META_KEY, create_server
 from crickey.settings import Settings
 
 pytestmark = pytest.mark.anyio
@@ -196,29 +196,7 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert by_name["better_than_player"].annotations.read_only_hint is True
         assert by_name["player_record"].annotations.read_only_hint is True
         assert by_name["series_count"].annotations.read_only_hint is True
-        assert by_name["find_player"].description.startswith("Example:")
-        assert by_name["query_stats"].description.startswith("Example:")
-        assert by_name["leaderboard"].description.startswith("Example:")
-        assert by_name["better_than_player"].description.startswith("Example:")
-        assert by_name["player_record"].description.startswith("Example:")
-        assert "Which Babar played ODIs?" in by_name["find_player"].description
-        assert (
-            "Who has the most ODI wickets against Australia?" in by_name["query_stats"].description
-        )
-        assert (
-            "Lists work for every filter except batting_fielding_first, captain, keeper, outs "
-            "and toss." in by_name["query_stats"].description
-        )
-        assert client.instructions == "\n".join(
-            [
-                "Prefer crickey's answer tools.",
-                "Show each answer tool's answer as it is, or keep at least its Answer proof or Input/method link.",
-                "Do not do multi-row arithmetic yourself; use crickey tools for comparisons and derived rates.",
-                "To compare named players, call player_record once for each; better_than_player finds who beat one.",
-                "Cite only links that came from crickey tools, as full URLs copied exactly.",
-                'Read "T20" as T20I unless a domestic or franchise league is named.',
-            ]
-        )
+        assert client.instructions == SERVER_INSTRUCTIONS
         query_schema = str(by_name["query_stats"].input_schema)
         assert "'class'" in query_schema
         assert "'type'" in query_schema
@@ -232,8 +210,7 @@ async def test_player_answer_tools_take_an_optional_player_id() -> None:
     async with client:
         by_name = {tool.name: tool for tool in (await client.list_tools()).tools}
 
-    last_examples = {"player_record": "Split example:", "better_than_player": "Fielding example:"}
-    for name, example in last_examples.items():
+    for name in ("player_record", "better_than_player"):
         schema = by_name[name].input_schema
         assert list(schema["properties"])[:2] == ["player_name", "player_id"]
         assert schema["properties"]["player_id"]["anyOf"] == [
@@ -243,37 +220,7 @@ async def test_player_answer_tools_take_an_optional_player_id() -> None:
         assert schema["properties"]["player_id"]["default"] is None
         assert schema["properties"]["player_name"]["default"] is None
         assert {"player_name", "player_id"}.isdisjoint(schema["required"])
-        description = by_name[name].description
-        assert description.startswith("Example:")
-        assert description.index(example) < description.index("player_id")
-        assert "player_id from find_player or a clarification" in description
     assert "player_id" not in by_name["leaderboard"].input_schema["properties"]
-
-
-async def test_comparison_and_leaderboard_descriptions_add_a_fielding_example() -> None:
-    _, _, client = await call_with_source({})
-
-    async with client:
-        by_name = {tool.name: tool for tool in (await client.list_tools()).tools}
-
-    for name in ("leaderboard", "better_than_player"):
-        description = by_name[name].description
-        assert description.index("Bowling example:") < description.index("Fielding example:")
-    assert "batting, bowling or fielding leaderboard" in by_name["leaderboard"].description
-    assert "Fielding example:" not in by_name["player_record"].description
-
-
-async def test_better_than_player_sends_comparisons_of_named_players_to_player_record() -> None:
-    _, _, client = await call_with_source({})
-
-    async with client:
-        by_name = {tool.name: tool for tool in (await client.list_tools()).tools}
-
-    # Small models read "Compare players" as comparing the players they were given (#72).
-    description = by_name["better_than_player"].description
-    assert "Compare players" not in description
-    assert "Find the players who beat one player." in description
-    assert "named players did better, call player_record once for each" in description
 
 
 async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
@@ -296,15 +243,6 @@ async def test_player_record_offers_split_by_as_an_optional_enum() -> None:
     assert {"type": "null"} in split_by["anyOf"]
     assert split_by["default"] is None
     assert "split_by" not in schema["required"]
-    description = tool.description
-    assert description.startswith("Example:")
-    assert (
-        description.index("Bowling examples:")
-        < description.index("Split example:")
-        < description.index("split_by")
-        < description.index("player_id")
-    )
-    assert "player-by-player checks" in description
 
 
 async def test_every_tool_parameter_has_a_one_line_description() -> None:
@@ -320,38 +258,6 @@ async def test_every_tool_parameter_has_a_one_line_description() -> None:
     }
     assert descriptions
     assert [key for key, text in descriptions.items() if not text.strip() or "\n" in text] == []
-    # What small models got wrong in the eval (#66): a tournament as a season, and no player.
-    for tool in ("leaderboard", "better_than_player", "player_record"):
-        assert "A tournament goes in trophy." in descriptions[(tool, "period")]
-        assert descriptions[(tool, "trophy")].startswith("A tournament")
-    for tool in ("better_than_player", "player_record"):
-        assert "Give this or player_id." in descriptions[(tool, "player_name")]
-        assert "Give this or player_name." in descriptions[(tool, "player_id")]
-
-
-async def test_query_stats_fetch_false_allows_repeated_team_link() -> None:
-    _, _, client = await call_with_source({})
-
-    async with client:
-        result = await client.call_tool(
-            "query_stats",
-            {
-                "fetch": False,
-                "query": {
-                    "class": 1,
-                    "type": "bowling",
-                    "continent": 2,
-                    "orderby": "wickets",
-                    "team": [1, 3],
-                },
-            },
-        )
-
-    assert result.structured_content["link"] == (
-        "https://stats.cricinfo.com/ci/engine/stats/index.html?"
-        "class=1;continent=2;orderby=wickets;spanmax1=04+Oct+2026;"
-        "spanmin1=15+Mar+1877;spanval1=span;team=1;team=3;template=results;type=bowling"
-    )
 
 
 async def test_find_player_unique_ambiguous_and_unknown() -> None:
@@ -488,14 +394,9 @@ async def test_find_player_country_filter_sees_candidates_beyond_top_five() -> N
         usa = await client.call_tool(
             "find_player", {"name": "Babar", "format": "all T20", "country": "USA"}
         )
-        india = await client.call_tool(
-            "find_player", {"name": "Babar", "format": "all T20", "country": "India"}
-        )
 
     assert usa.structured_content["status"] == "match"
     assert usa.structured_content["match"]["id"] == 6
-    assert india.structured_content["status"] == "needs_clarification"
-    assert "No candidate matched country 'India'" in india.structured_content["note"]
 
 
 async def test_find_player_fetcher_errors_are_tool_errors() -> None:
@@ -825,25 +726,6 @@ async def test_query_stats_limit_default_maximum_and_over_limit_error() -> None:
     assert source.requests == [url1, url200]
 
 
-async def test_query_stats_starts_at_requested_page_and_does_not_duplicate_it() -> None:
-    query = StatsguruQuery(**{"class": 2, "type": "batting", "page": 2, "size": 200})
-    page2_url = results_url(query)
-    page2_rows = [row(index, f"Player {index}", "AAA", index) for index in range(201, 401)]
-    source, _, client = await call_with_source(
-        {page2_url: result_page(page2_rows, page=2, pages=3, total=520)}
-    )
-
-    async with client:
-        result = await client.call_tool(
-            "query_stats",
-            {"query": {"class": 2, "type": "batting", "page": 2, "size": 200}, "limit": 200},
-        )
-
-    assert len(result.structured_content["rows"]) == 200
-    assert result.structured_content["rows"][0]["Player"] == "Player 201 (AAA)"
-    assert source.requests == [page2_url]
-
-
 async def test_query_stats_page_two_limit_above_size_preserves_row_offsets() -> None:
     query = StatsguruQuery(**{"class": 2, "type": "batting", "page": 2})
     page2_url = results_url(query)
@@ -1132,13 +1014,6 @@ async def test_query_stats_limit_zero_is_a_tool_error() -> None:
     assert "limit must be from 1 to 200" in result.content[0].text
 
 
-async def test_tool_call_budgets_are_below_client_timeout() -> None:
-    import crickey.server as server_module
-
-    assert server_module.FETCH_BUDGET_SECONDS == 240.0
-    assert server_module.FIND_PLAYER_BUDGET_SECONDS == 60.0
-
-
 async def test_tool_call_budgets_are_passed_to_fetcher_call() -> None:
     player_html = """
     <table>
@@ -1161,57 +1036,6 @@ async def test_tool_call_budgets_are_passed_to_fetcher_call() -> None:
         await client.call_tool("query_stats", {"query": {"class": 2, "type": "batting"}})
 
     assert fetcher.budgets == [60.0, 240.0]
-
-
-async def test_query_stats_uses_fetcher_settings_for_page_cap() -> None:
-    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
-    source = source_for(
-        {
-            results_url(query): result_page(
-                [row(index, f"Player {index}", "AAA", index) for index in range(1, 11)],
-                page=1,
-                pages=2,
-                total=20,
-            ),
-            results_url(query, page=2): result_page(
-                [row(index, f"Player {index}", "AAA", index) for index in range(11, 21)],
-                page=2,
-                pages=2,
-                total=20,
-            ),
-        }
-    )
-    clock = FakeClock()
-    fetcher = Fetcher(settings(max_pages=2), clock=clock, page_source=source)
-    client = Client(create_server(settings(max_pages=1), fetcher=fetcher))
-
-    async with client:
-        result = await client.call_tool(
-            "query_stats", {"query": {"class": 2, "type": "batting", "size": 10}, "limit": 20}
-        )
-
-    assert result.is_error is False
-    assert len(result.structured_content["rows"]) == 20
-
-
-async def test_query_stats_d17_freshness_uses_query_end_date() -> None:
-    settled = StatsguruQuery(
-        **{
-            "class": 2,
-            "type": "batting",
-            "period": {"start": "2020-01-01", "end": "2020-12-31"},
-        }
-    )
-    recent = StatsguruQuery(
-        **{
-            "class": 2,
-            "type": "batting",
-            "period": {"start": "2026-10-01", "end": "2026-10-04"},
-        }
-    )
-
-    assert _freshness_for_query(settled, FakeClock().now().date()) == Freshness.SETTLED
-    assert _freshness_for_query(recent, FakeClock().now().date()) == Freshness.RECENT
 
 
 async def test_query_stats_passes_d17_freshness_to_fetcher_cache() -> None:

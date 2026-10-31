@@ -123,7 +123,7 @@ Key decisions for crickey. Each one says what was decided and why, and keeps its
 | A stored filter catalogue | Replaced by built-in ID tables plus lookups when needed. |
 | Fetching player profile pages from www.cricinfo.com | Blocked to scripts (R1), so getting through would mean working around bot protection. Their statistics match Statsguru's, so answers link to them instead. |
 | Linking or fetching the new Statsguru on www.cricinfo.com/statsguru | crickey can't fetch or confirm it (D7, R1), the classic engine serves the same data, and repeated keys cover multi-value queries (R2). |
-| A separate access-check step before building | Done during research (R1, R9); the fetcher's live smoke test re-checks it. |
+| A separate access-check step before building | Done during research (R1, R9); the live test re-checks it. |
 | uvx, PyPI, MCP Bundles, a Copilot plugin, one-click install links, MCP Registry or directory listings (R14) | Docker only. |
 | A private container image | Public, so friends don't need to log in. |
 | Running CI on `windows-latest` | The owner runs crickey only in Linux containers, which Ubuntu CI and the image job cover. |

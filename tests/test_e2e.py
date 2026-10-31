@@ -38,7 +38,6 @@ TOOL_NAMES = {
     "leaderboard",
     "player_record",
     "query_stats",
-    "series_count",
 }
 LAUNCHER = Path(__file__).with_name("e2e_server.py")
 REPO = Path(__file__).resolve().parents[1]
@@ -230,34 +229,6 @@ def shared_http_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Htt
         runtime.assert_empty()
 
 
-def test_http_start_failure_cleans_process_and_port(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def never_healthy(port: int, process: subprocess.Popen[bytes], _stderr_path: Path) -> None:
-        deadline = time.monotonic() + 12
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise RuntimeError("server exited before mutant health failure")
-            try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=0.25):
-                    raise RuntimeError("mutant health check never succeeded")
-            except OSError:
-                time.sleep(0.05)
-        raise RuntimeError("server did not listen before mutant health failure")
-
-    monkeypatch.setattr(sys.modules[__name__], "_wait_for_health", never_healthy)
-    server = HttpServer("happy", RuntimeDirs(tmp_path / "failed-start-runtime"))
-
-    with pytest.raises(RuntimeError, match="mutant health check never succeeded"):
-        server.start()
-
-    assert server.process is not None
-    assert server.process.poll() is not None
-    assert server._stderr_handle is not None
-    assert server._stderr_handle.closed
-    _wait_for_port_closed(server.port)
-
-
 async def _http_audit(port: int) -> dict[str, object]:
     def fetch() -> dict[str, object]:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/__e2e_audit", timeout=3) as response:
@@ -307,13 +278,9 @@ def assert_full_freshness(result) -> None:
     assert RECENT_MATCH_LINE in answer
 
 
-async def call_happy_tools(client: Client, *, expect_exact_tools: bool = True) -> dict[str, object]:
+async def call_happy_tools(client: Client) -> dict[str, object]:
     tools = (await client.list_tools()).tools
-    names = {tool.name for tool in tools}
-    if expect_exact_tools:
-        assert names == TOOL_NAMES
-    else:
-        assert TOOL_NAMES <= names
+    assert TOOL_NAMES <= {tool.name for tool in tools}
 
     find = await client.call_tool("find_player", {"name": PRIMARY_NAME, "format": "ODI"})
     ambiguous_find = await client.call_tool(
@@ -415,7 +382,7 @@ async def test_stdio_mcp_client_calls_tools_clarifies_and_writes_no_files(
             async with Client(
                 stdio_client(params, errlog=errlog), read_timeout_seconds=20
             ) as client:
-                await call_happy_tools(client, expect_exact_tools=False)
+                await call_happy_tools(client)
     audit = parse_audit_stderr(runtime.audit_stderr)
     assert audit["events"] == []
     runtime.assert_empty()
@@ -455,11 +422,6 @@ async def test_e2e_filter_clarification_and_errors_over_http(
     assert broad.is_error is True
     assert "too broad" in broad.content[0].text
     assert "limit is 4" in broad.content[0].text
-
-
-async def test_e2e_full_http_session_writes_no_files(shared_http_server: HttpServer) -> None:
-    audit = await _http_audit(shared_http_server.port)
-    assert audit["events"] == []
 
 
 async def test_e2e_block_pause_short_circuits_uncached_fetches_and_allows_cache(

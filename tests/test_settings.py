@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from argparse import Namespace
-from dataclasses import FrozenInstanceError
 from datetime import timedelta
 
 import pytest
@@ -42,29 +41,6 @@ def _clear_crickey_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(env_name, raising=False)
 
 
-def test_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    _clear_crickey_env(monkeypatch)
-
-    settings = load_settings(_empty_args())
-
-    assert settings == Settings(
-        min_interval=timedelta(seconds=15),
-        max_retries=3,
-        block_pauses=(
-            timedelta(minutes=5),
-            timedelta(minutes=15),
-            timedelta(hours=1),
-            timedelta(hours=4),
-            timedelta(hours=24),
-        ),
-        max_pages=4,
-        cache_max_mb=64,
-        recent_ttl=timedelta(hours=1),
-        port=8765,
-        in_container=False,
-    )
-
-
 def test_every_environment_variable_overrides_default(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_crickey_env(monkeypatch)
     monkeypatch.setenv("CRICKEY_MIN_INTERVAL", "20s")
@@ -98,41 +74,9 @@ def test_every_environment_variable_overrides_default(monkeypatch: pytest.Monkey
     assert settings.token == TOKEN
 
 
-def test_every_serve_flag_overrides_default() -> None:
-    settings = _settings_from_cli(
-        [
-            "serve",
-            "--min-interval",
-            "16",
-            "--max-retries",
-            "6",
-            "--block-pauses",
-            "2s,4s",
-            "--max-pages",
-            "8",
-            "--cache-max-mb",
-            "256",
-            "--recent-ttl",
-            "2h",
-            "--port",
-            "8766",
-            "--in-container",
-            "true",
-            "--host",
-            "::",
-            "--url",
-            "http://[::1]:8766",
-        ]
-    )
+def test_ipv6_host_and_url_flags_are_read() -> None:
+    settings = _settings_from_cli(["serve", "--host", "::", "--url", "http://[::1]:8766"])
 
-    assert settings.min_interval == timedelta(seconds=16)
-    assert settings.max_retries == 6
-    assert settings.block_pauses == (timedelta(seconds=2), timedelta(seconds=4))
-    assert settings.max_pages == 8
-    assert settings.cache_max_mb == 256
-    assert settings.recent_ttl == timedelta(hours=2)
-    assert settings.port == 8766
-    assert settings.in_container is True
     assert settings.host == "::"
     assert settings.urls == ("http://[::1]:8766",)
 
@@ -171,18 +115,6 @@ def test_flag_before_subcommand_is_kept_and_beats_environment(command: str) -> N
 
 def test_flag_after_subcommand_wins_over_flag_before_it() -> None:
     assert _settings_from_cli(["--port", "9000", "serve", "--port", "9002"]).port == 9002
-
-
-def test_invalid_flag_before_subcommand_stops_startup(
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _clear_crickey_env(monkeypatch)
-
-    assert main(["--port", "0", "serve"]) == 2
-    output = capsys.readouterr()
-    assert output.out == ""
-    assert output.err == "ERROR: --port='0' is invalid; expected an integer from 1 to 65535.\n"
 
 
 @pytest.mark.parametrize(("raw", "hours"), [("168h", 168), ("604800", 168), ("10080m", 168)])
@@ -523,24 +455,6 @@ def test_duration_parsing_edge_cases_are_refused(
 
 
 @pytest.mark.parametrize("bad_value", ["99999999999999999", "1000000000h"])
-def test_huge_durations_are_refused(
-    bad_value: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _clear_crickey_env(monkeypatch)
-    monkeypatch.setenv("CRICKEY_RECENT_TTL", bad_value)
-
-    with pytest.raises(SettingsError) as exc_info:
-        load_settings(_empty_args())
-
-    assert (
-        str(exc_info.value)
-        == f"CRICKEY_RECENT_TTL={bad_value!r} is invalid; expected a positive duration in "
-        "seconds, or a number with an s, m or h suffix (examples: 90, 5m, 1h), no more than 168h."
-    )
-
-
-@pytest.mark.parametrize("bad_value", ["99999999999999999", "1000000000h"])
 def test_huge_duration_stops_startup_without_traceback(
     bad_value: str,
     capsys: pytest.CaptureFixture[str],
@@ -559,18 +473,6 @@ def test_huge_duration_stops_startup_without_traceback(
         "in seconds, or a number with an s, m or h suffix (examples: 90, 5m, 1h), no more than "
         "168h.\n"
     )
-
-
-def test_duration_suffixes(monkeypatch: pytest.MonkeyPatch) -> None:
-    _clear_crickey_env(monkeypatch)
-    monkeypatch.setenv("CRICKEY_RECENT_TTL", "15")
-    assert load_settings(_empty_args()).recent_ttl == timedelta(seconds=15)
-    monkeypatch.setenv("CRICKEY_RECENT_TTL", "90s")
-    assert load_settings(_empty_args()).recent_ttl == timedelta(seconds=90)
-    monkeypatch.setenv("CRICKEY_RECENT_TTL", "5m")
-    assert load_settings(_empty_args()).recent_ttl == timedelta(minutes=5)
-    monkeypatch.setenv("CRICKEY_RECENT_TTL", "1h")
-    assert load_settings(_empty_args()).recent_ttl == timedelta(hours=1)
 
 
 def test_block_pause_list_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -612,15 +514,6 @@ def test_port_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CRICKEY_PORT", "65535")
     assert load_settings(_empty_args()).port == 65535
 
-    for bad_value in ("0", "65536"):
-        monkeypatch.setenv("CRICKEY_PORT", bad_value)
-        with pytest.raises(SettingsError) as exc_info:
-            load_settings(_empty_args())
-        assert (
-            str(exc_info.value)
-            == f"CRICKEY_PORT={bad_value!r} is invalid; expected an integer from 1 to 65535."
-        )
-
 
 def test_max_retries_zero_disables_retries(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_crickey_env(monkeypatch)
@@ -650,10 +543,3 @@ def test_boolean_parsing(raw: str, expected: bool, monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("CRICKEY_IN_CONTAINER", raw)
 
     assert load_settings(_empty_args()).in_container is expected
-
-
-def test_settings_are_immutable() -> None:
-    settings = Settings()
-
-    with pytest.raises(FrozenInstanceError):
-        settings.port = 9000

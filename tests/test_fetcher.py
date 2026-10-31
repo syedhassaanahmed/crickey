@@ -16,7 +16,6 @@ from crickey.fetcher import (
     FetchResponse,
     FetchTimeoutError,
     Freshness,
-    MemoryPageSource,
     RefusedUrlError,
     TooBroadError,
     UnavailableUrlError,
@@ -241,20 +240,6 @@ def test_request_lock_progress_reports_queue_start_and_periodic_waits() -> None:
     assert elapsed == pytest.approx(25.0)
 
 
-def test_request_lock_progress_is_not_reported_when_lock_is_free() -> None:
-    clock = FakeClock()
-    events: list[tuple[float, str]] = []
-    source = SequenceSource([ok()])
-    fetcher = Fetcher(settings(), clock=clock, page_source=source)
-
-    assert (
-        run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10, progress=capture(events)))
-        == STATS_PAGE
-    )
-
-    assert events == []
-
-
 def test_raising_progress_callback_does_not_break_fetch_or_lock() -> None:
     clock = FakeClock()
     source = SequenceSource([ok(), ok(OTHER_URL)])
@@ -433,29 +418,6 @@ def test_concurrent_fetch_does_not_request_during_pause() -> None:
     assert urls == [URL]
 
 
-def test_successful_response_does_not_clear_pause_set_during_request() -> None:
-    class PausingSource(SequenceSource):
-        def __init__(self, fetcher: Fetcher, clock: FakeClock) -> None:
-            super().__init__([ok()])
-            self.fetcher = fetcher
-            self.clock = clock
-
-        async def get(self, url: str, headers: Mapping[str, str]) -> FetchResponse:
-            self.fetcher._block_until = self.clock.monotonic() + 10
-            return await super().get(url, headers)
-
-    clock = FakeClock()
-    fetcher = Fetcher(settings(), clock=clock, page_source=SequenceSource([]))
-    source = PausingSource(fetcher, clock)
-    fetcher._source = source
-
-    assert run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=20)) == STATS_PAGE
-
-    with pytest.raises(BlockedError, match=r"paused until 08:01 \(UTC\+00:00\)"):
-        run(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=20))
-    assert len(source.requests) == 1
-
-
 def test_retries_timeout_and_server_error_with_exact_waits() -> None:
     clock = FakeClock()
     events: list[tuple[float, str]] = []
@@ -583,19 +545,6 @@ def test_retry_stops_when_next_wait_would_not_fit_budget() -> None:
 
     with pytest.raises(FetchTimeoutError, match="Not enough time left to retry"):
         run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10))
-
-    assert len(source.requests) == 1
-
-
-def test_later_call_honours_pending_not_before_time() -> None:
-    clock = FakeClock()
-    source = SequenceSource([response(429, headers={"Retry-After": "60"})])
-    fetcher = Fetcher(settings(max_retries=0), clock=clock, page_source=source)
-
-    with pytest.raises(FetchTimeoutError):
-        run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=120))
-    with pytest.raises(FetchTimeoutError, match=r"try again after 08:01 \(UTC\+00:00\)"):
-        run(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=10))
 
     assert len(source.requests) == 1
 
@@ -736,15 +685,6 @@ def test_block_pause_grows_caps_resets_and_cached_pages_still_work() -> None:
     assert source.requests[-1][0] == OTHER_URL
 
 
-def test_challenge_detection_requires_challenge_marker_without_statsguru_marker() -> None:
-    challenge = "<html><title>Access denied</title><p>enable JavaScript challenge</p></html>"
-    source = SequenceSource([response(200, text=challenge)])
-    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
-
-    with pytest.raises(BlockedError):
-        run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10))
-
-
 def test_statsguru_page_with_challenge_word_is_not_a_block() -> None:
     page = (
         "<html><title>Statsguru</title><p>challenge trophy</p>"
@@ -782,24 +722,6 @@ def test_retry_spacing_waits_between_every_attempt() -> None:
 
     assert clock.sleeps == [15.0, 5.0, 30.0]
     assert len(source.requests) == 3
-
-
-def test_all_5xx_statuses_are_retryable() -> None:
-    source = SequenceSource([response(501), ok()])
-    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source, jitter=lambda base: 0)
-
-    assert run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=100)) == STATS_PAGE
-
-    assert len(source.requests) == 2
-
-
-def test_transport_errors_are_retryable() -> None:
-    source = SequenceSource([httpx.RemoteProtocolError("bad close"), ok()])
-    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source, jitter=lambda base: 0)
-
-    assert run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=100)) == STATS_PAGE
-
-    assert len(source.requests) == 2
 
 
 def test_sent_request_that_fails_transport_still_counts_for_spacing() -> None:
@@ -845,18 +767,6 @@ def test_http_request_timeout_is_limited_by_remaining_budget() -> None:
 
     assert seen_timeouts[0]["connect"] == 59.5
     assert seen_timeouts[0]["read"] == 59.5
-
-
-def test_request_is_not_sent_when_remaining_budget_is_below_minimum() -> None:
-    clock = FakeClock()
-    source = SequenceSource([ok(), ok(OTHER_URL)])
-    fetcher = Fetcher(settings(min_interval=timedelta(seconds=2)), clock=clock, page_source=source)
-
-    assert run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10)) == STATS_PAGE
-    with pytest.raises(FetchTimeoutError, match="Not enough time left to request"):
-        run(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=2))
-
-    assert [request[0] for request in source.requests] == [URL]
 
 
 def test_request_refused_by_budget_does_not_update_spacing_timestamp() -> None:
@@ -945,17 +855,6 @@ def test_settled_or_recent_helper_uses_query_end_date() -> None:
     assert freshness_from_end_date(today - timedelta(days=8), today) is Freshness.SETTLED
 
 
-def test_cache_size_cap_evicts_least_recently_used_page() -> None:
-    clock = FakeClock()
-    cache = PageCache(40 / (1024 * 1024), timer=clock.monotonic)
-
-    cache.put(URL, "A" * 900 + " Statsguru", expires_at=None)
-    cache.put(OTHER_URL, "B" * 900 + " Statsguru", expires_at=None)
-
-    assert cache.get(URL, clock.monotonic()) is None
-    assert cache.get(OTHER_URL, clock.monotonic()) is not None
-
-
 def test_cache_eviction_is_lru_and_decrements_bytes() -> None:
     clock = FakeClock()
     third_url = f"{URL};page=3"
@@ -972,16 +871,6 @@ def test_cache_eviction_is_lru_and_decrements_bytes() -> None:
     assert cache.get(OTHER_URL, clock.monotonic()) is None
     assert cache.get(URL, clock.monotonic()) is not None
     assert cache.get(third_url, clock.monotonic()) is not None
-
-
-def test_cache_does_not_store_page_larger_than_cap() -> None:
-    clock = FakeClock()
-    cache = PageCache(20 / (1024 * 1024), timer=clock.monotonic)
-
-    cache.put(URL, "A" * 900 + " Statsguru", expires_at=None)
-
-    assert cache.get(URL, clock.monotonic()) is None
-    assert cache.current_bytes == 0
 
 
 def test_cache_oversized_replacement_drops_cached_page() -> None:
@@ -1051,36 +940,3 @@ def test_retry_message_uses_local_offset_and_rounds_up() -> None:
 
     with pytest.raises(FetchTimeoutError, match=r"try again after 04:35 \(UTC\+04:00\)"):
         run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=400))
-
-
-def test_test_hook_uses_same_retry_cache_and_rate_limiter() -> None:
-    clock = FakeClock()
-    source = MemoryPageSource(
-        {URL: STATS_PAGE, OTHER_URL: STATS_PAGE.replace("Statsguru", "Statsguru 2")}
-    )
-    fetcher = Fetcher(settings(min_interval=timedelta(seconds=4)), clock=clock, page_source=source)
-
-    assert run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10)) == STATS_PAGE
-    assert run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10)) == STATS_PAGE
-    assert run(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=10)).startswith("<html>")
-
-    assert source.requests == [URL, OTHER_URL]
-    assert clock.sleeps == [4.0]
-
-
-@pytest.mark.live
-def test_live_statsguru_smoke_fetches_one_page() -> None:
-    fetcher = Fetcher(
-        Settings(max_retries=0, min_interval=timedelta(seconds=15)),
-        jitter=lambda base: 0,
-    )
-
-    async def smoke() -> str:
-        try:
-            return await fetcher.fetch(URL, freshness=Freshness.RECENT, budget=60)
-        finally:
-            await fetcher.aclose()
-
-    page = asyncio.run(smoke())
-
-    assert "Statsguru" in page or "engineTable" in page

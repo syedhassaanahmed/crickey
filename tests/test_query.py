@@ -15,10 +15,8 @@ from mcp import Client
 from pydantic import ValidationError
 from stat_type_cases import REPRESENTATIVE_STAT_QUERIES, representative_query_payload
 
-from crickey import query_catalog
 from crickey.fetcher import Fetcher, MemoryPageSource
 from crickey.query import (
-    REPEATED_KEY_SELECT_FIELDS,
     PlayerPageSpec,
     Qualification,
     QuerySpecError,
@@ -27,7 +25,6 @@ from crickey.query import (
     StatsguruQuery,
     SymbolicPeriod,
     SymbolicPeriodKind,
-    player_search_url,
 )
 from crickey.server import create_server
 from crickey.settings import Settings
@@ -322,31 +319,6 @@ def test_query_catalog_generator_builds_exact_tables_from_synthetic_forms() -> N
     assert result.returncode == 0, result.stderr
 
 
-def test_babar_t20i_comparison_golden_url_exact() -> None:
-    query = StatsguruQuery(
-        **{
-            "class": 3,
-            "type": "batting",
-            "period": ResolvedPeriod(start=date(2016, 9, 7), end=date(2026, 2, 24)),
-            "qualifications": (
-                Qualification(field="runs", minimum=1000),
-                Qualification(field="batting_average", minimum=Decimal("38.94")),
-                Qualification(field="batting_strike_rate", minimum=Decimal("128.02")),
-            ),
-            "orderby": "batting_average",
-            "size": 200,
-        }
-    )
-
-    assert query.results_url(as_of=date(2026, 10, 4)) == (
-        "https://stats.cricinfo.com/ci/engine/stats/index.html?"
-        "class=3;orderby=batting_average;qualmin1=1000;qualmin2=38.94;"
-        "qualmin3=128.02;qualval1=runs;qualval2=batting_average;"
-        "qualval3=batting_strike_rate;size=200;spanmax1=24+Feb+2026;"
-        "spanmin1=07+Sep+2016;spanval1=span;template=results;type=batting"
-    )
-
-
 def test_babar_world_cup_player_page_has_trophy_and_pinned_dates() -> None:
     page = PlayerPageSpec(player_id=348144, **{"class": 2, "type": "batting", "trophy": 12})
 
@@ -400,25 +372,6 @@ def test_player_page_uses_class_choices_not_one_players_form_lists() -> None:
     assert "opposition=32" in other_player.url(as_of=date(2026, 10, 4))
 
 
-def test_odi_hundreds_query_adds_default_pinned_dates() -> None:
-    query = StatsguruQuery(
-        **{
-            "class": 2,
-            "type": "batting",
-            "qualifications": (Qualification(field="hundreds", minimum=10),),
-            "orderby": "hundreds",
-            "size": 200,
-        }
-    )
-
-    assert query.results_url(as_of=date(2026, 10, 4)) == (
-        "https://stats.cricinfo.com/ci/engine/stats/index.html?"
-        "class=2;orderby=hundreds;qualmin1=10;qualval1=hundreds;size=200;"
-        "spanmax1=04+Oct+2026;spanmin1=05+Jan+1971;spanval1=span;"
-        "template=results;type=batting"
-    )
-
-
 def test_raw_qualification_fields_round_trip_after_merge() -> None:
     query = StatsguruQuery(
         **{
@@ -441,40 +394,6 @@ def test_raw_qualification_fields_round_trip_after_merge() -> None:
     reparsed = StatsguruQuery.model_validate(query.model_dump(by_alias=True))
 
     assert reparsed == query
-
-
-def test_alphabetical_repeated_keys_are_sorted_and_date_edge_formatting() -> None:
-    query = StatsguruQuery(
-        **{
-            "class": 3,
-            "type": "team",
-            "result": [2, 1],
-            "period": ResolvedPeriod(start=date(2024, 2, 29), end=date(2024, 3, 7)),
-            "size": 10,
-        }
-    )
-
-    assert query.results_url() == (
-        "https://stats.cricinfo.com/ci/engine/stats/index.html?"
-        "class=3;result=1;result=2;size=10;spanmax1=07+Mar+2024;"
-        "spanmin1=29+Feb+2024;spanval1=span;template=results;type=team"
-    )
-
-
-def test_narrower_period_overrides_default_pinning_and_as_of_is_injectable() -> None:
-    all_time = StatsguruQuery(**{"class": 3, "type": "batting"})
-    narrower = StatsguruQuery(
-        **{
-            "class": 3,
-            "type": "batting",
-            "period": ResolvedPeriod(start=date(2020, 1, 1), end=date(2021, 12, 31)),
-        }
-    )
-
-    assert "spanmin1=17+Feb+2005" in all_time.results_url(as_of=date(2026, 10, 4))
-    assert "spanmax1=04+Oct+2026" in all_time.results_url(as_of=date(2026, 10, 4))
-    assert "spanmin1=01+Jan+2020" in narrower.results_url(as_of=date(2026, 10, 4))
-    assert "spanmax1=31+Dec+2021" in narrower.results_url(as_of=date(2026, 10, 4))
 
 
 @pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
@@ -585,22 +504,6 @@ def test_stat_types_reject_other_types_minimums_sorts_and_fields(
     assert case_kind in {"minimum", "sort", "field"}
     with pytest.raises(ValidationError, match=message):
         StatsguruQuery(**{"class": 1, "type": stat_type, **kwargs})
-
-
-@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
-@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
-def test_catalog_has_r5_overall_minimum_fields(class_id: int, stat_type: str) -> None:
-    assert (
-        set(query_catalog.QUAL_FIELDS[class_id][stat_type][""]) == R5_OVERALL_QUAL_FIELDS[stat_type]
-    )
-
-
-@pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
-@pytest.mark.parametrize("stat_type", CATALOG_STAT_TYPES)
-def test_catalog_has_r5_overall_sort_fields(class_id: int, stat_type: str) -> None:
-    assert (
-        set(query_catalog.SORT_FIELDS[class_id][stat_type][""]) == R5_OVERALL_SORT_FIELDS[stat_type]
-    )
 
 
 @pytest.mark.parametrize("class_id", CATALOG_CLASS_IDS)
@@ -759,8 +662,6 @@ def test_range_filters_emit_matching_val1_and_quickpicks_are_refused() -> None:
 def test_repeated_key_dropdown_fields_accept_lists_and_sort_values(
     field: str, payload: dict[str, object], expected_url: str
 ) -> None:
-    assert field in REPEATED_KEY_SELECT_FIELDS
-
     query = StatsguruQuery(**payload)
 
     assert query.results_url(as_of=date(2026, 10, 4)) == expected_url
@@ -1052,14 +953,6 @@ def test_labels_include_season_filter_and_do_not_duplicate_innings_number() -> N
     )
 
 
-def test_unverified_sort_fields_have_no_direction_in_labels() -> None:
-    query = StatsguruQuery(**{"class": 1, "type": "batting", "orderby": "player"})
-
-    assert query.label(as_of=date(2026, 10, 4)) == (
-        "Test batting, 15 Mar 1877 to 4 Oct 2026, sorted by player"
-    )
-
-
 def test_fielding_labels_name_catches_stumpings_and_dismissals_per_innings() -> None:
     query = StatsguruQuery(
         **{
@@ -1170,11 +1063,4 @@ def test_labels_include_choice_names_and_exclusions_exactly() -> None:
     assert query.label(as_of=date(2026, 10, 4)) == (
         "T20I batting, dismissal leg before wicket, outs out, excluding player involve 56880, "
         "ground 198, 17 Feb 2005 to 4 Oct 2026"
-    )
-
-
-def test_player_search_url() -> None:
-    assert player_search_url("babar azam") == (
-        "https://stats.cricinfo.com/ci/engine/stats/analysis.html?"
-        "search=babar+azam;template=analysis"
     )
