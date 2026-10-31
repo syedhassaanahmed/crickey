@@ -53,6 +53,14 @@ Copilot CLI:
 copilot mcp add --transport http --timeout 300000 crickey http://127.0.0.1:8765/mcp
 ```
 
+Then start Copilot CLI with `--allow-all-mcp-server-instructions`:
+
+```sh
+copilot --allow-all-mcp-server-instructions
+```
+
+crickey's instructions tell the model to show each answer as crickey gives it and to copy its links exactly. Without the flag, Copilot CLI passes on only allowlisted servers' instructions, not crickey's, and answers can cut a proof link short or leave out a figure the question asks for. The flag passes on every MCP server's instructions, not just crickey's.
+
 ## Settings
 
 | Variable | Default | Meaning |

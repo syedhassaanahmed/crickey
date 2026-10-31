@@ -641,6 +641,11 @@ Searched: GitHub repositories and code, the official MCP Registry, Glama, mcp.so
 - **Configuration:** `~/.copilot/mcp-config.json`, under `mcpServers`. Each entry has `type` (local, stdio or http), `command`, `args`, `env`, `url`, `headers` and `tools`.
 - **Per project:** `.mcp.json` (anywhere from the working directory up to the repo root) and `.github/mcp.json`, loaded only in trusted folders. `.vscode/mcp.json` isn't read.
 - **Discovery:** `/mcp search` (experimental) searches the GitHub MCP Registry.
+- **Server instructions:** Copilot CLI puts an MCP server's instructions in the system prompt only for allowlisted servers, unless it's started with `--allow-all-mcp-server-instructions`, which includes every server's. No `copilot config` setting, environment variable or `copilot mcp add` option does the same (Copilot CLI 1.0.105, 31 Oct 2026).
+  - **In the system prompt:** each session's `system.message` event, in `~/.copilot/session-state/<session>/events.jsonl`, holds its system prompt. With the flag, all six lines of crickey's instructions were there word for word, in a `<crickey-*>` block among the tools' guidelines; without it, none were (#104).
+  - **Checked** for #18 with the v0.4.0 image and `gpt-6.1-sol`, which an administrator's setting forced: golden questions 1, 4, 6, 9 and 10, each in a fresh `copilot -p` session with only crickey's tools, scored with the eval's checks. With or without the flag, each question made the calls the eval expects. 19 Statsguru requests, with no blocks.
+  - **By default,** 2 of the 5 passed every check. For golden questions 6 and 9, the model cited the player pages without their pinned dates, `spanmin1` and `spanmax1` (D16), so the proof check found links no tool returned. For golden question 1, it named who led instead of the group's figure the question asks for.
+  - **With the flag,** all 5 passed.
 
 **VS Code:**
 - `.vscode/mcp.json` uses a top-level `servers` key; the portable `.mcp.json` and `~/.copilot/mcp-config.json` use `mcpServers`.
