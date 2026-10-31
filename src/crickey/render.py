@@ -34,7 +34,13 @@ class AnswerRenderInput:
 
 
 def render_answer(answer: AnswerRenderInput) -> str:
-    lines: list[str] = [answer.short_answer, "", _markdown_table(answer.table), "", "## Method"]
+    lines: list[str] = [
+        _first_line(answer.short_answer, answer.proof_links),
+        "",
+        _markdown_table(answer.table),
+        "",
+        "## Method",
+    ]
     lines.extend(f"- {item}" for item in answer.method)
     lines.extend(["", "## Assumptions"])
     lines.extend(f"- {item}" for item in (answer.assumptions or ("None.",)))
@@ -55,6 +61,16 @@ def render_answer(answer: AnswerRenderInput) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _first_line(short_answer: str, proof_links: tuple[ProofLink, ...]) -> str:
+    """The short answer and its main link: small models keep the first line, not the Links."""
+    link = next((link for link in proof_links if link.confirmed), None)
+    if link is not None:
+        return f"{short_answer} [Answer proof]({link.url})"
+    if proof_links:
+        return f"{short_answer} [Input/method link]({proof_links[0].url})"
+    return short_answer
 
 
 def freshness_line(matches: tuple[RecentMatch, ...], *, today: date) -> str:

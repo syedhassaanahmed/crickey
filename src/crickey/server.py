@@ -255,7 +255,9 @@ PlayerIdParam = Annotated[
 _PERIOD_RANGES = (
     'years ("2010 to 2019"), dates ("2010-01-01 to 2019-12-31") or a season ("season 2011/12")'
 )
-_PLAYER_SPANS = '"first 5 years", "last 5 years"'
+_PLAYER_SPANS = '"first N years", "last N years"'
+# No number in the example: small models copied it instead of the question's (R17).
+_PLAYER_SPANS_NOTE = "N is the number of years."
 LeaderboardPeriodParam = Annotated[
     str | None,
     Field(description=f"All time by default; or {_PERIOD_RANGES}. {_TOURNAMENTS}"),
@@ -266,7 +268,7 @@ ComparisonPeriodParam = Annotated[
         description=(
             'For the span the player played, leave it out or give "career": crickey reads its '
             'dates from Statsguru. Otherwise "all time", '
-            f"{_PLAYER_SPANS}, {_PERIOD_RANGES}. {_TOURNAMENTS}"
+            f"{_PLAYER_SPANS}, {_PERIOD_RANGES}. {_PLAYER_SPANS_NOTE} {_TOURNAMENTS}"
         )
     ),
 ]
@@ -274,7 +276,8 @@ RecordPeriodParam = Annotated[
     str | None,
     Field(
         description=(
-            f"The whole record by default; or {_PLAYER_SPANS}, {_PERIOD_RANGES}. {_TOURNAMENTS}"
+            f"The whole record by default; or {_PLAYER_SPANS}, {_PERIOD_RANGES}. "
+            f"{_PLAYER_SPANS_NOTE} {_TOURNAMENTS}"
         )
     ),
 ]
@@ -1784,7 +1787,10 @@ _PLAYER_YEARS_PERIOD = re.compile(
     rf"(?:the )?(?P<side>first|last) (?P<count>\d+|{'|'.join(_NUMBER_WORDS)}) years?"
     r"(?: of (?:(?:his|her|their|the) )?career)?"
 )
-_UNCOUNTED_YEARS_PERIOD = re.compile(r"(?:the )?(?:first|last) years?")
+# Also "last N years" as the descriptions write it, with N left in.
+_UNCOUNTED_YEARS_PERIOD = re.compile(
+    r"(?:the )?(?:first|last) (?:n )?years?(?: of (?:(?:his|her|their|the) )?career)?"
+)
 _DATES_PERIOD = re.compile(
     rf"(?:from |between )?(?P<start>{_PERIOD_DATE}){_PERIOD_TO}(?P<end>{_PERIOD_DATE})"
 )
@@ -1826,7 +1832,10 @@ def _parse_period(text: str | None, *, without_player: str | None = None) -> Per
         )
         period = SymbolicPeriod(kind=side, years=years)
     elif _UNCOUNTED_YEARS_PERIOD.fullmatch(words):
-        raise QuerySpecError(f'period "{text}" needs a number of years, such as "last 5 years".')
+        raise QuerySpecError(
+            f'period "{text}" needs a number of years: put the question\'s number in place of N, '
+            'as in "last N years".'
+        )
     elif match := _DATES_PERIOD.fullmatch(words):
         start = _period_date(text, match["start"])
         period = _dated_period(text, start, _period_date(text, match["end"]))

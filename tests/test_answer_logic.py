@@ -1194,7 +1194,7 @@ def test_renderer_exact_markdown_with_live_freshness_and_profile_links() -> None
 
     assert (
         rendered
-        == """Babar Azam is tied on displayed average and strike rate.
+        == """Babar Azam is tied on displayed average and strike rate. [Answer proof](https://stats.cricinfo.com/ci/engine/stats/index.html?class=3;template=results;type=batting)
 
 | Player     | Ave   | SR     |
 | ---------- | ----- | ------ |
@@ -1242,7 +1242,7 @@ def test_renderer_exact_markdown_for_fallback_formula_link() -> None:
 
     assert (
         rendered
-        == """Babar Azam took 2.41 innings per fifty-plus score.
+        == """Babar Azam took 2.41 innings per fifty-plus score. [Input/method link](https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;template=results;type=batting)
 
 | Player     | Inns/50+ |
 | ---------- | -------- |
