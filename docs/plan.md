@@ -181,7 +181,7 @@ The README's commands work in Bash and PowerShell. It covers:
 - what crickey is, then the disclaimer (D6);
 - the image name and tags, using `0.1` in commands, and updating with `docker pull`;
 - the `docker run` command, which starts the HTTP server published on loopback only, and that it must be running before clients connect (run it again after a reboot);
-- one generic JSON snippet with the URL `http://127.0.0.1:8765/mcp`, and the Copilot CLI one-liner (`copilot mcp add --transport http --timeout 300000 crickey http://127.0.0.1:8765/mcp`);
+- one generic JSON snippet with the URL `http://127.0.0.1:8765/mcp`, and the Copilot CLI one-liner (`copilot mcp add --transport http --timeout 300000 crickey http://127.0.0.1:8765/mcp`), then starting Copilot CLI with `--allow-all-mcp-server-instructions`, without which the model doesn't get crickey's server instructions (R13);
 - the environment variables users set; the image sets `CRICKEY_IN_CONTAINER` itself;
 - hosting your own instance in the cloud: its URL, a token, and TLS from the platform (D43);
 - why requests are slow (D9), that the cache resets when the container stops (D19), and that one container should serve all your clients (D20);
