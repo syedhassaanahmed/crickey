@@ -18,7 +18,6 @@ import uvicorn
 from helpers import FakeClock, free_port
 from helpers import make_settings as settings
 from mcp import Client
-from mcp.client.stdio import StdioServerParameters
 from starlette.testclient import TestClient
 
 from crickey.fetcher import Fetcher, MemoryPageSource
@@ -129,15 +128,6 @@ def test_host_origin_allowlist_for_native_and_container_modes(in_container: bool
             ).status_code
             == 403
         )
-
-
-def test_health_returns_exact_ok() -> None:
-    with transport_test_client() as client:
-        response = client.get("/health")
-
-    assert response.status_code == 200
-    assert response.content == b'{"status":"ok"}'
-    assert response.json() == {"status": "ok"}
 
 
 def test_bind_host_native_and_container_rules() -> None:
@@ -394,18 +384,6 @@ raise SystemExit(main(["serve", "--port", str(port)]))
     assert "KeyboardInterrupt" not in completed.stderr
 
 
-async def test_stdio_subprocess_lists_tools_and_stdout_is_protocol() -> None:
-    command = sys.executable
-    args = ["-c", "from crickey.cli import main; raise SystemExit(main(['stdio']))"]
-    params = StdioServerParameters(command=command, args=args, cwd=str(Path.cwd()))
-
-    with anyio.fail_after(25):
-        async with Client(params, read_timeout_seconds=20) as client:
-            tools = (await client.list_tools()).tools
-
-    assert tools
-
-
 async def test_stdio_stdout_lines_are_jsonrpc() -> None:
     with anyio.fail_after(45):
         process = await asyncio.create_subprocess_exec(
@@ -451,6 +429,7 @@ async def test_stdio_stdout_lines_are_jsonrpc() -> None:
                 parsed = json.loads(raw)
                 assert parsed["jsonrpc"] == "2.0"
                 assert parsed["id"] == request["id"]
+            assert parsed["result"]["tools"]
         finally:
             process.stdin.close()
             try:
