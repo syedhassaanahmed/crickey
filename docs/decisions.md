@@ -18,7 +18,7 @@ The decisions behind crickey, as they stand now. Each says what holds and why, a
 6. **Personal use at each user's own risk.** Cricinfo's robots.txt disallows results pages (R1) and its terms ban data-extraction tools. Everyone who runs crickey accepts that risk. There's no consent step. Instead, the README carries the disclaimer: crickey is for personal use at the user's own risk, Cricinfo's terms ban data-extraction tools, and crickey isn't affiliated with Cricinfo, ESPNcricinfo or ESPN. The image description says what crickey is.
 7. **Only stats.cricinfo.com is fetched.** www.cricinfo.com, including its player profile pages, blocks scripts (R1) and is never fetched. Nothing tries to get around a block. Answers can still link to it (D16).
 8. **On demand only.** Requests happen only during tool calls: no prefetching, crawling or background refresh.
-9. **15 seconds between requests** by default, matching robots.txt's crawl delay (R1). It can be lowered to 2 seconds, with a warning.
+9. **15 seconds between requests on average, in short bursts.** That's robots.txt's crawl delay (R1). After a quiet spell, up to 4 requests go 3 seconds apart; the allowance refills one request per 15 seconds, and a 429, a server error or a timeout empties it. The spacing can be lowered to 2 seconds, with a warning. [ADR 0009](adr/0009-short-bursts-then-15-seconds-between-requests.md)
 10. **At most 4 result pages (800 rows) per tool call.** Broader queries are refused with a "too broad" message. There's no daily request budget.
 11. **Retries take seconds; pauses take minutes.**
     - Timeouts, server errors (5xx) and 429 are retried within the tool call up to 3 times, after about 15 s, 30 s and 60 s, honouring `Retry-After` and the call's time budget.
@@ -102,7 +102,7 @@ Options that no ADR covers; each ADR lists its own.
 | A private container image | Public, so friends don't need to log in. |
 | Running CI on `windows-latest` | crickey ships as a Linux image (D24), which Ubuntu CI and the image job cover. |
 | An MCP Apps UI | Not needed for v1. |
-| A full HTTP cache library (hishel), and libraries for the fetcher's retries and spacing (tenacity, aiolimiter, pyrate-limiter, httpx-retries) | HTTP caches decide freshness from HTTP headers instead of the query's date range (D17), sit below the rate limiter, and hishel's storage does not fit D19 (R15). The fetcher's shared lock, per-call budgets, process-wide `Retry-After` and block pause (D11) are crickey-specific, and these libraries keep their own clocks. |
+| A full HTTP cache library (hishel), and libraries for the fetcher's retries and spacing (tenacity, aiolimiter, pyrate-limiter, httpx-retries) | HTTP caches decide freshness from HTTP headers instead of the query's date range (D17), sit below the rate limiter, and hishel's storage does not fit D19 (R15). The fetcher's shared lock, per-call budgets, burst allowance that a retry empties (D9), process-wide `Retry-After` and block pause (D11) are crickey-specific, and these libraries keep their own clocks. |
 | Inspect's own MCP tools for the eval | They drop crickey's `$defs` and `_meta` (D40). |
 | An 8-bit KV cache for local models | It reads prompts about 4.6 times slower on a CPU (R17). |
 | Asking golden question 8 "in how many countries" | It tells the model what to count; the answer check reads the count in more forms instead. |

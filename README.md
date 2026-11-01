@@ -65,7 +65,7 @@ crickey's instructions tell the model to show each answer as crickey gives it an
 
 | Variable | Default | Meaning |
 |---|---:|---|
-| `CRICKEY_MIN_INTERVAL` | `15s` | Minimum time between Cricinfo requests; valid `2s` through `168h`, with a warning below `15s`. |
+| `CRICKEY_MIN_INTERVAL` | `15s` | Average time between Cricinfo requests; valid `2s` through `168h`, with a warning below `15s`. |
 | `CRICKEY_MAX_RETRIES` | `3` | Retries after the first request; use `0` to turn retries off. |
 | `CRICKEY_BLOCK_PAUSES` | `5m,15m,1h,4h,24h` | Pause schedule after a block; comma-separated durations, each up to `168h`. |
 | `CRICKEY_MAX_PAGES` | `4` | Maximum Statsguru result pages per tool call. |
@@ -76,7 +76,7 @@ crickey's instructions tell the model to show each answer as crickey gives it an
 | `CRICKEY_URL` | none | Your instance's public URL, such as `https://crickey.example.com`, which crickey then answers to as well as localhost; a comma-separated list for more than one. |
 | `CRICKEY_TOKEN` | none | Secret of at least 32 characters that clients send as `Authorization: Bearer <token>`. Required when other machines can reach crickey. |
 
-Requests are slow because crickey waits 15 seconds between Cricinfo requests by default. The cache is only in memory, so it resets when the container stops. Run one container for all your clients so they share the cache, request spacing and block pause.
+After a burst of 4 Cricinfo requests, crickey waits 15 seconds between requests by default, so answers that need many are slow. The cache is only in memory, so it resets when the container stops. Run one container for all your clients so they share the cache, request spacing and block pause.
 
 Debug stdio:
 

@@ -31,6 +31,11 @@ _PAGE_COUNT_RE = re.compile(r"Page\s+\d+\s+of\s+(?P<count>\d+)", re.IGNORECASE)
 _REQUEST_TIMEOUT_MARGIN = 0.5
 _MIN_REQUEST_TIMEOUT = 1.0
 _LOCK_WAIT_PROGRESS_INTERVAL = 10.0
+# After a quiet spell, this many requests may go closer together than min_interval. Statsguru
+# answered a 429 after a dozen requests 2.5 s apart, so bursts stay this small.
+BURST_REQUESTS = 4
+# Requests in a burst still go at least this far apart.
+BURST_GAP_SECONDS = 3.0
 _STATS_MARKERS = ("engineTable", "Statsguru", "/ci/engine/")
 _CHALLENGE_MARKERS = (
     "captcha",
@@ -176,6 +181,9 @@ class Fetcher:
         )
         self._cache = PageCache(settings.cache_max_mb, timer=self.clock.monotonic)
         self._last_request_at: float | None = None
+        # When the burst allowance is full again: each request moves it one min_interval on, so
+        # requests average one per min_interval however they're grouped.
+        self._allowance_full_at = 0.0
         self._not_before: float | None = None
         self._unavailable: set[str] = set()
         self._block_until: float | None = None
@@ -355,7 +363,11 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         timeout = remaining - _REQUEST_TIMEOUT_MARGIN
         if timeout < _MIN_REQUEST_TIMEOUT:
             raise FetchTimeoutError("Not enough time left to request Statsguru.")
-        self._fetcher._last_request_at = self._fetcher.clock.monotonic()
+        now = self._fetcher.clock.monotonic()
+        self._fetcher._last_request_at = now
+        self._fetcher._allowance_full_at = (
+            max(self._fetcher._allowance_full_at, now) + self._interval_seconds()
+        )
         request_tally().requests += 1
         if isinstance(self._fetcher._source, _HttpPageSource):
             return await self._fetcher._source.get_with_timeout(
@@ -418,19 +430,36 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         last = self._fetcher._last_request_at
         if last is None:
             return
-        wait = (
-            last
-            + self._fetcher.settings.min_interval.total_seconds()
-            - self._fetcher.clock.monotonic()
+        interval = self._interval_seconds()
+        now = self._fetcher.clock.monotonic()
+        # A unit of the allowance is left while it would be full again within BURST_REQUESTS - 1
+        # intervals; while one is, only the gap after the last request applies.
+        refill_room = (BURST_REQUESTS - 1) * interval
+        wait = max(
+            last + min(BURST_GAP_SECONDS, interval) - now,
+            self._fetcher._allowance_full_at - refill_room - now,
         )
         if wait > 0:
             if not self._fits(wait):
                 raise FetchTimeoutError("Not enough time left to wait before the next request.")
             await self._wait(wait, "spacing requests politely")
 
+    def _empty_allowance(self) -> None:
+        last = self._fetcher._last_request_at
+        if last is None:
+            return
+        full_after = BURST_REQUESTS * self._interval_seconds()
+        self._fetcher._allowance_full_at = max(self._fetcher._allowance_full_at, last + full_after)
+
+    def _interval_seconds(self) -> float:
+        return self._fetcher.settings.min_interval.total_seconds()
+
     async def _retry_wait(
         self, attempt: int, response: FetchResponse | None, *, has_next: bool
     ) -> None:
+        # Statsguru is limiting or failing requests, so the next ones get the full spacing until
+        # the allowance refills.
+        self._empty_allowance()
         retry_after = (
             _retry_after_seconds(response, self._fetcher.clock.now()) if response else None
         )

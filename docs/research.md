@@ -68,6 +68,10 @@ All on the same results page: `https://stats.cricinfo.com/ci/engine/stats/index.
 
 `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 on form, results and player pages.
 
+### Rate limit
+- On 1 Nov 2026, requests about 2.5 s apart with curl's User-Agent got 200 eleven times, then a 429.
+- The same day, after 40 quiet minutes, crickey's default spacing (D9) sent 4 requests 3 s apart and a 5th at 15 s, and all 5 got 200. The largest burst Statsguru allows isn't known.
+
 ## 2. Statsguru URL model
 
 | Page | URL |
@@ -491,7 +495,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 - ODIs: Wasim Akram 48 ODIs, 60 wickets, average 25.15, strike rate 40.4, economy 3.73, best 4/35; Waqar Younis 26 ODIs, 37 wickets, average 24.48, strike rate 31.7, economy 4.62, best 5/31; Imran Khan 29 ODIs, 35 wickets, average 22.25, strike rate 34.6, economy 3.85, best 6/14. Each is the player's ODI bowling page with `opposition=6`, for example `https://stats.cricinfo.com/ci/engine/player/43547.html?class=2;opposition=6;spanmax1=07+Oct+2026;spanmin1=05+Jan+1971;spanval1=span;template=results;type=bowling`
 - The golden question names no format, so the answer covers Tests and ODIs, as the eval's question asks. In Tests, "Imran Khan" needs his ID, because two Pakistan Test players share the name (R7). In ODIs, the name resolves to 40560 directly, because the other Imran Khan (316363) played no ODIs.
 
-**The eval cases' known answers** (checked live on 9 Oct 2026 through crickey's tools, 26 requests with D9's spacing). [evals/golden_questions.toml](../evals/golden_questions.toml) has each case's question and the facts an answer must contain (D37); these are the checks behind them.
+**The eval cases' known answers** (checked live on 9 Oct 2026 through crickey's tools, 26 requests 15 s apart). [evals/golden_questions.toml](../evals/golden_questions.toml) has each case's question and the facts an answer must contain (D37); these are the checks behind them.
 - **Golden question 1**, ODIs from 1 Jan 2000 to 31 Dec 2009, at least 10 hundreds (`leaderboard`, innings per hundred, 1 request): the qualifying group's figure is 13.72 innings per hundred. SR Tendulkar leads with 9.86 (21 hundreds), then RT Ponting 10, CH Gayle 10.16, ME Trescothick 10.17 and HH Gibbs 10.47.
 - **Golden question 2**, Test hundreds more often than SR Tendulkar (ID 35320) over his career span, 15 Nov 1989 to 14 Nov 2013, with the default floor of 5 hundreds (2 requests): 6 players beat his 6.45 innings per hundred: CA Pujara 4.8, KC Sangakkara 6.06, ML Hayden 6.13, HM Amla 6.15, JH Kallis 6.3 and M Azharuddin 6.44.
 - **Golden question 3**, T20I average and strike rate against BB McCullum (ID 37737) over his span, 17 Feb 2005 to 23 Jun 2015, with D29's floor of 1000 runs (3 requests): McCullum has 35.66 and 136.21, and 2 batters beat both: KP Pietersen (37.93, 141.51) and AD Hales (37.55, 137.84).
@@ -504,7 +508,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 - **Golden question 9** matches the figures above for Tests and ODIs (6 requests).
 - **Golden question 10**, ODI series of three or more teams in Pakistan from 1 Jan 1990 to 31 Dec 1999 (`series_count`, checked live on 29 Oct 2026, 2 requests: the series view and the form's series list): 3 series: the Wills Triangular Series, 1994/95, from 12 Oct 1994 (9 matches, won by Australia); the Wills World Cup, 1995/96, from 16 Feb 1996 (its 16 matches in Pakistan, won by Sri Lanka); and the Wills Quadrangular Tournament, 1997/98, from 1 Nov 1997 (7 matches, won by South Africa). All time, there were 11 by 29 Oct 2026 (R4).
 
-**The held-out cases' known answers** (checked live on 29 Oct 2026 through crickey's tools, 40 requests with D9's spacing). [evals/golden_questions.toml](../evals/golden_questions.toml) has each case (D45).
+**The held-out cases' known answers** (checked live on 29 Oct 2026 through crickey's tools, 40 requests 15 s apart). [evals/golden_questions.toml](../evals/golden_questions.toml) has each case (D45).
 - **Held-out 1**, Tests from 1 Jan 1980 to 31 Dec 1999, at least 15 hundreds (`leaderboard`, innings per hundred, 1 request): SR Tendulkar leads with 5.23 innings per hundred (22 hundreds), then M Azharuddin 6.9 and MD Crowe 7.71. The group's figure is 8.95.
 - **Held-out 2**, ODI hundreds more often than Saeed Anwar (ID 42605) over his span, 1 Jan 1989 to 4 Mar 2003, with the default floor of 5 hundreds (3 requests): SR Tendulkar 8.82, HH Gibbs 10.25 and SC Ganguly 10.8 beat his 12.2 innings per hundred, and V Sehwag is level.
 - **Held-out 3**, ODI average and strike rate against MEK Hussey (ID 5939) over his span, 1 Feb 2004 to 3 Sep 2012, with D29's floor of 1000 runs (4 requests): Hussey has 48.15 and 87.16, and 4 batters beat both: RN ten Doeschate (67, 87.7), HM Amla (57.75, 91.76), MS Dhoni (51.17, 88.42) and AB de Villiers (48.5, 93.12).
@@ -817,7 +821,7 @@ Measured on an Apple Silicon laptop with 36 GB of unified memory, where Metal le
   | `lfm2.5:24b` | llama-server, Q4_K_M | 15.0 GiB | 136 | 62 |
   | `olmo-3.1:32b-instruct` | llama-server, Q4_K_M | 23.1 GiB | 17 | 15 |
 
-  Writing is the median over replies of at least 200 tokens, from Inspect's logs. Seconds include Statsguru's 15 s between requests: `gpt-oss:20b`, the first model, sent 62 and `muse-glimmer:30b` 44; the rest found most pages in crickey's cache.
+  Writing is the median over replies of at least 200 tokens, from Inspect's logs. Seconds include 15 s between every two Statsguru requests: `gpt-oss:20b`, the first model, sent 62 and `muse-glimmer:30b` 44; the rest found most pages in crickey's cache.
 - **Too big for 64k:** `granite4.1:30b` needs 32.7 GiB at 64k, 16 GiB of it cache. llama.cpp keeps the context and puts 11 of its 65 layers on the CPU, and with macOS swapping it writes 2.4 tokens/s, so it runs at 32k.
 - **Memory pressure:** `gemma4:31b` peaks at 30.9 GiB, above Metal's 28.1 GiB: macOS compressed and swapped about 5 GB, and its questions took 78 s each, against 19 s for `qwen3.8:27b`.
 - **`qwen3.8:27b`**, with Ollama 0.40.12 over all 20 cases at 1 epoch: macOS's `footprint` gives its runner 20 GB once the model has loaded, 26 GB by the end, and a peak of 29 GB.
@@ -874,3 +878,8 @@ The scored run: all 20 cases, the 10 golden and the 10 held-out, for 3 epochs pe
 - One `qwen3:4b-instruct` reply ran away, and was cancelled and scored as it stood. The run sent 190 Statsguru requests, with no blocks.
 - **Variation:** two runs of `qwen3:4b-instruct` with the same tools differed by 1 golden and 3 held-out answers, and two runs of `gpt-oss:20b` whose descriptions differed by one example, which could only help, by 5 held-out answers. So a difference of up to 5 in 30 is within the noise of 3 epochs.
 - **One epoch:** `qwen3.8:27b` answered all 20 cases at 1 epoch in 18 minutes from an empty cache, with 68 Statsguru requests and no blocks; 9 of the 10 golden and 9 of the 10 held-out answers passed.
+
+### Statsguru requests per question
+In the eval logs of 27–31 Oct 2026, with every request 15 s apart, 11 models called crickey's tools in 1,861 questions:
+- 72% of the questions sent no Statsguru request, because 78% of the pages they needed were already in the cache. Most of the rest sent 1 to 4.
+- A tool call's median time grew about 15 s with each request it sent: 10 s for 1, 21 s for 2, 39 s for 3, 54 s for 4 and 73 s for 5.
