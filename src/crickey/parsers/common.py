@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
@@ -12,13 +11,6 @@ from crickey.parsers.convert import clean_text
 
 class StatsguruParseError(ValueError):
     """Raised when Statsguru HTML is missing an expected structure."""
-
-
-@dataclass(frozen=True)
-class LinkInfo:
-    text: str
-    href: str
-    params: dict[str, str]
 
 
 def document_from_html(page: str) -> HtmlElement:

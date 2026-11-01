@@ -427,11 +427,6 @@ class StatsguruQuery(BaseModel):
             raise ValueError("period season and season filter cannot both be set")
         return self
 
-    def resolved(self, *, first_match: date, last_match: date) -> Self:
-        if not isinstance(self.period, SymbolicPeriod):
-            return self
-        return self.model_copy(update={"period": self.period.resolve(first_match, last_match)})
-
     def results_url(self, *, as_of: date | None = None) -> str:
         params = self._params(as_of=as_of or date.today(), include_template=True)
         return _build_url(f"{STATS_BASE}/stats/index.html", params)
@@ -547,11 +542,6 @@ class PlayerPageSpec(BaseModel):
         if isinstance(self.period, SeasonPeriod) and self.season is not None:
             raise ValueError("period season and season filter cannot both be set")
         return self
-
-    def resolved(self, *, first_match: date, last_match: date) -> Self:
-        if not isinstance(self.period, SymbolicPeriod):
-            return self
-        return self.model_copy(update={"period": self.period.resolve(first_match, last_match)})
 
     def url(self, *, as_of: date | None = None) -> str:
         if isinstance(self.period, SymbolicPeriod):

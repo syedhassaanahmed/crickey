@@ -116,9 +116,6 @@ class Metric:
             return 1 if left > right else -1
         return 1 if left < right else -1
 
-    def better_than(self, left: Decimal | None, right: Decimal | None) -> bool:
-        return self.compare(left, right) > 0
-
     def tied(self, left: Decimal | None, right: Decimal | None) -> bool:
         return left is not None and right is not None and self.compare(left, right) == 0
 

@@ -6,7 +6,6 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
-from urllib.parse import quote_plus
 
 from rapidfuzz import fuzz
 from rapidfuzz.distance import OSA
@@ -16,10 +15,6 @@ from crickey.fetcher import Fetcher, Freshness
 from crickey.parsers import FormOption, parse_filter_form
 
 FORM_URL = "https://stats.cricinfo.com/ci/engine/stats/index.html?class={class_id};filter=advanced;type=batting"
-INVOLVE_URL = (
-    "https://stats.cricinfo.com/ci/engine/stats/index.html?"
-    "class={class_id};filter=advanced;{search_field}={query};type=batting"
-)
 
 # Fuzzy matching policy: deterministic tiers win first. Otherwise fuzzy matches are accepted
 # only for unique whole-word containment or when fuzz.ratio is at least three points ahead of
@@ -31,7 +26,6 @@ MAX_CANDIDATES = 5
 
 _PUNCTUATION_TABLE = str.maketrans({char: " " for char in string.punctuation})
 _SPACE_RE = re.compile(r"\s+")
-_INVOLVE_LABEL_RE = re.compile(r'^found using "[^"]+":\s*(?P<name>.+)$')
 _ACRONYM_SKIP_WORDS = frozenset({"and", "of", "the"})
 _GENERIC_WORDS = frozenset({"cricket", "icc", "mens", "the"})
 _FORMAT_WORDS_BY_CLASS = {
@@ -114,7 +108,7 @@ def resolve_name(
     exact = tuple(
         candidate
         for candidate in rows
-        if normalized_query in _normalized_name_variants(candidate.name, kind)
+        if normalized_query in _normalized_name_variants(candidate.name)
     )
     if len(exact) == 1:
         return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=exact[0])
@@ -134,9 +128,7 @@ def resolve_name(
         )
 
     generic = tuple(
-        candidate
-        for candidate in rows
-        if _generic_words_match(candidate.name, query, class_id, kind)
+        candidate for candidate in rows if _generic_words_match(candidate.name, query, class_id)
     )
     if len(generic) == 1:
         return LookupResult(LookupStatus.MATCH, query, class_id, kind, match=generic[0])
@@ -223,20 +215,12 @@ class StatsguruIdResolver:
         self._fetcher = fetcher
         self._budget = budget
         self._form_tables: dict[tuple[int, str], dict[int, str]] = {}
-        self._involve_tables: dict[tuple[int, str, str], dict[int, str]] = {}
 
     async def lookup_ground(
         self, class_id: int, name: str, *, call: FetchCall | None = None
     ) -> LookupResult:
         return await self._with_call(
             call, lambda fetch_call: self._lookup_form_field(class_id, "ground", name, fetch_call)
-        )
-
-    async def lookup_series(
-        self, class_id: int, name: str, *, call: FetchCall | None = None
-    ) -> LookupResult:
-        return await self._with_call(
-            call, lambda fetch_call: self._lookup_form_field(class_id, "series", name, fetch_call)
         )
 
     async def series_names(
@@ -259,26 +243,6 @@ class StatsguruIdResolver:
             return await names(call)
         async with self._fetcher.call(budget=self._budget) as fetch_call:
             return await names(fetch_call)
-
-    async def lookup_player_involve(
-        self, class_id: int, name: str, *, call: FetchCall | None = None
-    ) -> LookupResult:
-        return await self._with_call(
-            call,
-            lambda fetch_call: self._lookup_involve(
-                class_id, "player_involve", "search_player", name, fetch_call
-            ),
-        )
-
-    async def lookup_captain_involve(
-        self, class_id: int, name: str, *, call: FetchCall | None = None
-    ) -> LookupResult:
-        return await self._with_call(
-            call,
-            lambda fetch_call: self._lookup_involve(
-                class_id, "captain_involve", "search_captain", name, fetch_call
-            ),
-        )
 
     async def _with_call(
         self,
@@ -304,24 +268,6 @@ class StatsguruIdResolver:
         table, _ = await self._form_table(class_id, field, call, force_refetch=True)
         return resolve_name(class_id, field, name, table)
 
-    async def _lookup_involve(
-        self, class_id: int, field: str, search_field: str, name: str, call: FetchCall
-    ) -> LookupResult:
-        table, can_refetch = await self._involve_table(
-            class_id, field, search_field, name, call, force_refetch=False
-        )
-        result = resolve_name(class_id, field, name, table)
-        if (
-            result.status == LookupStatus.MATCH
-            or not can_refetch
-            or _ambiguous_result_has_plausible_cached_candidates(result, table)
-        ):
-            return result
-        table, _ = await self._involve_table(
-            class_id, field, search_field, name, call, force_refetch=True
-        )
-        return resolve_name(class_id, field, name, table)
-
     async def _form_table(
         self, class_id: int, field: str, call: FetchCall, *, force_refetch: bool
     ) -> tuple[dict[int, str], bool]:
@@ -337,28 +283,6 @@ class StatsguruIdResolver:
         table = _options_to_table(parse_filter_form(html).select_lists.get(field, ()), field)
         self._form_tables[key] = table
         return table, page_was_cached
-
-    async def _involve_table(
-        self,
-        class_id: int,
-        field: str,
-        search_field: str,
-        name: str,
-        call: FetchCall,
-        *,
-        force_refetch: bool,
-    ) -> tuple[dict[int, str], bool]:
-        normalized_name = _normalize(name)
-        key = (class_id, field, normalized_name)
-        if not force_refetch and key in self._involve_tables:
-            return self._involve_tables[key], True
-        url = INVOLVE_URL.format(
-            class_id=class_id, search_field=search_field, query=quote_plus(name)
-        )
-        html = await call.fetch(url, freshness=Freshness.LOOKUP, force_refetch=force_refetch)
-        table = _options_to_table(parse_filter_form(html).checkbox_lists.get(field, ()), field)
-        self._involve_tables[key] = table
-        return table, False
 
 
 def _class_table(
@@ -379,15 +303,8 @@ def _options_to_table(options: tuple[FormOption, ...], field: str) -> dict[int, 
             value = int(option.value)
         except ValueError as error:
             raise ValueError(f"{field} option {option.label!r} has non-integer value") from error
-        table[value] = (
-            _clean_involve_label(option.label) if field.endswith("_involve") else option.label
-        )
+        table[value] = option.label
     return table
-
-
-def _clean_involve_label(label: str) -> str:
-    match = _INVOLVE_LABEL_RE.match(label)
-    return match.group("name") if match else label
 
 
 def _with_score(candidate: IdCandidate, score: float) -> IdCandidate:
@@ -399,22 +316,8 @@ def _normalize(value: str) -> str:
     return _SPACE_RE.sub(" ", value).strip()
 
 
-def _normalized_name_variants(value: str, kind: str) -> frozenset[str]:
-    variants = {value}
-    if ":" in value:
-        variants.add(value.split(":", 1)[1].strip())
-    if kind.endswith("_involve"):
-        variants |= {_strip_trailing_parenthetical(variant) for variant in tuple(variants)}
-    variants |= {_strip_trailing_year(variant) for variant in tuple(variants)}
-    return frozenset(_normalize(variant) for variant in variants)
-
-
-def _strip_trailing_parenthetical(value: str) -> str:
-    return re.sub(r"\s+\([A-Z]{2,3}\)\s*$", "", value).strip()
-
-
-def _strip_trailing_year(value: str) -> str:
-    return re.sub(r",?\s+\d{4}(?:/\d{2,4})?\s*$", "", value).strip()
+def _normalized_name_variants(value: str) -> frozenset[str]:
+    return frozenset({_normalize(value), _normalize(_without_label_prefix(value))})
 
 
 def _initials(value: str, kind: str) -> str:
@@ -436,16 +339,10 @@ def _without_generic_words(value: str, class_id: int) -> str:
     return " ".join(words)
 
 
-def _generic_words_match(candidate_name: str, query: str, class_id: int, kind: str) -> bool:
-    if kind == "series" and _digit_words(candidate_name) != _digit_words(query):
-        return False
+def _generic_words_match(candidate_name: str, query: str, class_id: int) -> bool:
     return _without_generic_words(candidate_name, class_id) == _without_generic_words(
         query, class_id
     )
-
-
-def _digit_words(value: str) -> frozenset[str]:
-    return frozenset(word for word in _normalize(value).split() if _has_digit(word))
 
 
 def _query_containment_matches(
@@ -549,13 +446,12 @@ def _has_digit(word: str) -> bool:
 
 def _candidate_contains_query_in_order(normalized_query: str, candidate: IdCandidate) -> bool:
     query_words = normalized_query.split()
-    candidate_words = _normalize(candidate.name).split()
-    position = _contiguous_word_position(query_words, candidate_words)
-    if position is None:
-        return False
-    if candidate.kind == "series":
-        return position == 0 and _digit_words(normalized_query) == _digit_words(candidate.name)
-    return True
+    name_words = _normalize(candidate.name).split()
+    width = len(query_words)
+    return any(
+        name_words[start : start + width] == query_words
+        for start in range(len(name_words) - width + 1)
+    )
 
 
 def _ambiguous_result_has_plausible_cached_candidates(
@@ -567,14 +463,14 @@ def _ambiguous_result_has_plausible_cached_candidates(
     candidates = result.candidates
     return (
         all(
-            normalized_query in _normalized_name_variants(candidate.name, result.kind)
+            normalized_query in _normalized_name_variants(candidate.name)
             for candidate in candidates
         )
         or all(
             _initials(candidate.name, result.kind) == normalized_query for candidate in candidates
         )
         or all(
-            _generic_words_match(candidate.name, result.query, result.class_id, result.kind)
+            _generic_words_match(candidate.name, result.query, result.class_id)
             for candidate in candidates
         )
         or _candidates_contain_query_words(result)
@@ -587,20 +483,6 @@ def _candidates_contain_query_words(result: LookupResult) -> bool:
         _words_appear_in_order(query_words, _normalize(candidate.name).split())
         for candidate in result.candidates
     )
-
-
-def _words_appear_contiguously(query_words: list[str], name_words: list[str]) -> bool:
-    return _contiguous_word_position(query_words, name_words) is not None
-
-
-def _contiguous_word_position(query_words: list[str], name_words: list[str]) -> int | None:
-    if not query_words:
-        return 0
-    last_start = len(name_words) - len(query_words) + 1
-    for start in range(last_start):
-        if name_words[start : start + len(query_words)] == query_words:
-            return start
-    return None
 
 
 def _words_appear_in_order(query_words: list[str], name_words: list[str]) -> bool:

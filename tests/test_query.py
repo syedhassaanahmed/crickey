@@ -871,17 +871,15 @@ def test_symbolic_period_refuses_unresolved_and_resolves_year_arithmetic() -> No
             },
         ).label()
 
-    career = StatsguruQuery(
-        **{
-            "class": 3,
-            "type": "batting",
-            "period": SymbolicPeriod(kind=SymbolicPeriodKind.CAREER),
-        }
-    ).resolved(first_match=date(2016, 9, 7), last_match=date(2026, 2, 24))
+    career_span = SymbolicPeriod(kind=SymbolicPeriodKind.CAREER).resolve(
+        date(2016, 9, 7), date(2026, 2, 24)
+    )
+    career = StatsguruQuery(**{"class": 3, "type": "batting", "period": career_span})
     assert "spanmin1=07+Sep+2016" in career.results_url()
     assert "spanmax1=24+Feb+2026" in career.results_url()
 
-    resolved = unresolved.resolved(first_match=date(2016, 9, 7), last_match=date(2026, 2, 24))
+    last_five = unresolved.period.resolve(date(2016, 9, 7), date(2026, 2, 24))
+    resolved = StatsguruQuery(**{"class": 3, "type": "batting", "period": last_five})
     assert "spanmin1=24+Feb+2021" in resolved.results_url()
     assert "spanmax1=24+Feb+2026" in resolved.results_url()
 

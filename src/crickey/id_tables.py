@@ -1842,5 +1842,3 @@ TROPHIES: dict[int, dict[int, str]] = {
         1153: "Nigeria Quadrangular T20 Series",
     },
 }
-
-OPPOSITION_DIFFERS_FROM_TEAM_CLASSES: tuple[int, ...] = ()

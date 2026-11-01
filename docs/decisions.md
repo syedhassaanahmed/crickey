@@ -42,7 +42,7 @@ The decisions behind crickey, as they stand now. Each says what holds and why, a
     - New matches change aggregates, so pages covering the last 7 days are refreshed after an hour.
     - The in-memory cache is capped at 64 MB, dropping the least recently used pages first.
     - Answers name the newest match Statsguru included, and warn if a match may still be in progress.
-18. **Built-in IDs.** Cricinfo's team IDs don't change, so teams, host countries, continents, trophies and leagues, and each format's first match date are built into the code. Grounds and series are looked up when needed.
+18. **Built-in IDs.** Cricinfo's team IDs don't change, so teams, host countries, continents, trophies and leagues, and each format's first match date are built into the code. Grounds are looked up when a filter names one, and series names are read when `series_count` lists series.
 
 ## Runtime
 19. **Stateless.** Everything lives in memory for the life of the process: no files written, no config file and no volumes. Settings come from environment variables and command-line flags. Separate instances don't share their cache or request spacing.

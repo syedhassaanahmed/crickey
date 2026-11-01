@@ -42,12 +42,13 @@ def module_text_from_html_by_class(
     hosts: dict[int, dict[int, str]] = {}
     continents: dict[int, dict[int, str]] = {}
     trophies: dict[int, dict[int, str]] = {}
-    opposition_differs: list[int] = []
     for class_id, form in forms.items():
         team_table = _table(form, "team")
-        opposition_table = _table(form, "opposition")
-        if team_table != opposition_table:
-            opposition_differs.append(class_id)
+        if _table(form, "opposition") != team_table:
+            raise ValueError(
+                f"class {class_id}'s opposition list differs from its team list, but crickey "
+                "uses the team table for both"
+            )
         teams[class_id] = team_table
         hosts[class_id] = _table(form, "host")
         continents[class_id] = _table(form, "continent")
@@ -63,7 +64,6 @@ def module_text_from_html_by_class(
                 _emit_nested_dict("HOSTS", hosts),
                 _emit_nested_dict("CONTINENTS", continents),
                 _emit_nested_dict("TROPHIES", trophies),
-                _emit_tuple("OPPOSITION_DIFFERS_FROM_TEAM_CLASSES", tuple(opposition_differs)),
             )
         ).rstrip()
         + "\n"

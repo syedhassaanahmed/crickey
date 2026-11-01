@@ -8,10 +8,11 @@ from collections.abc import Awaitable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from crickey.fetcher import Fetcher, MemoryPageSource
 from crickey.ids import (
     FORM_URL,
-    INVOLVE_URL,
     LookupStatus,
     StatsguruIdResolver,
     lookup_continent,
@@ -64,26 +65,15 @@ def form_html(
     team_label: str = "Alpha XI",
     ground_value: int = 701,
     ground_label: str = "AAA: Alpha Ground",
-    series_label: str = "Alpha Cup, 2026",
     include_new_ground: bool = False,
     include_new_series: bool = False,
     extra_ground_options: str = "",
-    extra_series_options: str = "",
-    involve_field: str | None = None,
     opposition_label: str | None = None,
 ) -> str:
     new_ground = '<option value="702">BBB: New Ground</option>' if include_new_ground else ""
     new_series = '<option value="802">New Series, 2026</option>' if include_new_series else ""
-    series_options = (
-        f'<option value="801">{series_label}</option>{new_series}{extra_series_options}'
-    )
+    series_options = f'<option value="801">Alpha Cup, 2026</option>{new_series}'
     opposition_label = team_label if opposition_label is None else opposition_label
-    involve = ""
-    if involve_field is not None:
-        involve = (
-            f'<input type="checkbox" name="{involve_field}" value="56880" checked>'
-            ' found using "babar azam": Babar Azam (PAK)'
-        )
     return f"""
     <html><body><form name="gurumenu">
     <input type="hidden" name="spanmin0" value="{spanmin0}">
@@ -115,7 +105,6 @@ def form_html(
     <select name="series">
       <option value="">all series</option>{series_options}
     </select>
-    {involve}
     </form></body></html>
     """
 
@@ -142,10 +131,9 @@ def test_generator_builds_exact_tables_from_synthetic_forms() -> None:
     assert namespace["HOSTS"][6] == {1: "Hostland"}
     assert namespace["CONTINENTS"][1] == {2: "Asia"}
     assert namespace["TROPHIES"][2] == {12: "World Cup", 117: "Indian Premier League"}
-    assert namespace["OPPOSITION_DIFFERS_FROM_TEAM_CLASSES"] == ()
 
 
-def test_generator_records_classes_with_different_opposition_tables() -> None:
+def test_generator_refuses_an_opposition_list_unlike_the_team_list() -> None:
     html_by_class = {
         class_id: form_html(spanmin0=f"0{index} Jan 2000", team_label=f"Class {class_id} XI")
         for index, class_id in enumerate(CLASS_IDS, start=1)
@@ -154,11 +142,8 @@ def test_generator_records_classes_with_different_opposition_tables() -> None:
         spanmin0="03 Jan 2000", team_label="Class 3 XI", opposition_label="Other XI"
     )
 
-    text = module_text_from_html_by_class(html_by_class, generated_on=datetime(2026, 10, 4).date())
-    namespace: dict[str, object] = {}
-    exec(text, namespace)
-
-    assert namespace["OPPOSITION_DIFFERS_FROM_TEAM_CLASSES"] == (3,)
+    with pytest.raises(ValueError, match="class 3's opposition list differs from its team list"):
+        module_text_from_html_by_class(html_by_class, generated_on=datetime(2026, 10, 4).date())
 
 
 def test_generator_emits_ruff_formatted_output_from_synthetic_forms() -> None:
@@ -313,8 +298,8 @@ def test_fuzzy_match_rejects_swapped_womens_names() -> None:
 
 
 def test_fuzzy_match_allows_two_edits_only_for_long_words() -> None:
-    two_edits = resolve_name(1, "series", "Alpha Cmpionship", {1: "Alpha Championship"})
-    three_edits = resolve_name(1, "series", "Alpha Cmionship", {1: "Alpha Championship"})
+    two_edits = resolve_name(1, "trophy", "Alpha Cmpionship", {1: "Alpha Championship"})
+    three_edits = resolve_name(1, "trophy", "Alpha Cmionship", {1: "Alpha Championship"})
 
     assert two_edits.status == LookupStatus.MATCH
     assert two_edits.match.value == 1
@@ -340,8 +325,8 @@ def test_fuzzy_match_requires_clear_ratio_margin() -> None:
 def test_containment_resolves_only_when_unique_and_fuzzy_singletons_do_not() -> None:
     containment = resolve_name(1, "ground", "Eden Gardens", {1: "IND: Eden Gardens, Kolkata"})
     fuzzy = lookup_team(2, "India A")
-    wrong_order = resolve_name(1, "series", "Bar Foo", {1: "Foo Bar Baz"})
-    gap = resolve_name(1, "series", "Foo Baz", {1: "Foo Bar Baz"})
+    wrong_order = resolve_name(1, "trophy", "Bar Foo", {1: "Foo Bar Baz"})
+    gap = resolve_name(1, "trophy", "Foo Baz", {1: "Foo Bar Baz"})
 
     assert containment.status == LookupStatus.MATCH
     assert containment.match.value == 1
@@ -353,7 +338,7 @@ def test_containment_resolves_only_when_unique_and_fuzzy_singletons_do_not() -> 
 
 
 def test_containment_candidates_are_ranked_by_wratio() -> None:
-    result = resolve_name(1, "series", "Foo Bar", {1: "Foo Bar Baz", 2: "Foo Bar Qux"})
+    result = resolve_name(1, "trophy", "Foo Bar", {1: "Foo Bar Baz", 2: "Foo Bar Qux"})
 
     assert result.needs_clarification is True
     assert [candidate.value for candidate in result.candidates] == [1, 2]
@@ -407,42 +392,19 @@ def test_name_lookup_returns_candidates_for_ambiguous_and_unknown_names() -> Non
     assert unknown.match is None
 
 
-def test_on_demand_ground_series_and_involve_lookups_use_memory_source_and_cache() -> None:
+def test_on_demand_ground_lookup_uses_memory_source_and_cache() -> None:
     class_id = 3
     form_url = FORM_URL.format(class_id=class_id)
-    player_url = INVOLVE_URL.format(
-        class_id=class_id, search_field="search_player", query="babar+azam"
-    )
-    captain_url = INVOLVE_URL.format(
-        class_id=class_id, search_field="search_captain", query="babar+azam"
-    )
-    source = MemoryPageSource(
-        {
-            form_url: form_html(),
-            player_url: form_html(involve_field="player_involve"),
-            captain_url: form_html(involve_field="captain_involve"),
-        }
-    )
+    source = MemoryPageSource({form_url: form_html()})
     fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
     resolver = StatsguruIdResolver(fetcher, budget=20)
 
     ground = run(resolver.lookup_ground(class_id, "alpha ground"))
-    series = run(resolver.lookup_series(class_id, "Alpha Cup 2026"))
-    player = run(resolver.lookup_player_involve(class_id, "babar azam"))
-    captain = run(resolver.lookup_captain_involve(class_id, "babar azam"))
     cached_ground = run(resolver.lookup_ground(class_id, "Alpha Ground"))
-    cached_player = run(resolver.lookup_player_involve(class_id, "Babar Azam"))
 
     assert ground.match.value == 701
-    assert series.match.value == 801
-    assert player.match.value == 56880
-    assert player.match.kind == "player_involve"
-    assert captain.match.value == 56880
-    assert captain.match.kind == "captain_involve"
-    assert player.match.name == "Babar Azam (PAK)"
     assert cached_ground.match.value == 701
-    assert cached_player.match.value == 56880
-    assert source.requests == [form_url, player_url, captain_url]
+    assert source.requests == [form_url]
 
 
 def test_on_demand_lookup_miss_refetches_once() -> None:
@@ -458,60 +420,6 @@ def test_on_demand_lookup_miss_refetches_once() -> None:
 
     assert warm.match.value == 701
     assert result.match.value == 702
-    assert source.requests == [form_url, form_url]
-
-
-def test_on_demand_series_miss_refetches_when_cached_year_differs() -> None:
-    examples = (
-        (
-            2,
-            "England in West Indies ODI Series, 2024/25",
-            '<option value="901">England in West Indies ODI Series, 2023/24</option>',
-            '<option value="902">England in West Indies ODI Series, 2024/25</option>',
-            902,
-        ),
-        (
-            3,
-            "Belgium in Austria T20I Series, 2024",
-            '<option value="903">Belgium in Austria T20I Series, 2025</option>',
-            '<option value="904">Belgium in Austria T20I Series, 2024</option>',
-            904,
-        ),
-    )
-
-    for class_id, query, cached_series, new_series, new_value in examples:
-        form_url = FORM_URL.format(class_id=class_id)
-        source = MemoryPageSource({form_url: form_html(extra_series_options=cached_series)})
-        fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
-        resolver = StatsguruIdResolver(fetcher, budget=20)
-
-        warm = run(resolver.lookup_series(class_id, "Alpha Cup 2026"))
-        source.pages[form_url] = form_html(extra_series_options=cached_series + new_series)
-        result = run(resolver.lookup_series(class_id, query))
-
-        assert warm.match.value == 801
-        assert result.status == LookupStatus.MATCH
-        assert result.match.value == new_value
-        assert source.requests == [form_url, form_url]
-
-
-def test_on_demand_series_miss_refetches_when_cached_word_order_differs() -> None:
-    class_id = 3
-    form_url = FORM_URL.format(class_id=class_id)
-    query = "New Zealand in Pakistan T20I Series, 2024"
-    cached_series = '<option value="901">Pakistan in New Zealand T20I Series, 2024/25</option>'
-    new_series = '<option value="902">New Zealand in Pakistan T20I Series, 2024</option>'
-    source = MemoryPageSource({form_url: form_html(extra_series_options=cached_series)})
-    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
-    resolver = StatsguruIdResolver(fetcher, budget=20)
-
-    warm = run(resolver.lookup_series(class_id, "Alpha Cup 2026"))
-    source.pages[form_url] = form_html(extra_series_options=cached_series + new_series)
-    result = run(resolver.lookup_series(class_id, query))
-
-    assert warm.match.value == 801
-    assert result.status == LookupStatus.MATCH
-    assert result.match.value == 902
     assert source.requests == [form_url, form_url]
 
 
@@ -535,72 +443,15 @@ def test_ground_digits_must_match_exactly_for_fuzzy_typos() -> None:
     digit = resolve_name(1, "ground", "Oval 1", {1: "AAA: Oval 2"})
     short_word = resolve_name(
         3,
-        "series",
-        "ICC Men's T20 World Cup Sub Regional Europe Qualifier B, 2026",
-        {1: "ICC Men's T20 World Cup Sub Regional Europe Qualifier A, 2026"},
+        "trophy",
+        "ICC Men's T20 World Cup Sub Regional Europe Qualifier B",
+        {1: "ICC Men's T20 World Cup Sub Regional Europe Qualifier A"},
     )
 
     assert digit.needs_clarification is True
     assert digit.match is None
     assert short_word.needs_clarification is True
     assert short_word.match is None
-
-
-def test_series_generic_tier_requires_digit_words_to_match() -> None:
-    result = resolve_name(
-        3,
-        "series",
-        "Namibia T20I Tri-Series, 2026",
-        {1: "Namibia T20 Tri-Series, 2026"},
-    )
-
-    assert result.needs_clarification is True
-    assert result.match is None
-
-
-def test_series_containment_rejects_different_season_and_leading_words() -> None:
-    different_season = resolve_name(
-        3,
-        "series",
-        "Malaysia Tri-Nation T20I Series, 2024",
-        {1: "Malaysia Tri-Nation T20I Series, 2024/25"},
-    )
-    leading_word = resolve_name(
-        3,
-        "series",
-        "Continental Cup, 2024",
-        {1: "Africa Continental Cup, 2024"},
-    )
-
-    assert different_season.needs_clarification is True
-    assert different_season.match is None
-    assert leading_word.needs_clarification is True
-    assert leading_word.match is None
-
-
-def test_on_demand_series_without_season_returns_edition_candidates() -> None:
-    class_id = 3
-    form_url = FORM_URL.format(class_id=class_id)
-    source = MemoryPageSource(
-        {
-            form_url: form_html(
-                extra_series_options=(
-                    '<option value="901">New Zealand in India T20I Series, 2012</option>'
-                    '<option value="902">New Zealand in India T20I Series, 2017/18</option>'
-                    '<option value="903">New Zealand in India T20I Series, 2021/22</option>'
-                    '<option value="904">New Zealand in India T20I Series, 2022/23</option>'
-                )
-            )
-        }
-    )
-    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
-    resolver = StatsguruIdResolver(fetcher, budget=20)
-
-    result = run(resolver.lookup_series(class_id, "New Zealand in India T20I Series"))
-
-    assert result.needs_clarification is True
-    assert [candidate.value for candidate in result.candidates] == [901, 902, 903, 904]
-    assert source.requests == [form_url]
 
 
 def test_on_demand_unique_containment_match_uses_cache_without_refetch() -> None:
@@ -692,28 +543,6 @@ def test_on_demand_cached_ambiguous_acronym_does_not_refetch() -> None:
     assert source.requests == [form_url]
 
 
-def test_on_demand_involve_cached_ambiguous_containment_does_not_refetch() -> None:
-    class_id = 3
-    player_url = INVOLVE_URL.format(class_id=class_id, search_field="search_player", query="babar")
-    page = form_html(involve_field="player_involve").replace(
-        "</form>",
-        '<input type="checkbox" name="player_involve" value="12345" checked>'
-        ' found using "babar": Babar Hayat (HKG)</form>',
-    )
-    source = MemoryPageSource({player_url: page})
-    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
-    resolver = StatsguruIdResolver(fetcher, budget=20)
-
-    first = run(resolver.lookup_player_involve(class_id, "babar"))
-    second = run(resolver.lookup_player_involve(class_id, "babar"))
-
-    assert first.needs_clarification is True
-    assert {candidate.value for candidate in first.candidates} == {56880, 12345}
-    assert second.needs_clarification is True
-    assert {candidate.value for candidate in second.candidates} == {56880, 12345}
-    assert source.requests == [player_url]
-
-
 def test_on_demand_ground_acronym_ignores_country_prefix() -> None:
     class_id = 3
     form_url = FORM_URL.format(class_id=class_id)
@@ -736,10 +565,10 @@ def test_on_demand_form_url_cache_miss_refetches_across_fields() -> None:
 
     warm = run(resolver.lookup_ground(class_id, "Alpha Ground"))
     source.pages[form_url] = form_html(include_new_series=True)
-    result = run(resolver.lookup_series(class_id, "New Series"))
+    names = run(resolver.series_names(class_id, [802]))
 
     assert warm.match.value == 701
-    assert result.match.value == 802
+    assert names == {802: "New Series, 2026"}
     assert source.requests == [form_url, form_url]
 
 
@@ -761,24 +590,6 @@ def test_on_demand_form_cache_keys_include_class() -> None:
     assert class_2.match.value == 701
     assert class_3.match.value == 703
     assert source.requests == [class_2_url, class_3_url]
-
-
-def test_on_demand_involve_cached_miss_refetches_once() -> None:
-    class_id = 3
-    player_url = INVOLVE_URL.format(
-        class_id=class_id, search_field="search_player", query="babar+azam"
-    )
-    source = MemoryPageSource({player_url: form_html()})
-    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
-    resolver = StatsguruIdResolver(fetcher, budget=20)
-
-    miss = run(resolver.lookup_player_involve(class_id, "babar azam"))
-    source.pages[player_url] = form_html(involve_field="player_involve")
-    result = run(resolver.lookup_player_involve(class_id, "babar azam"))
-
-    assert miss.match is None
-    assert result.match.value == 56880
-    assert source.requests == [player_url, player_url]
 
 
 def test_on_demand_lookup_first_miss_does_not_refetch() -> None:
@@ -811,30 +622,13 @@ def test_on_demand_lookup_uses_lookup_freshness_not_recent_ttl() -> None:
     assert source.requests == [form_url]
 
 
-def test_involve_lookup_with_no_hits_returns_empty_clarification() -> None:
-    class_id = 3
-    player_url = INVOLVE_URL.format(class_id=class_id, search_field="search_player", query="nobody")
-    source = MemoryPageSource({player_url: form_html()})
-    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
-    resolver = StatsguruIdResolver(fetcher, budget=20)
-
-    result = run(resolver.lookup_player_involve(class_id, "nobody"))
-
-    assert result.needs_clarification is True
-    assert result.match is None
-    assert result.candidates == ()
-    assert source.requests == [player_url]
-
-
 def test_resolver_accepts_shared_fetch_call_and_progress_stream() -> None:
     async def scenario() -> tuple[object, object, list[tuple[float, str]], list[str]]:
-        class_id = 3
-        form_url = FORM_URL.format(class_id=class_id)
-        player_url = INVOLVE_URL.format(
-            class_id=class_id, search_field="search_player", query="babar+azam"
-        )
         source = MemoryPageSource(
-            {form_url: form_html(), player_url: form_html(involve_field="player_involve")}
+            {
+                FORM_URL.format(class_id=3): form_html(),
+                FORM_URL.format(class_id=2): form_html(ground_value=702),
+            }
         )
         progress_events: list[tuple[float, str]] = []
         fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
@@ -843,16 +637,13 @@ def test_resolver_accepts_shared_fetch_call_and_progress_stream() -> None:
         async with fetcher.call(
             budget=20, progress=lambda seconds, reason: progress_events.append((seconds, reason))
         ) as call:
-            ground = await resolver.lookup_ground(class_id, "Alpha Ground", call=call)
-            player = await resolver.lookup_player_involve(class_id, "babar azam", call=call)
-        return ground, player, progress_events, source.requests
+            t20i = await resolver.lookup_ground(3, "Alpha Ground", call=call)
+            odi = await resolver.lookup_ground(2, "Alpha Ground", call=call)
+        return t20i, odi, progress_events, source.requests
 
-    ground, player, progress_events, requests = run(scenario())
+    t20i, odi, progress_events, requests = run(scenario())
 
-    assert ground.match.value == 701
-    assert player.match.value == 56880
+    assert t20i.match.value == 701
+    assert odi.match.value == 702
     assert progress_events == [(2.0, "spacing requests politely")]
-    assert requests == [
-        FORM_URL.format(class_id=3),
-        INVOLVE_URL.format(class_id=3, search_field="search_player", query="babar+azam"),
-    ]
+    assert requests == [FORM_URL.format(class_id=3), FORM_URL.format(class_id=2)]

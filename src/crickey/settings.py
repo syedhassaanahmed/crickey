@@ -261,10 +261,3 @@ def _parse_bool(raw: str) -> bool:
 
 def _invalid_message(source: str, raw: str, expected: str) -> str:
     return f"{source}={raw!r} is invalid; expected {expected}."
-
-
-def _format_duration(duration: timedelta) -> str:
-    seconds = duration.total_seconds()
-    if seconds.is_integer():
-        return f"{int(seconds)}s"
-    return f"{seconds:g}s"
