@@ -336,6 +336,7 @@ def test_http_binds_loopback_natively_and_every_address_in_a_container(
 def test_sigint_exits_zero_without_traceback() -> None:
     port = free_port()
     script = f"""
+import os
 import signal
 import sys
 import threading
@@ -360,7 +361,8 @@ def interrupt_when_ready():
     signal.raise_signal(signal.SIGINT)
 
 threading.Thread(target=interrupt_when_ready, daemon=True).start()
-raise SystemExit(main(["serve", "--port", str(port)]))
+os.environ["CRICKEY_PORT"] = str(port)
+raise SystemExit(main(["serve"]))
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],

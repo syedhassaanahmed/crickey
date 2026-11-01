@@ -45,7 +45,7 @@ The decisions behind crickey, as they stand now. Each says what holds and why, a
 18. **Built-in IDs.** Cricinfo's team IDs don't change, so teams, host countries, continents, trophies and leagues, and each format's first match date are built into the code. Grounds are looked up when a filter names one, and series names are read when `series_count` lists series.
 
 ## Runtime
-19. **Stateless.** Everything lives in memory for the life of the process: no files written, no config file and no volumes. Settings come from environment variables and command-line flags. Separate instances don't share their cache or request spacing.
+19. **Stateless.** Everything lives in memory for the life of the process: no files written, no config file and no volumes. Settings come only from environment variables. Separate instances don't share their cache or request spacing.
 20. **HTTP by default; stdio only for debugging.** Everyone runs one long-running Streamable HTTP server on 127.0.0.1, natively or in Docker published on the host's loopback, so the cache, request spacing and block pause carry across sessions and clients. stdio is for debugging. There's no authentication: localhost plus the SDK's Host and Origin checks (R12) keeps web pages out. [ADR 0020](adr/0020-http-by-default-stdio-for-debugging.md)
 21. **Stack.** Python with uv and the MCP Python SDK (`mcp[cli]`); httpx, cachetools, lxml, pydantic, pandas, rapidfuzz and uvicorn, with pytest, respx and ruff for development.
 22. **Latest stable versions.** Use the latest stable releases of Python, uv, the SDK and libraries, the Docker base image and GitHub Actions; R15 lists them. Pre-releases aren't used.
@@ -106,3 +106,5 @@ Options that no ADR covers; each ADR lists its own.
 | Inspect's own MCP tools for the eval | They drop crickey's `$defs` and `_meta` (D40). |
 | An 8-bit KV cache for local models | It reads prompts about 4.6 times slower on a CPU (R17). |
 | Asking golden question 8 "in how many countries" | It tells the model what to count; the answer check reads the count in more forms instead. |
+| Command-line flags for settings | The README, the image and hosting use environment variables, and a second source needs precedence rules (D19). |
+| Settings for retries, block pauses, the page cap, the cache size and the recent-page TTL | Their values are decisions (D10, D11, D17), so changing them would only weaken what those promise. |
