@@ -69,7 +69,8 @@ All on the same results page: `https://stats.cricinfo.com/ci/engine/stats/index.
 `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 on form, results and player pages.
 
 ### Rate limit
-- On 1 Nov 2026, requests about 2.5 s apart with curl's User-Agent got 200 eleven times, then a 429. How many requests Statsguru allows in a short burst isn't known.
+- On 1 Nov 2026, requests about 2.5 s apart with curl's User-Agent got 200 eleven times, then a 429.
+- The same day, after 40 quiet minutes, crickey's default spacing (D9) sent 4 requests 3 s apart and a 5th at 15 s, and all 5 got 200. The largest burst Statsguru allows isn't known.
 
 ## 2. Statsguru URL model
 
