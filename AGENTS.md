@@ -15,7 +15,7 @@ The docs say only where crickey stands now. When something changes, rewrite the 
 ## Pick an issue
 - Work on the issue the owner names. Otherwise, take the lowest-numbered open issue that isn't labelled `needs-owner` and whose "Blocked by" issues are all closed. `gh issue list --search "is:open -is:blocked -label:needs-owner"` lists those issues.
 - If the owner asks for a change that has no issue, open one first, with a user story, the context (facts and where they come from) and acceptance criteria as checkboxes. When the owner has a choice to make, the issue lists the options.
-- Read it with `gh issue view <number>`. Do only that issue, and meet every acceptance criterion. A small change the owner adds along the way can go in the same pull request, with an issue of its own that the pull request also closes.
+- Read it with `gh issue view <number>`. Do only that issue, and meet every acceptance criterion.
 - If the issue is unclear or too big for one session, stop and say so.
 
 ## Keep crickey small
