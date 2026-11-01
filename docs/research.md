@@ -68,6 +68,9 @@ All on the same results page: `https://stats.cricinfo.com/ci/engine/stats/index.
 
 `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 on form, results and player pages.
 
+### Rate limit
+- On 1 Nov 2026, requests about 2.5 s apart with curl's User-Agent got 200 eleven times, then a 429. How many requests Statsguru allows in a short burst isn't known.
+
 ## 2. Statsguru URL model
 
 | Page | URL |
@@ -874,3 +877,8 @@ The scored run: all 20 cases, the 10 golden and the 10 held-out, for 3 epochs pe
 - One `qwen3:4b-instruct` reply ran away, and was cancelled and scored as it stood. The run sent 190 Statsguru requests, with no blocks.
 - **Variation:** two runs of `qwen3:4b-instruct` with the same tools differed by 1 golden and 3 held-out answers, and two runs of `gpt-oss:20b` whose descriptions differed by one example, which could only help, by 5 held-out answers. So a difference of up to 5 in 30 is within the noise of 3 epochs.
 - **One epoch:** `qwen3.8:27b` answered all 20 cases at 1 epoch in 18 minutes from an empty cache, with 68 Statsguru requests and no blocks; 9 of the 10 golden and 9 of the 10 held-out answers passed.
+
+### Statsguru requests per question
+In the eval logs of 27–31 Oct 2026, with every request 15 s apart, 11 models called crickey's tools in 1,861 questions:
+- 72% of the questions sent no Statsguru request, because 78% of the pages they needed were already in the cache. Most of the rest sent 1 to 4.
+- A tool call's median time grew about 15 s with each request it sent: 10 s for 1, 21 s for 2, 39 s for 3, 54 s for 4 and 73 s for 5.

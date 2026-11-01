@@ -145,6 +145,59 @@ def test_rate_limiter_spaces_all_requests_and_reports_progress() -> None:
     assert [request[0] for request in source.requests] == [URL, OTHER_URL]
 
 
+def page_url(number: int) -> str:
+    return (
+        f"https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;page={number};type=batting"
+    )
+
+
+@pytest.mark.parametrize(
+    ("burst", "request_times"),
+    [
+        (4, [0.0, 3.0, 6.0, 9.0, 15.0, 30.0, 90.0, 93.0]),
+        (1, [0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 105.0]),
+    ],
+)
+def test_burst_goes_gap_apart_then_one_request_per_interval(
+    burst: int, request_times: list[float]
+) -> None:
+    async def scenario() -> list[float]:
+        clock = FakeClock()
+        urls = [page_url(number) for number in range(1, 9)]
+        source = YieldingSequenceSource([ok(url) for url in urls], clock)
+        fetcher = Fetcher(
+            settings(min_interval=timedelta(seconds=15), burst=burst),
+            clock=clock,
+            page_source=source,
+        )
+        for index, url in enumerate(urls):
+            if index == 6:
+                # A quiet spell refills the allowance.
+                clock.monotonic_time = 90.0
+            await fetcher.fetch(url, freshness=Freshness.RECENT, budget=200)
+        return source.request_times
+
+    assert run(scenario()) == request_times
+
+
+def test_429_empties_the_burst_allowance() -> None:
+    async def scenario() -> list[float]:
+        clock = FakeClock()
+        source = YieldingSequenceSource([response(429), ok(), ok(OTHER_URL), ok(THIRD_URL)], clock)
+        fetcher = Fetcher(
+            settings(min_interval=timedelta(seconds=15)),
+            clock=clock,
+            page_source=source,
+            jitter=lambda base: 0,
+        )
+        for url in (URL, OTHER_URL, THIRD_URL):
+            await fetcher.fetch(url, freshness=Freshness.RECENT, budget=200)
+        return source.request_times
+
+    # Without the 429, the last two would go 3 s apart.
+    assert run(scenario()) == [0.0, 15.0, 30.0, 45.0]
+
+
 def test_concurrent_fetches_are_spaced_by_one_process_lock() -> None:
     async def scenario() -> tuple[list[float], list[str]]:
         clock = FakeClock()
@@ -357,7 +410,8 @@ def test_cancelled_request_counts_for_spacing_and_releases_lock() -> None:
 
     request_times, urls = asyncio.run(asyncio.wait_for(scenario(), timeout=1))
 
-    assert request_times == [0.0, 15.0]
+    # The cancelled request was sent, so the next one still waits the burst gap after it.
+    assert request_times == [0.0, 3.0]
     assert urls == [URL, OTHER_URL]
 
 

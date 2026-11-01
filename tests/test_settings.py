@@ -13,6 +13,7 @@ pytestmark = pytest.mark.usefixtures("stub_cli_transports")
 
 ENV_NAMES = (
     "CRICKEY_MIN_INTERVAL",
+    "CRICKEY_BURST",
     "CRICKEY_MAX_RETRIES",
     "CRICKEY_BLOCK_PAUSES",
     "CRICKEY_MAX_PAGES",
@@ -391,6 +392,18 @@ def test_min_interval_floor() -> None:
         == "--min-interval='1m30s' is invalid; expected a positive duration in seconds, "
         "or a number with an s, m or h suffix (examples: 90, 5m, 1h), from 2s through 168h."
     )
+
+
+def test_burst_is_from_one_to_four() -> None:
+    assert _settings_from_cli(["serve", "--burst", "1"]).burst == 1
+
+    for raw in ("0", "5"):
+        with pytest.raises(SettingsError) as exc_info:
+            _settings_from_cli(["serve", "--burst", raw])
+
+        assert (
+            str(exc_info.value) == f"--burst={raw!r} is invalid; expected an integer from 1 to 4."
+        )
 
 
 def test_min_interval_warning_below_fifteen_seconds(

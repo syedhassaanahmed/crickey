@@ -130,6 +130,7 @@ The proof-link builder implements D16, and the answer renderer D17.
 Implements D7–D12 and D17.
 - **Client:** httpx, with the User-Agent from D12.
 - **State per process, in memory:** the rate limiter, retry state, block pause and unavailable URLs.
+- **Spacing (D9):** a request waits until 3 s after the last one, or `CRICKEY_MIN_INTERVAL` if that's shorter, and until the burst allowance has a request left. The allowance holds up to `CRICKEY_BURST` requests and refills one per `CRICKEY_MIN_INTERVAL`; a retry empties it. A request counts once it's sent, even if it fails or is cancelled.
 - **Cache:** compressed, in memory, keyed by standard URL, with D17's freshness rules and size cap; storage uses `cachetools.TLRUCache` (D28). Player search and form pages are lookups: they're kept for the life of the process and refetched once when a lookup misses.
 - **Retries (D11):** after D11's waits, each further retry waits twice as long as the one before. A tool call stops retrying when the next attempt wouldn't fit in its time budget, which stays below the client timeout (300 s in the README's setup). `Retry-After` sets a "not before" time; if that's past the budget, the call fails at once with "try again after HH:MM".
 - **Unavailable URLs:** a URL that returns 400 or 404 isn't requested again by the same process.
@@ -138,7 +139,7 @@ Implements D7–D12 and D17.
 - **Challenge pages:** detected only when a response has no Statsguru markers (`Statsguru`, `engineTable` or `/ci/engine/`) and does have challenge markers such as `captcha`, `challenge`, `cf-challenge`, `access denied` or `enable javascript`.
 - **Requests:** the page cap (D10), checked against the total on the first page (R2), and progress notifications while waiting.
 - **Tests:** a test-only hook serves synthetic pages instead of the network.
-- **Settings** (environment variables, or matching flags; flags win): `CRICKEY_MIN_INTERVAL`, `CRICKEY_MAX_RETRIES`, `CRICKEY_BLOCK_PAUSES`, `CRICKEY_MAX_PAGES`, `CRICKEY_CACHE_MAX_MB`, `CRICKEY_RECENT_TTL`, `CRICKEY_PORT` and `CRICKEY_IN_CONTAINER`. `CRICKEY_MAX_RETRIES` counts retries after the first attempt, and `0` turns them off. Durations use seconds by default or an `s`, `m` or `h` suffix; block pauses are a comma-separated list of durations.
+- **Settings** (environment variables, or matching flags; flags win): `CRICKEY_MIN_INTERVAL`, `CRICKEY_BURST`, `CRICKEY_MAX_RETRIES`, `CRICKEY_BLOCK_PAUSES`, `CRICKEY_MAX_PAGES`, `CRICKEY_CACHE_MAX_MB`, `CRICKEY_RECENT_TTL`, `CRICKEY_PORT` and `CRICKEY_IN_CONTAINER`. `CRICKEY_MAX_RETRIES` counts retries after the first attempt, and `0` turns them off. Durations use seconds by default or an `s`, `m` or `h` suffix; block pauses are a comma-separated list of durations.
 
 ## HTTP transport
 - **Serving:** `crickey serve`, which plain `crickey` also runs, serves `mcp.streamable_http_app()` with uvicorn on port 8765 (`--port` or `CRICKEY_PORT`), as one process. This is the default mode (D20).
@@ -222,7 +223,7 @@ The eval suite in `evals/` (D37) asks the golden questions through language mode
 ## Risks and open items
 - **Small tool set (D14):** questions outside the four answer tools go through `query_stats`, which a weak model may struggle with.
 - **Built-in IDs go stale slowly:** new teams or leagues are missing until the generator script is re-run. The on-demand form lookup covers the gap.
-- **Speed:** D9's spacing makes uncached multi-step answers slow. Mitigations: answer tools keep the number of requests low, plus caching, progress notifications and longer client timeouts.
+- **Speed:** D9's spacing makes uncached answers that need more than 4 requests slow. Mitigations: D9's short bursts, answer tools that keep the number of requests low, caching, progress notifications and longer client timeouts.
 - **No authentication (D20):** any program running on the machine can call the HTTP server. In Docker, publishing the port beyond loopback would expose it to the network; the README only shows loopback publishing.
 
 ## Out of scope for v1

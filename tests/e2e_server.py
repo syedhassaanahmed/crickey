@@ -107,6 +107,7 @@ class _RuntimeState:
         self.source.requests.clear()
         self.clock.sleeps.clear()
         self.fetcher._last_request_at = None
+        self.fetcher._allowance_full_at = 0.0
         return self.report()
 
 

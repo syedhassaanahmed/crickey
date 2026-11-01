@@ -22,6 +22,9 @@ _MIN_INTERVAL_EXPECTED = (
     "a positive duration in seconds, or a number with an s, m or h suffix "
     "(examples: 90, 5m, 1h), from 2s through 168h"
 )
+# Statsguru answered a 429 after a dozen requests 2.5 s apart, so bursts stay this small.
+MAX_BURST = 4
+_BURST_EXPECTED = f"an integer from 1 to {MAX_BURST}"
 _BLOCK_PAUSES_EXPECTED = (
     "a comma-separated list of positive durations in seconds, or numbers with an s, m or h suffix "
     "(examples: 90, 5m, 1h), each no more than 168h"
@@ -42,6 +45,8 @@ class SettingsError(ValueError):
 @dataclass(frozen=True)
 class Settings:
     min_interval: timedelta = timedelta(seconds=15)
+    # Requests that may go closer together than min_interval after a quiet spell.
+    burst: int = MAX_BURST
     max_retries: int = 3
     block_pauses: tuple[timedelta, ...] = (
         timedelta(minutes=5),
@@ -78,6 +83,7 @@ class _SettingSpec:
 
 _SPECS: tuple[_SettingSpec, ...] = (
     _SettingSpec("min_interval", "CRICKEY_MIN_INTERVAL", "--min-interval", _MIN_INTERVAL_EXPECTED),
+    _SettingSpec("burst", "CRICKEY_BURST", "--burst", _BURST_EXPECTED),
     _SettingSpec("max_retries", "CRICKEY_MAX_RETRIES", "--max-retries", "a non-negative integer"),
     _SettingSpec(
         "block_pauses",
@@ -177,6 +183,11 @@ def _parse_value(spec: _SettingSpec, raw: str, source: str) -> object:
             return _parse_non_negative_int(raw)
         if spec.field_name in {"max_pages", "cache_max_mb"}:
             return _parse_positive_int(raw)
+        if spec.field_name == "burst":
+            burst = _parse_positive_int(raw)
+            if burst > MAX_BURST:
+                raise ValueError
+            return burst
         if spec.field_name == "port":
             port = _parse_positive_int(raw)
             if port > 65535:
