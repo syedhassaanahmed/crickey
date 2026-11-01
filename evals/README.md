@@ -7,7 +7,12 @@ Language models answer crickey's golden questions through crickey, and determini
 ## Run it
 The steps are the same on Windows, Linux (including WSL) and macOS. Run the commands from the repository root, in Bash, zsh or PowerShell; where they differ, both forms are shown.
 
-1. **Start crickey** in another terminal, with `uv run crickey serve` or the Docker image ([README](../README.md)).
+1. **Start crickey** with Docker. To evaluate the code in this checkout, build its image and run it:
+   ```shell
+   docker build -t crickey .
+   docker run -d --rm --read-only --name crickey -p 127.0.0.1:8765:8765 crickey
+   ```
+   To evaluate the released crickey instead, use the [README](../README.md)'s `docker run` command. Stop it with `docker stop crickey` when you're done.
 2. **Start Ollama** in another terminal, with the eval's settings. Quit the Ollama app first if it's running, from its menu bar or tray icon (on Linux, `sudo systemctl stop ollama`), because it holds Ollama's port.
    ```shell
    OLLAMA_CONTEXT_LENGTH=65536 LLAMA_ARG_CACHE_RAM=0 ollama serve
@@ -19,7 +24,7 @@ The steps are the same on Windows, Linux (including WSL) and macOS. Run the comm
    - `OLLAMA_CONTEXT_LENGTH` gives models a 64k-token context. They read about 8,000 tokens of tool definitions and instructions before each question, and Ollama's own default depends on the GPU's memory, from 4k to 256k. `32768` also works, in less memory.
    - `LLAMA_ARG_CACHE_RAM=0` stops Ollama keeping up to 8 GiB of earlier conversations.
    - Leave the cache type and flash attention at their defaults. An 8-bit cache reads prompts about 4.6 times slower on a CPU.
-3. **Pull a model** that calls tools, in a third terminal:
+3. **Pull a model** that calls tools:
    ```shell
    ollama pull qwen3.8:27b
    ```
