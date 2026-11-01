@@ -5,7 +5,7 @@ from __future__ import annotations
 import tomllib
 from datetime import date
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -63,35 +63,6 @@ class ExpectedCall(_Strict):
         if unknown:
             raise ValueError(f"unknown filters: {sorted(unknown)}")
         return self
-
-    def reference_arguments(self) -> dict[str, Any]:
-        """The arguments of a correct call, for confirming the known answer live."""
-        arguments: dict[str, Any] = {}
-        if self.player is not None:
-            arguments["player_id"] = self.player.id
-            arguments["player_name"] = self.player.names[0]
-        if self.format is not None:
-            arguments["format"] = self.format
-        if self.discipline is not None:
-            arguments["discipline"] = self.discipline
-        if self.metrics:
-            metrics = [choices[0] for choices in self.metrics]
-            if self.tool == "leaderboard":
-                arguments["metric"] = metrics[0]
-            else:
-                arguments["metrics"] = metrics
-        if self.period is not None and self.period.kind != "career":
-            arguments["period"] = self.period.text()
-        arguments.update(self.filters)
-        if self.minimum is not None:
-            arguments["minimum"] = (
-                int(self.minimum) if self.minimum == int(self.minimum) else self.minimum
-            )
-        if self.split_by is not None:
-            arguments["split_by"] = self.split_by
-        if self.number_of_teams is not None:
-            arguments["number_of_teams"] = self.number_of_teams
-        return arguments
 
 
 class Case(_Strict):

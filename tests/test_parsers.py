@@ -8,7 +8,6 @@ import pytest
 
 from crickey.parsers import (
     Overs,
-    Score,
     Span,
     StatsguruParseError,
     parse_filter_form,
@@ -17,7 +16,6 @@ from crickey.parsers import (
     parse_player_page,
     parse_player_search,
     parse_results_page,
-    parse_score,
     parse_span,
 )
 
@@ -1122,7 +1120,3 @@ def test_converters_handle_spans_and_overs() -> None:
     assert parse_overs("TDNB") is None
     with pytest.raises(ValueError, match="legal balls"):
         parse_overs("47.8")
-
-
-def test_parse_score_remains_available_for_callers() -> None:
-    assert parse_score("122*") == Score(122, not_out=True)

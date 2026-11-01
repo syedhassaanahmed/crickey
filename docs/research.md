@@ -729,7 +729,7 @@ Dependabot's supported-ecosystems documentation lists `uv` as a Python ecosystem
 
 ## 16. Open questions
 - Does `https://www.espncricinfo.com/ci/content/player/<id>.html` open the player's profile in a browser? Scripts get 403, so check by hand.
-- How do `player_involve` IDs relate to player-page IDs (Babar Azam: 56880 and 348144)? Until that's known, each lookup needs the form's name search (R4).
+- How do `player_involve` IDs relate to player-page IDs (Babar Azam: 56880 and 348144)? Until that's known, an involve ID comes only from the form's name search (R4).
 
 ## 17. Evals with Inspect AI and Ollama
 [evals/README.md](../evals/README.md) says how to run the evals (D37–D40). In this section, an answer passes when it passes every check in plan.md › Evals, and "the scored run" is the run of all 20 cases in "Scores".

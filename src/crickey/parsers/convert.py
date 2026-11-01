@@ -13,19 +13,9 @@ _DECIMAL_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
 
 
 @dataclass(frozen=True)
-class Score:
-    runs: int
-    not_out: bool = False
-
-
-@dataclass(frozen=True)
 class Overs:
     overs: int
     balls: int = 0
-
-    @property
-    def total_balls(self) -> int:
-        return self.overs * 6 + self.balls
 
 
 @dataclass(frozen=True)
@@ -58,17 +48,6 @@ def parse_span(value: str) -> Span | None:
     if match is None:
         return Span(text)
     return Span(clean_text(match.group(1)), clean_text(match.group(2)))
-
-
-def parse_score(value: str) -> Score | None:
-    text = clean_text(value)
-    if text in _MISSING:
-        return None
-    not_out = text.endswith("*")
-    number = text[:-1] if not_out else text
-    if not number.replace(",", "").isdigit():
-        raise ValueError(f"expected score, got {value!r}")
-    return Score(int(number.replace(",", "")), not_out)
 
 
 def parse_overs(value: str) -> Overs | None:

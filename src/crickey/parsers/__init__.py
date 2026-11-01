@@ -1,11 +1,9 @@
 from crickey.parsers.common import StatsguruParseError
 from crickey.parsers.convert import (
     Overs,
-    Score,
     Span,
     parse_date,
     parse_overs,
-    parse_score,
     parse_span,
 )
 from crickey.parsers.forms import FilterForm, FormControl, FormOption, parse_filter_form
@@ -41,7 +39,6 @@ __all__ = [
     "PlayerSearchResult",
     "RecentMatch",
     "ResultsPage",
-    "Score",
     "Span",
     "StatsguruParseError",
     "parse_current_or_recent_matches",
@@ -53,6 +50,5 @@ __all__ = [
     "parse_player_page",
     "parse_player_search",
     "parse_results_page",
-    "parse_score",
     "parse_span",
 ]

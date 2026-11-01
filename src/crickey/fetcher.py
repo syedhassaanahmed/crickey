@@ -25,7 +25,6 @@ from crickey.settings import Settings
 LOGGER = logging.getLogger(__name__)
 
 STATS_HOST = "stats.cricinfo.com"
-STATS_ORIGIN = f"https://{STATS_HOST}"
 USER_AGENT = "curl/8.21.0"
 
 _PAGE_COUNT_RE = re.compile(r"Page\s+\d+\s+of\s+(?P<count>\d+)", re.IGNORECASE)

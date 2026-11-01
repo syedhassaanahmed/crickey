@@ -58,11 +58,11 @@ def test_metric_direction_default_minimums_and_displayed_ties() -> None:
     bpd = batting_metric("balls_per_dismissal")
     ip50 = batting_metric("innings_per_fifty_plus")
 
-    assert sr.better_than(Decimal("128.02"), Decimal("128.01")) is True
-    assert bpd.better_than(Decimal("40.01"), Decimal("40.00")) is True
-    assert ip50.better_than(Decimal("2.40"), Decimal("2.41")) is True
-    assert avg.better_than(Decimal("50.01"), Decimal("50.00")) is True
-    assert iph.better_than(Decimal("6.9"), Decimal("7.0")) is True
+    assert sr.compare(Decimal("128.02"), Decimal("128.01")) == 1
+    assert bpd.compare(Decimal("40.01"), Decimal("40.00")) == 1
+    assert ip50.compare(Decimal("2.40"), Decimal("2.41")) == 1
+    assert avg.compare(Decimal("50.01"), Decimal("50.00")) == 1
+    assert iph.compare(Decimal("6.9"), Decimal("7.0")) == 1
     assert avg.tied(Decimal("38.94"), Decimal("38.94")) is True
     assert avg.tied(Decimal("38.94"), Decimal("38.93")) is False
     assert avg.tied(None, None) is False
@@ -78,7 +78,7 @@ def test_metric_direction_default_minimums_and_displayed_ties() -> None:
 def test_fielding_rate_reads_its_text_cell_compares_and_ties() -> None:
     rate = fielding_metric("dismissals_per_innings")
     assert rate.value_from_row({"D/I": "0.411"}) == Decimal("0.411")
-    assert rate.better_than(Decimal("0.64"), Decimal("0.411")) is True
+    assert rate.compare(Decimal("0.64"), Decimal("0.411")) == 1
     assert rate.tied(Decimal("2.25"), Decimal("2.250")) is True
 
 
