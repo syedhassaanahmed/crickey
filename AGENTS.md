@@ -5,10 +5,12 @@ crickey is an MCP server that answers cricket statistics questions from Cricinfo
 ## Read first
 - [docs/plan.md](docs/plan.md): the goal and design.
 - [evals/golden_questions.toml](evals/golden_questions.toml): the golden questions, the one place they're listed (D41), and their held-out cases. Elsewhere, refer to one by its number. Never copy a case's wording, players or values into tool descriptions or the server instructions (D45).
-- [docs/decisions.md](docs/decisions.md): the numbered decisions (D1, D2, …) and the options that were dropped.
+- [docs/decisions.md](docs/decisions.md): the numbered decisions (D1, D2, …), with a record in [docs/adr/](docs/adr/) for each big one, and the options that were dropped.
 - [docs/research.md](docs/research.md): facts about Statsguru and the tools, in sections R1–R17.
 
 Each fact lives in one of these files, and the others refer to it as D# or R#. Keep it that way: new facts go in research.md, new choices (with the reason) in decisions.md, and design changes in plan.md. If a decision gets in the way, raise it with the owner instead of working around it.
+
+The docs say only where crickey stands now. When something changes, rewrite the text in place, without old versions, before/after comparisons, dated notes or the story of how a result was found; where an old result is the reason for a current decision, state the reason once. Describe machines only as far as a measurement needs to be reproduced, such as "an Apple Silicon laptop with 36 GB of unified memory". A big or complex decision gets an ADR, as decisions.md's header explains. Code comments say the reason in words rather than citing a D# or R#.
 
 ## Pick an issue
 - Work on the issue the owner names. Otherwise, take the lowest-numbered open issue that isn't labelled `needs-owner` and whose "Blocked by" issues are all closed. `gh issue list --search "is:open -is:blocked -label:needs-owner"` lists those issues.

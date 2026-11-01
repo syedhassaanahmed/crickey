@@ -15,7 +15,7 @@ from evals.cases import Case
 
 # The solver stores when the sample started, for the cost check's time.
 STARTED_KEY = "crickey_started"
-# Each check reports golden and held-out cases apart (D45), by the sample's "set".
+# Each check reports golden and held-out cases apart, by the sample's "set".
 CHECK_METRICS = [
     grouped(mean(), "set", all=False),
     grouped(stderr(), "set", all=False, name_template="{group_name}_stderr"),
@@ -96,13 +96,13 @@ def arguments() -> Scorer:
 
 @scorer(metrics=CHECK_METRICS)
 def proof() -> Scorer:
-    """The answer cites a Statsguru link, and only links that tools returned (D16)."""
+    """The answer cites a Statsguru link, and only links that tools returned."""
     return _check_scorer(checks.check_proof)
 
 
 @scorer(metrics=CHECK_METRICS)
 def grounding() -> Scorer:
-    """The answer's figures appear in tool results or the question (D13)."""
+    """The answer's figures appear in tool results or the question."""
     return _check_scorer(checks.check_grounding)
 
 

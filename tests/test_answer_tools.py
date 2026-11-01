@@ -764,7 +764,7 @@ async def test_bowling_count_comparison_floor_caps_to_target_filtered_row() -> N
             "size": 200,
         }
     )
-    # Steyn's figure is the floor, so his threshold tightens it to the same value (R2): the proof
+    # Steyn's figure is the floor, so his threshold tightens it to the same value: the proof
     # is the comparison table itself.
     proof_query = base_query
     form_url, form = career_form(47492, 1, "17 Dec 2004", "21 Feb 2019")
@@ -825,7 +825,7 @@ async def test_bowling_five_wickets_floor_caps_to_filtered_row() -> None:
             "size": 200,
         }
     )
-    # Anderson's figure is the floor, so the proof is the comparison table itself (R2).
+    # Anderson's figure is the floor, so the proof is the comparison table itself.
     proof_query = base_query
     form_url, form = career_form(8608, 1, "22 May 2003", "10 Jul 2024")
     target_spec = PlayerPageSpec(
@@ -1005,7 +1005,7 @@ async def test_golden_question_5_babar_odi_world_cup_record_requests_and_cache()
     assert "hundreds 20" not in short_answer
 
 
-# Golden question 6: two bowlers' Test records in Asia, one player_record call each (R6).
+# Golden question 6: two bowlers' Test records in Asia, one player_record call each.
 async def test_golden_question_6_two_bowlers_in_asia_in_tests() -> None:
     anderson_spec = PlayerPageSpec(
         player_id=8608, **{"class": 1, "type": "bowling", "continent": 2}
@@ -1059,7 +1059,7 @@ async def test_golden_question_6_two_bowlers_in_asia_in_tests() -> None:
 
 
 # Golden question 9: three bowlers' Test records against one opposition, one player_record call
-# each. "Imran Khan" names two Pakistan Test players (R7), so his record is read by player_id. The
+# each. "Imran Khan" names two Pakistan Test players, so his record is read by player_id. The
 # filtered rows echo R10's known answers; the rest of each page is synthetic.
 async def test_golden_question_9_three_bowlers_against_one_opposition() -> None:
     as_of = FakeClock().now().date()
@@ -1929,7 +1929,7 @@ async def test_periods_are_text_and_unreadable_ones_cost_no_request() -> None:
             "leaderboard", {"format": "Test", "metric": "runs", "period": "career"}
         )
 
-    # D42: no object for a model's tool renderer to drop.
+    # Text leaves no object for a model's tool renderer to drop.
     for name in ("leaderboard", "better_than_player", "player_record"):
         period = tools[name].input_schema["properties"]["period"]
         assert period["anyOf"] == [{"type": "string"}, {"type": "null"}]
@@ -3366,7 +3366,7 @@ async def test_answer_tools_need_a_player_name_or_player_id() -> None:
 
 # Issue #59: a summary page's "Career summary" table groups the page's matches by opposition, host
 # country, continent, year and more, with a blank row between groupings. Each row's innings link
-# is the page's own query with that grouping's filter set to the row's value (R6). The players,
+# is the page's own query with that grouping's filter set to the row's value. The players,
 # IDs and figures below are synthetic.
 SPLIT_BATTING_COLUMNS = tuple("Span Mat Inns NO Runs HS Ave BF SR 100 50 0".split())
 SPLIT_BOWLING_COLUMNS = tuple("Span Mat Inns Overs Mdns Runs Wkts BBI BBM Ave Econ SR 5 10".split())
@@ -3488,7 +3488,7 @@ def centurion_pages() -> dict[str, str]:
     }
 
 
-# Golden question 8, checked one player at a time (D34): has the player scored a Test hundred in
+# Golden question 8, checked one player at a time: has the player scored a Test hundred in
 # every host country? Continents are a separate grouping, so they don't count.
 async def test_golden_question_8_counts_hundreds_in_host_countries_not_continents() -> None:
     page_url = split_spec().url(as_of=FakeClock().now().date())
@@ -3897,8 +3897,8 @@ async def test_split_by_without_the_counted_column_does_not_claim_a_count() -> N
     assert markdown_rows(answer)[0] == ["Host country", "Mat", "Wkts", "Ave"]
 
 
-# Issue #61: fielding answers. The columns follow R6 and R8; the figures are synthetic, apart
-# from Jonty Rhodes's 139 catches (all as a fielder) and D/I of 0.411 (R10).
+# Issue #61: fielding answers. The columns follow Statsguru's fielding pages; the figures are
+# synthetic, apart from Jonty Rhodes's 139 catches (all as a fielder) and D/I of 0.411 (R10).
 RHODES_ID = 46973
 FIELDING_HEADERS = ("Span", "Mat", "Inns", "Dis", "Ct", "St", "Ct Wk", "Ct Fi", "MD", "D/I")
 RUN_OUT_NOTE = "Statsguru's fielding figures count catches and stumpings, not run-outs."
@@ -4224,7 +4224,7 @@ async def test_golden_question_7_catches_across_all_formats_compared_to_rhodes(
             "size": 200,
         }
     )
-    # Rhodes's 139 tightens the floor on the same field rather than repeating it (R2).
+    # Rhodes's 139 tightens the floor on the same field, since Statsguru misreads a repeated one.
     proof_query = base_query.model_copy(
         update={"qualifications": (Qualification(field=field, minimum=139),)}
     )
@@ -4363,7 +4363,7 @@ async def test_fielding_comparison_lowers_the_floor_to_the_targets_own_figure() 
             ("unfiltered", {"ct_fi": 0, "ct_wk": 256, "st": 38, "inns": 166, "di": "1.771"}),
             ("filtered", {"ct_fi": 0, "ct_wk": 80, "st": 12, "inns": 75, "di": "1.226"}),
         ),
-        # Dhoni's own figure is now the floor, so the proof is this table itself (R2).
+        # Dhoni's own figure is now the floor, so the proof is this table itself.
         url(query(12)): fielding_result_page([spinner, target]),
     }
     source, client = await client_for(pages)

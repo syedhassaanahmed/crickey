@@ -91,7 +91,8 @@ To compare named players, call player_record once for each; better_than_player f
 Cite only links that came from crickey tools, as full URLs copied exactly.
 Read "T20" as T20I unless a domestic or franchise league is named."""
 
-# Every tool result's `_meta` says what the call cost Statsguru (D38). Models don't see it.
+# Every tool result's `_meta` says what the call cost Statsguru, for the eval's cost check. Models
+# don't see it.
 STATSGURU_META_KEY = "crickey/statsguru"
 
 FETCH_BUDGET_SECONDS = 240.0
@@ -145,7 +146,7 @@ _FILTERED_FIELDING_MINIMUMS = {1: 20, 2: 20, 3: 20, 6: 50, 11: 30}
 _COUNT_LEADERBOARD_MINIMUM = 1
 _ANSWER_DISCIPLINES = ("batting", "bowling", "fielding")
 _RECORD_DISCIPLINES = ("batting", "bowling")
-# Answers name what Statsguru's fielding columns leave out or fold in (R8).
+# Answers name what Statsguru's fielding columns leave out or fold in.
 _FIELDING_NOTE = "Statsguru's fielding figures count catches and stumpings, not run-outs."
 _DISMISSALS_NOTE = "Dismissals are catches plus stumpings, including those taken as a wicketkeeper."
 _FIELDING_METRIC_NOTES = {
@@ -215,7 +216,7 @@ class _SplitCount:
     key: str
 
 
-# How answers name each grouping of the summary page's "Career summary" table (R6, D34).
+# How answers name each grouping of the summary page's "Career summary" table.
 _SPLITS = {
     "host": _Split("host country", "host countries", "in", "Host country", "host_country"),
     "opposition": _Split("opposition", "oppositions", "against", "Opposition", "opposition"),
@@ -234,7 +235,7 @@ _SPLIT_COUNTS = {
 }
 
 # What each tool parameter takes, in one line, so small models put a question's details in the
-# right parameters (#66, D13). Defaults and allowed values are in the schemas already.
+# right parameters (#66). Defaults and allowed values are in the schemas already.
 _TOURNAMENTS = "A tournament goes in trophy."
 FormatParam = Annotated[
     str | int, Field(description='Test, ODI, T20I, "all T20" or "all formats".')
@@ -251,12 +252,13 @@ PlayerIdParam = Annotated[
     PositiveInt | None,
     Field(description="Player ID from find_player or a clarification. Give this or player_name."),
 ]
-# A period is plain text in one of a few forms (D42); the descriptions and errors show them.
+# A period is plain text in one of a few forms, since some models' tool renderers hide an object's
+# fields. The descriptions and errors show the forms.
 _PERIOD_RANGES = (
     'years ("2010 to 2019"), dates ("2010-01-01 to 2019-12-31") or a season ("season 2011/12")'
 )
 _PLAYER_SPANS = '"first N years", "last N years"'
-# No number in the example: small models copied it instead of the question's (R17).
+# No number in the example: small models copied it instead of the question's.
 _PLAYER_SPANS_NOTE = "N is the number of years."
 LeaderboardPeriodParam = Annotated[
     str | None,
@@ -1141,10 +1143,10 @@ async def _better_than_player_tool(
                 )
 
             floor_value: int | Decimal = minimum if minimum is not None else default_floor
-            # X always qualifies (D29, D32, D35). Bowling reads X's figures up front; batting and
-            # fielding read them only when X is missing, so comparisons where X qualifies cost no
-            # request. The player page has no team filter (R6), so under one its figure covers
-            # all of X's teams: exact for one team, an upper bound for more.
+            # X's figure caps the default floor, so X always qualifies. Bowling reads X's figures up
+            # front; batting and fielding read them only when X is missing, so comparisons where X
+            # qualifies cost no request. The player page has no team filter, so under one its figure
+            # covers all of X's teams: exact for one team, an upper bound for more.
             target_floor_read = minimum is None and discipline_value == "bowling"
             if target_floor_read:
                 floor_value = _floor_for_target(floor_value, await target_floor())
@@ -1154,7 +1156,7 @@ async def _better_than_player_tool(
             except TooBroadError as error:
                 if minimum is None:
                     raise
-                # Leaving minimum out helps only when crickey's own floor is higher (D10, #81).
+                # Leaving minimum out helps only when crickey's own floor is higher (#81).
                 fix = (
                     "leave minimum out so crickey picks a floor, or raise it"
                     if minimum < default_floor
@@ -1439,7 +1441,7 @@ async def _player_record_tool(
                 )
                 page = parse_player_page(html)
             row = _player_record_row(page)
-            # A split reads the grouped rows on the same page, so it costs no request (D34).
+            # A split reads the grouped rows on the same page, so it costs no request.
             grouped = parse_grouped_rows(html) if split_key and row is not None else None
             recent = parse_current_or_recent_matches(html)
     except (
@@ -1562,7 +1564,8 @@ def _answer_discipline(
 
 
 def _record_discipline(value: RecordDiscipline | str) -> str:
-    # player_record stays batting and bowling (D35), so a fielding call is pointed elsewhere.
+    # player_record stays batting and bowling: its splits count hundreds or five-wicket hauls, and
+    # fielding has no equivalent yet. A fielding call is pointed elsewhere.
     if str(value.value if isinstance(value, StrEnum) else value).casefold() == "fielding":
         raise ValueError(
             "player_record has no fielding records yet; use query_stats with type fielding "
@@ -1616,7 +1619,7 @@ def _answer_metric(discipline: str, value: AnswerMetric | str) -> Metric:
             "five for": "five wickets",
             "five wickets": "five wickets",
         },
-        # Statsguru's own field names (R5) and common wordings.
+        # Statsguru's own field names and common wordings.
         "fielding": {
             "caught": "catches",
             "caught fielder": "fielder catches",
@@ -1761,7 +1764,7 @@ def _has_text(value: str | None) -> bool:
     return value is not None and bool(value.strip())
 
 
-# The period forms crickey reads (D42). Matching ignores case, reads underscores as spaces and
+# The period forms crickey reads. Matching ignores case, reads underscores as spaces and
 # any dash as a hyphen, since models write periods those ways.
 _CAREER = SymbolicPeriod(kind=SymbolicPeriodKind.CAREER)
 _NUMBER_WORDS = {
@@ -1805,7 +1808,7 @@ _SEASON_PERIOD = re.compile(
 
 
 def _parse_period(text: str | None, *, without_player: str | None = None) -> Period:
-    """The period a tool call gives as text (D42); None means all time.
+    """The period a tool call gives as text; None means all time.
 
     A bare year is the calendar year, and a season needs the word or the 2011/12 form.
     `without_player` says why a tool has no player whose career a period could follow, such as
@@ -1938,7 +1941,7 @@ def _rate_default_minimum(
 def _fielding_default_minimum(
     metric: Metric, class_id: int, *, period: Period, filters: Mapping[str, Any]
 ) -> DefaultMinimum:
-    # D35: the same field as the registry's floor, lower under any narrowing filter (as in D32).
+    # The same field as the registry's floor, lower under any narrowing filter, like bowling rates.
     minimum = metric.default_minimum(class_id)
     if _is_filtered_query(period, filters):
         return DefaultMinimum(minimum.field, _FILTERED_FIELDING_MINIMUMS[class_id])
@@ -1970,7 +1973,7 @@ def _comparison_default_minimum(
         )
         return minimum.field, minimum.minimum
     if _is_fielding_metric(metrics[0]):
-        # A rate takes its dismissals floor; counts take the first metric's own field (D35).
+        # A rate takes its dismissals floor; counts take the first metric's own field.
         metric = next(
             (metric for metric in metrics if metric.key in _FIELDING_RATE_METRICS), metrics[0]
         )
@@ -2502,7 +2505,7 @@ def _player_split_result(
             "so crickey can't split it."
         )
     # Every match has one host, opposition, continent and year, so the grouped rows must add up to
-    # the record. They do on every saved page, filtered or not (R6); if they don't, they may not
+    # the record. They do on every saved page, filtered or not; if they don't, they may not
     # cover the same filters, and showing them would be wrong.
     if matches != record.get("Mat"):
         raise ToolError(
@@ -3005,9 +3008,10 @@ def _jsonable(value: Any) -> Any:
 def _reports_statsguru_cost(
     tool: Callable[..., Awaitable[CallToolResult]],
 ) -> Callable[..., Awaitable[CallToolResult]]:
-    """Give each tool call a fresh tally, and report it on errors too (D38).
+    """Give each tool call a fresh tally, and report it on errors too.
 
-    A ToolError becomes an error result with MCPServer's own text, plus the tally.
+    A ToolError becomes an error result with MCPServer's own text, plus the tally, since
+    MCPServer's error results carry no `_meta`.
     """
 
     @functools.wraps(tool)

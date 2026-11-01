@@ -16,7 +16,7 @@ from crickey.parsers.results import _rows_to_frame, _usable_headers
 
 _BREADCRUMB_PREFIX = "Statistics / Statsguru /"
 _DATA1_ROWS_XPATH = './/tr[contains(concat(" ", normalize-space(@class), " "), " data1 ")]'
-# Labels Statsguru gives grouped rows, by the filter each grouping sets (R6). Host and continent
+# Labels Statsguru gives grouped rows, by the filter each grouping sets. Host and continent
 # rows share "in ", so only the row's link tells them apart.
 _GROUPING_LABEL_PREFIXES = {
     "opposition": "v ",
@@ -73,7 +73,7 @@ def parse_player_page(page: str) -> PlayerPage:
 
 
 def _player_name(doc) -> str | None:
-    # The breadcrumb reads "Statistics / Statsguru / <name> / <format>" (R6).
+    # The breadcrumb reads "Statistics / Statsguru / <name> / <format>".
     for link in doc.xpath('//a[contains(@href, "/ci/engine/player/")]'):
         text = element_text(link)
         if text.startswith(_BREADCRUMB_PREFIX):
@@ -84,7 +84,7 @@ def _player_name(doc) -> str | None:
 
 def parse_grouped_rows(page: str) -> pd.DataFrame:
     """Read the summary page's "Career summary" table, which splits the page's matches by
-    opposition, host country, continent, year and more (R6).
+    opposition, host country, continent, year and more.
 
     Each row keeps Statsguru's label in "Grouping" and its figures, plus `grouping_key`, the filter
     that the row's "view innings" link sets (such as "host" or "continent"), `grouping_value`, that

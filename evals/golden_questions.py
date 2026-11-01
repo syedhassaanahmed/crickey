@@ -1,4 +1,4 @@
-"""Inspect task: language models answer the golden questions through crickey (#18, D37).
+"""Inspect task: language models answer the golden questions through crickey (#18).
 
     uv run --group evals --env-file evals/inspect.env inspect eval evals/golden_questions.py \
         --model ollama/qwen3.8:27b
@@ -38,11 +38,12 @@ from evals.scorers import (
 
 CRICKEY_URL = "http://127.0.0.1:8765/mcp"
 EPOCHS = 3
-# Tool definitions, server instructions and the question come to about 8,000 tokens (R17), and
-# a CPU reads them slowly: minutes on the owner's laptop, about 15 on a GitHub runner. This bounds
-# a model call with its retries; evals/inspect.env lets each HTTP request take as long (R17).
+# Tool definitions, server instructions and the question come to about 8,000 tokens, and a CPU
+# reads them slowly: minutes on the owner's laptop, about 15 on a GitHub runner. This bounds a
+# model call with its retries; evals/inspect.env lets each HTTP request take as long, since Inspect
+# creates its HTTP clients before it loads this file.
 MODEL_TIMEOUT_SECONDS = 3600
-# Room for several tool rounds, including a clarification and a second call (Imran Khan, R7).
+# Room for several tool rounds, including a clarification and a second call (two Imran Khans).
 MESSAGE_LIMIT = 40
 # Models see crickey's whole answer, as an MCP client would show it; Inspect cuts at 16 KiB.
 MAX_TOOL_OUTPUT_BYTES = 1024 * 1024
@@ -103,8 +104,8 @@ def golden_questions(crickey_url: str = CRICKEY_URL) -> Task:
             cost(),
         ],
         epochs=Epochs(EPOCHS, "mean"),
-        # One question at a time: a local model keeps the shared prompt between questions
-        # (R17), and crickey sends its Statsguru requests one at a time anyway (D9).
+        # One question at a time: a local model keeps the shared prompt between questions, and
+        # crickey sends its Statsguru requests one at a time anyway.
         config=GenerateConfig(
             max_connections=1,
             timeout=MODEL_TIMEOUT_SECONDS,

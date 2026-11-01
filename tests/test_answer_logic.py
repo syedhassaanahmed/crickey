@@ -530,7 +530,7 @@ def test_proof_link_adds_qualval2_and_qualval3_and_fetches_once_to_confirm() -> 
 
 
 def test_proof_threshold_on_the_floor_field_tightens_it_instead_of_repeating_it() -> None:
-    # Statsguru misreads a repeated qualification field (R2): caught_fielder >= 100 and >= 139
+    # Statsguru misreads a repeated qualification field: caught_fielder >= 100 and >= 139
     # returned only players on exactly 100 or 139.
     async def run() -> None:
         query = StatsguruQuery(

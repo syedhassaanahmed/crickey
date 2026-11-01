@@ -1,4 +1,4 @@
-"""The golden questions and their eval cases, from golden_questions.toml (D37, D41)."""
+"""The golden questions and their eval cases, from golden_questions.toml."""
 
 from __future__ import annotations
 
@@ -27,14 +27,14 @@ class ExpectedPlayer(_Strict):
 
 class ExpectedPeriod(_Strict):
     # "career" also accepts no period, which the answer tools read as the player's career, and
-    # with start and end, the span crickey resolves for that career (R10).
+    # with start and end, the span crickey resolves for that career.
     kind: Literal["career", "all_time", "dates", "first_years", "last_years"]
     start: date | None = None
     end: date | None = None
     years: int | None = None
 
     def text(self) -> str:
-        """The period as the answer tools take it (D42), such as "last 3 years"."""
+        """The period as the answer tools take it, such as "last 3 years"."""
         if self.kind == "dates":
             return f"{self.start} to {self.end}"
         if self.years is not None:
@@ -102,15 +102,15 @@ class Case(_Strict):
     id: str
     # A held-out case asks the same kind of question in other words, about other players,
     # teams, formats or periods. Nothing in crickey quotes it, so it shows how models handle a
-    # question they haven't been shown (D45).
+    # question they haven't been shown.
     held_out: bool = False
     # What the eval asks: the golden question with real players and an answer that can't change.
     question: str
     # The answer tool the question needs (plan › MCP tools).
     tool: str
     calls: tuple[ExpectedCall, ...] = Field(min_length=1)
-    # The known answer (R10): each entry lists the texts that count, and the answer needs one
-    # of each.
+    # The known answer, confirmed live: each entry lists the texts that count, and the answer needs
+    # one of each.
     facts: tuple[tuple[str, ...], ...] = Field(min_length=1)
     fixed_because: str
 

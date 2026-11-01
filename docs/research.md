@@ -1,8 +1,10 @@
 # Research notes
 
-Everything learned while planning crickey, so it doesn't need to be redone. Unless marked otherwise, items were observed directly on 3–4 October 2026.
+Facts about Statsguru and the tools crickey uses, so they don't need to be found again. Each was observed directly, unless marked:
 - **(search summary)** marks facts from a web-search summary rather than the primary page.
 - **(unverified)** marks facts seen in other people's code that we haven't tested.
+
+Statsguru's figures, such as players' records and row counts, are as of 3–4 October 2026 unless an item gives another date.
 
 [plan.md](plan.md) has the goal and how crickey is built, [evals/golden_questions.toml](../evals/golden_questions.toml) lists the golden questions, and [decisions.md](decisions.md) records what was decided from these facts, by number (D1, D2, …).
 
@@ -62,9 +64,9 @@ All on the same results page: `https://stats.cricinfo.com/ci/engine/stats/index.
 | `python-httpx/0.28.1` (httpx's default) | 403 |
 | `curl/8.21.0` (curl's default) | 200 |
 | `crickey/0.1` | 200 |
-| httpx 0.28.1 sending `curl/8.21.0` (4 Oct) | 200 |
+| httpx 0.28.1 sending `curl/8.21.0` | 200 |
 
-Earlier on 3 Oct, `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 on form, results and player pages.
+`Mozilla/5.0` and a full Chrome-like User-Agent also got 200 on form, results and player pages.
 
 ## 2. Statsguru URL model
 
@@ -77,8 +79,8 @@ Earlier on 3 Oct, `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 o
 | Records index | `https://stats.cricinfo.com/ci/engine/records/index.html?class=<class>` |
 
 - **Separators:** parameters are separated by `;`, and `&` also works. Cricinfo redirects every query to a standard URL with parameters sorted alphabetically, for example `?class=2;orderby=hundreds;qualmin1=10;qualval1=hundreds;template=results;type=batting`.
-- **Repeated keys:** a live T20I team results query with `result=1;result=2;size=10` returned 200 and kept the standard URL as `class=3;result=1;result=2;size=10;template=results;type=team`, so checkbox groups are encoded as repeated keys. Only that already-sorted order was checked.
-- **Repeated keys for dropdown filters:** checked live on 5 Oct 2026 with `size=10` and curl's User-Agent. For each row, the filter summary applied repeated keys as “one of”.
+- **Repeated keys:** checkbox groups are encoded as repeated keys. A live T20I team results query with `result=1;result=2;size=10` returned 200 and kept the standard URL as `class=3;result=1;result=2;size=10;template=results;type=team`. Only that already-sorted order was checked.
+- **Repeated keys for dropdown filters:** Statsguru applies repeated keys as “one of” for each filter below, as each query's filter summary shows. Checked live with `size=10` and curl's User-Agent.
 
 | Parameter | Checked query | Filter summary text |
 |---|---|---|
@@ -95,16 +97,16 @@ Earlier on 3 Oct, `Mozilla/5.0` and a full Chrome-like User-Agent also got 200 o
 | `fow_type` | `?class=1;fow_type=1;fow_type=2;orderby=fow_score;size=10;template=results;type=fow` | `Fall of wicket dismissal out or not out` |
 | `event` | `?class=1;event=1;event=2;orderby=runs;size=10;template=results;type=team` | `Innings end all out or declared Totals in terms of batting team` |
 
-Skipped: `view`, `groupby`, `orderby`, `orderbyad`, `size` and `page` are output controls, not filters; quick-pick dropdowns such as `spanquickpick`, `agequickpick`, `runsquickpick`, `qualquickpick` and similar range shortcuts are not supported by crickey; text and numeric ranges are not dropdowns; checkbox groups were already known multi-value; radios (`toss`, `batting_fielding_first`, `captain`, `keeper`, `outs`) are not dropdowns and leaving them blank already means either state; `team_view` chooses whether team totals are from the batting or bowling side, so several values would not narrow to “one of”.
+Not checked: `view`, `groupby`, `orderby`, `orderbyad`, `size` and `page` are output controls, not filters; quick-pick dropdowns such as `spanquickpick`, `agequickpick`, `runsquickpick`, `qualquickpick` and similar range shortcuts are not supported by crickey; text and numeric ranges are not dropdowns; checkbox groups take repeated keys anyway (above); radios (`toss`, `batting_fielding_first`, `captain`, `keeper`, `outs`) are not dropdowns and leaving them blank already means either state; `team_view` chooses whether team totals are from the batting or bowling side, so several values would not narrow to “one of”.
 - **Links inside pages:** player profiles are `/ci/content/player/<id>.html`; matches are `/ci/engine/match/<id>.html`.
 - **Date range:** `spanmin1=07+Sep+2016;spanmax1=24+Feb+2026;spanval1=span`, with dates as `DD Mon YYYY`. The form's hidden `spanmin0` and `spanmax0` hold the class's first and latest match dates. First match dates: Tests 15 Mar 1877, ODIs 05 Jan 1971, T20Is 17 Feb 2005, all T20 13 Jun 2003 and combined internationals 15 Mar 1877.
 - **Minimums:** `qualval1=<field>;qualmin1=<n>`, with optional `qualmax1`. The form shows only one, but `qualval2`/`qualmin2` and `qualval3`/`qualmin3` also work: a query with three minimums returned only rows meeting all three.
-- **A field in two minimums:** checked live on 8 Oct 2026 (issue #61). Statsguru doesn't read the same field in two qualifications as two minimums. Combined-internationals fielding with `qualval1=caught_fielder;qualmin1=100;qualval2=caught_fielder;qualmin2=139` returned 4 rows: JN Rhodes on 139 and three players on exactly 100. `caught_fielder>=139` alone returned 86 rows. So each field goes in one qualification, and a proof link tightens a field the query already qualifies instead of repeating it.
-- **Maximums for lower-is-better bowling fields:** checked live on 5 Oct 2026 with curl's User-Agent. Test bowling in Asia with `wickets>=100` and `qualmax2=25;qualval2=bowling_average` returned 7 rows, all with displayed bowling average at or below 25. The same check with `qualmax2=50;qualval2=bowling_strike_rate` returned 5 rows, all with displayed bowling strike rate at or below 50. Because Statsguru compares exact values while it displays truncated values, answer proof links use an inclusive display maximum: `qualmax2=27.5199;qualval2=bowling_average` with `wickets>=92` included JM Anderson's displayed 27.51 in Asia.
+- **A field in two minimums:** Statsguru doesn't read the same field in two qualifications as two minimums. On 8 Oct 2026, combined-internationals fielding with `qualval1=caught_fielder;qualmin1=100;qualval2=caught_fielder;qualmin2=139` returned 4 rows: JN Rhodes on 139 and three players on exactly 100. `caught_fielder>=139` alone returned 86 rows. So each field goes in one qualification, and a proof link tightens a field the query already qualifies instead of repeating it.
+- **Maximums for lower-is-better bowling fields:** a `qualmax` keeps only rows at or below it. In a live check with curl's User-Agent on 5 Oct 2026, Test bowling in Asia with `wickets>=100` and `qualmax2=25;qualval2=bowling_average` returned 7 rows, all with displayed bowling average at or below 25. The same check with `qualmax2=50;qualval2=bowling_strike_rate` returned 5 rows, all with displayed bowling strike rate at or below 50. Because Statsguru compares exact values while it displays truncated values, answer proof links use an inclusive display maximum: `qualmax2=27.5199;qualval2=bowling_average` with `wickets>=92` included JM Anderson's displayed 27.51 in Asia.
 - **Minimum precision:** minimums are compared with exact values, to at least 4 decimals. Babar Azam's T20I average is 38.94915…; `qualmin2=38.9491` kept his row, while `qualmin2=38.9492` returned "No records available to match this query". Fielding rates take decimal minimums too: on 8 Oct 2026, combined-internationals fielding with `dismissals>=100` and `qualmin2=0.411;qualval2=dismissals_per_inns` returned 172 rows, including JN Rhodes's displayed 0.411.
 - **Sort:** `orderby=<field>`; `orderbyad=reverse` reverses the order.
-- **Bowling sort order:** checked from saved pages on 5 Oct 2026. `orderby=wickets` returns most wickets first; `orderby=bowling_average;orderbyad=reverse` returns higher averages before lower averages, so the default `orderby=bowling_average` is best-first for bowling average. The same reverse page shape was checked for bowling strike rate. A live `orderby=economy_rate` Test bowling query in Asia with `wickets>=100` returned lower economy rates first (1.99, 2.01, 2.13...), so economy rate is also best-first by default. Higher-count bowling fields such as wickets, five-wicket hauls and ten-wicket matches use Statsguru's default high-to-low order.
-- **Fielding sort order:** checked live on 8 Oct 2026 (issue #61). Every fielding field sorts best first by default. Count fields sort most first: `caught`, `caught_fielder` and `dismissals` in combined internationals, `stumped` in Tests (WAS Oldfield 52, TG Evans 46, then MS Dhoni and SMH Kirmani 38) and `caught_keeper` in ODIs (AC Gilchrist 417, MV Boucher 402, KC Sangakkara 383). `orderby=dismissals_per_inns` with Test `dismissals>=50` returned the highest rates first (TD Paine 2.308, Q de Kock 2.297, CO Browne 2.25).
+- **Bowling sort order:** by default, bowling average, bowling strike rate and economy rate sort best (lowest) first, and count fields such as wickets, five-wicket hauls and ten-wicket matches sort highest first. On saved pages, `orderby=wickets` returns most wickets first, and `orderby=bowling_average;orderbyad=reverse` returns higher averages before lower averages; the reverse page for bowling strike rate has the same shape. A live `orderby=economy_rate` Test bowling query in Asia with `wickets>=100` returned lower economy rates first on 5 Oct 2026 (1.99, 2.01, 2.13...).
+- **Fielding sort order**, checked live: every fielding field sorts best first by default. Count fields sort most first: `caught`, `caught_fielder` and `dismissals` in combined internationals, `stumped` in Tests (WAS Oldfield 52, TG Evans 46, then MS Dhoni and SMH Kirmani 38) and `caught_keeper` in ODIs (AC Gilchrist 417, MV Boucher 402, KC Sangakkara 383). `orderby=dismissals_per_inns` with Test `dismissals>=50` returned the highest rates first (TD Paine 2.308, Q de Kock 2.297, CO Browne 2.25).
 - **Paging:** `size` is 10, 25, 50 (default), 100, 150 or 200, and `page=<n>` selects later pages. Each page shows the total, for example "Page 2 of 5 Showing 201 - 400 of 850", so the first page tells how many pages a query needs. A 200-row page is about 1 MB of HTML.
 - **Truncated decimals:** averages and strike rates are cut off, not rounded. Babar Azam's T20I average is 4596 ÷ 118 = 38.949, shown as 38.94 (rounding would give 38.95). Bowling figures are truncated too (R8), and so is fielding's dismissals per innings (D/I): TD Paine's 157 ÷ 68 = 2.3088 shows as 2.308, and AT Carey's 210 ÷ 96 = 2.1875 as 2.187.
 - **Trailing zeros** are dropped from displayed numbers, for example "47.8" and "55".
@@ -206,7 +208,7 @@ The basic bowling form has the same fields as the basic batting form. In the adv
 
 **Views (`view`)** beyond the batting list: all-round adds `results` and `awards`; team adds `results`, `extras` and `extras_innings`; aggregate has overall, `match`, `results`, `series`, `ground`, `host`, `year`, `season` and `extras`.
 
-**The aggregate series view** (`type=aggregate;view=series`), checked on ODIs on 29 Oct 2026 for #97:
+**The aggregate series view** (`type=aggregate;view=series`), checked on ODIs, with counts as of 29 Oct 2026:
 - One row per series, ordered by start date, under the caption "Series averages". The columns are Series, Mat, Won, Tied, NR, Runs, Wkts, Balls, Ave, RPO, Start Date and Winner, which is "-" while the series is in progress.
 - The Series column is blank. Each row's "investigate" menu has the series' ID, in its "Query for this series" link (`series=617`), and its home page, `/ci/content/series/60876.html`, which redirects to www.espncricinfo.com. The advanced form's series list, 983 for ODIs, has the names for those IDs: 617 is "Reliance World Cup, 1987/88" and 701 "Wills Triangular Series, 1994/95".
 - The page's total ("Showing 1 - 11 of 11") is the number of series, and `tournament_type` takes repeated keys: `tournament_type=3;tournament_type=5` gives the series of three or more teams.
@@ -340,8 +342,8 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - Batting: blank for career summary, `innings`, `match`, `cumulative`, `reverse_cumulative`, `series`, `ground`, `results` (match results), `awards_match`, `awards_series`, `fow_summary` (partnership summary), `fow_list`, `dismissal_summary`, `bowler_summary`, `fielder_summary`, `dismissal_list`.
   - Bowling: `dismissal_summary` (wickets summary), `batsman_summary` (batters dismissed), `fielder_summary`, `dismissal_list` (list of wickets).
   - Fielding: `dismissal_summary`, `batsman_summary`, `bowler_summary`, `dismissal_list`.
-  - There's no view by host country: `view=host` returned HTTP 400 on 7 Oct 2026 (issue #59). The summary page's grouped rows have one row per host country instead (below).
-- **Filters:** `opposition`, `host` and `ground` (lists specific to the player; Babar Azam's ODIs have 14 oppositions, 12 hosts and 51 grounds), `home_or_away`, dates (`spanmin1` and `spanmax1`), `spanquickpick`, `season` and `result` (1 won, 2 lost, 3 tied, 5 no result).
+  - There's no view by host country: `view=host` returns HTTP 400. The summary page's grouped rows have one row per host country instead (below).
+- **Filters:** `opposition`, `host` and `ground` (lists specific to the player; Babar Azam's ODIs have 14 oppositions, 12 hosts and 51 grounds), `home_or_away`, dates (`spanmin1` and `spanmax1`), `spanquickpick`, `season` and `result` (1 won, 2 lost, 3 tied, 5 no result). There's no `team` filter, though a player with more than one team gets a grouped row for each (below).
 - **Career span:** the player's form page for a format (the same URL without `template=results`, which robots.txt allows) has hidden `spanmin0` and `spanmax0` set to the player's first and last match dates in that format. Babar Azam's T20Is: 07 Sep 2016 to 24 Feb 2026; his ODIs: 31 May 2015 to 04 Jun 2026.
 - **Format tabs** show each format's span. For Babar Azam: "Tests (2016/17 - 2026)", "ODIs (2015 - 2026)" and "T20Is (2016 - 2025/26)", plus an "other" menu with class 11 (All Test/ODI/T20I), 6 (Twenty20), 21 (Youth ODIs) and 22 (Youth T20Is).
 - **Career summary columns:**
@@ -349,14 +351,14 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - T20I bowling: Span, Mat, Inns, Overs, Mdns, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5.
   - Combined-internationals fielding: Span, Mat, Inns, Dis, Ct, St, Ct Wk, Ct Fi, MD, D/I, the same as the fielding results columns (R8).
   - The summary page also has grouped rows, split by a "Grouping" column (below).
-- **Grouped rows:** checked on 7 Oct 2026 (issue #59) on 13 saved summary pages: Younis Khan (43652) and Rahul Dravid (28114) in Tests; Imran Khan (40560) in Tests from 1981 to 1992 (two copies); Babar Azam's T20Is (all, and 2020 to 2021) and ODI World Cups; JM Anderson's Test bowling in Asia and in India or Pakistan; DW Steyn's and M Ntini's Test bowling in Asia; and V Kohli's and Shoaib Malik's T20I batting in the UAE.
+- **Grouped rows**, from 13 saved summary pages: Younis Khan (43652) and Rahul Dravid (28114) in Tests; Imran Khan (40560) in Tests from 1981 to 1992 (two copies); Babar Azam's T20Is (all, and 2020 to 2021) and ODI World Cups; JM Anderson's Test bowling in Asia and in India or Pakistan; DW Steyn's and M Ntini's Test bowling in Asia; and V Kohli's and Shoaib Malik's T20I batting in the UAE.
   - After "Career averages", the summary page (no `view`) has a "Career summary" table. Its first column is "Grouping", and each row has the same columns as "Career averages". A blank one-cell row separates the groupings.
   - The groupings come in this order: the player's teams (only for a player with more than one, such as Dravid's "ICC World XI" and "India"), opposition ("v Australia"), host country ("in Australia", "in U.A.E."), continent ("in Africa", "in Asia"), home, away and neutral, year ("year 2000", with a blank Span), season ("season 1999/00"), then captain, toss, batting first, innings, result, series and position groupings, among others.
   - Host countries and continents share the "in " label. The link that ends each row ("view all innings for this row", with `view=innings`) names the grouping: `opposition=<team ID>`, `host=<host ID>`, `continent=<continent ID>`, `year=<year>`, `season=<season>` or `home_or_away=<1 to 3>`. Some groupings set two or three keys, such as "won batting first" (`batting_fielding_first=1;result=1`) and positions.
   - That link is the page's own query, as in the header's sort links, with the grouping's key set to the row's value. The row's value replaces a page filter on the same key: on Anderson's page filtered to `host=6;host=7`, "in India" links to `host=6`. On a page filtered to one value of that key, such as Malik's `host=27` page, the "in U.A.E." row's link is the page's own query.
   - Filters apply to the grouped rows. On every filtered page above (by dates, trophy, continent or host), the links carry the page's filters. The host, opposition, continent, year and season rows each add up to the filtered row's matches, for example 55 for Imran Khan from 1981 to 1992, whose year rows run from 1981 to 1992 only. On the unfiltered pages they add up to the overall row's matches: 118 for Younis Khan and 164 for Dravid.
-  - Younis Khan's 11 host-country rows each show at least one hundred: 11 in the UAE, 7 in Pakistan, 3 each in Bangladesh, India and Sri Lanka, 2 in England, and 1 each in Australia, New Zealand, South Africa, the West Indies and Zimbabwe. All 10 of Dravid's do too. These are golden question 8's known answers so far, checked one player at a time (D34).
-- **Grouped rows on crickey's pages:** checked live on 7 Oct 2026 (issue #59), 2 requests 23 s apart with curl's User-Agent, both HTTP 200. crickey's pinned dates (D16) make every player page it reads a filtered page, with "unfiltered" and "filtered" rows, and the grouped rows' links carry those dates.
+  - Younis Khan's 11 host-country rows each show at least one hundred: 11 in the UAE, 7 in Pakistan, 3 each in Bangladesh, India and Sri Lanka, 2 in England, and 1 each in Australia, New Zealand, South Africa, the West Indies and Zimbabwe. All 10 of Dravid's do too. These two are golden question 8's known answers; other players can only be checked one at a time (D34).
+- **Grouped rows on crickey's pages**, checked live: crickey's pinned dates (D16) make every player page it reads a filtered page, with "unfiltered" and "filtered" rows, and the grouped rows' links carry those dates.
   - `player_record(player_id=43652, format=Test, split_by=host)` took 1 request. Both rows show 118 Tests and 34 hundreds, and the 11 host-country rows add up to 118 matches, with the same hundreds as above.
   - `player_record(player_id=8608, format=Test, discipline=bowling, continent=Asia, split_by=host)` took 1 request. The filtered row shows 32 Tests and 92 wickets. The host rows are India 17, Pakistan 2, Sri Lanka 7 and U.A.E. 6, adding up to 32, with five-wicket hauls only in Sri Lanka (2). The "in Asia" row links to the page's own query.
 - **Innings list (`view=innings`):** one row per match, after the same "Career averages" table, so one request gives both.
@@ -364,21 +366,21 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - Bowling columns: Overs, Mdns, Runs, Wkts, Econ, Pos, Inns, (blank), Opposition, Ground, Start Date, then the match label.
 - **Filters in the URL:** player pages accept advanced-form filters that their own form doesn't show, including dates and `trophy`. Babar Azam's T20I summary page links innings lists such as `…/player/348144.html?batting_fielding_first=1;class=3;result=1;template=results;type=batting;view=innings`.
 - **Filtered pages:** with any filter, "Career averages" shows an "unfiltered" row and a "filtered" row (examples in R10).
-- **Player-page repeated filters:** checked live on 5 Oct 2026 with curl's User-Agent. JM Anderson's Test bowling page with `host=6;host=7` showed a filtered row, so player pages also apply repeated host keys as "one of".
-- **Bowling player pages with continent filters** (golden question 6): checked live on 5 Oct 2026. JM Anderson (ID 8608) with `class=1;continent=2;type=bowling` showed the filtered Asia row as 32 Tests, 92 wickets, average 27.51, economy 2.59 and strike rate 63.6. DW Steyn (ID 47492, found from saved Statsguru links and player search) with the same filter showed 22 Tests, 92 wickets, average 24.11, economy 3.36 and strike rate 42.9.
-- **Fielding player pages:** checked live on 8 Oct 2026 with curl's User-Agent (issue #61). JN Rhodes (ID 46973) with `class=11;opposition=6;type=fielding` and crickey's pinned dates showed "Career averages" with the fielding columns above. The unfiltered row was 297 matches, 338 innings and 139 catches, all as a fielder (D/I 0.411); the filtered row (v India) was 36 matches, 40 innings and 17 catches (D/I 0.425). The page also had the "Career summary" grouped rows (formats, opposition, host, continent and so on), as batting and bowling pages do.
-- **Date-filtered player pages:** checked live on 7 Oct 2026 (issue #57). Imran Khan (ID 40560) with `class=1;spanmax1=31+Dec+1992;spanmin1=17+Sep+1981;spanval1=span;template=results;type=batting` showed the unfiltered row as 88 Tests, 3807 runs and average 37.69, and the filtered row as 55 Tests, 72 innings, 19 not outs, 2624 runs, HS 136, average 49.5, 5 hundreds and 16 fifties.
+- **Player-page repeated filters:** player pages also apply repeated host keys as "one of". In a live check with curl's User-Agent, JM Anderson's Test bowling page with `host=6;host=7` showed a filtered row.
+- **Bowling player pages with continent filters** (golden question 6), checked live: JM Anderson (ID 8608) with `class=1;continent=2;type=bowling` showed the filtered Asia row as 32 Tests, 92 wickets, average 27.51, economy 2.59 and strike rate 63.6. DW Steyn (ID 47492) with the same filter showed 22 Tests, 92 wickets, average 24.11, economy 3.36 and strike rate 42.9.
+- **Fielding player pages**, checked live with curl's User-Agent: JN Rhodes (ID 46973) with `class=11;opposition=6;type=fielding` and crickey's pinned dates showed "Career averages" with the fielding columns above. The unfiltered row was 297 matches, 338 innings and 139 catches, all as a fielder (D/I 0.411); the filtered row (v India) was 36 matches, 40 innings and 17 catches (D/I 0.425). The page also had the "Career summary" grouped rows (formats, opposition, host, continent and so on), as batting and bowling pages do.
+- **Date-filtered player pages**, checked live: Imran Khan (ID 40560) with `class=1;spanmax1=31+Dec+1992;spanmin1=17+Sep+1981;spanval1=span;template=results;type=batting` showed the unfiltered row as 88 Tests, 3807 runs and average 37.69, and the filtered row as 55 Tests, 72 innings, 19 not outs, 2624 runs, HS 136, average 49.5, 5 hundreds and 16 fifties.
 - **Profile link:** the summary row's "Profile" link is `/ci/content/player/<id>.html`. On stats.cricinfo.com it redirects (302) to `https://www.espncricinfo.com/ci/content/player/<id>.html`, part of the player's profile on www, which scripts can't fetch (R1).
 - **Same IDs:** Statsguru and the www profile pages use the same player ID. For example, 348144 is Babar Azam on Statsguru and in `https://www.cricinfo.com/cricketers/babar-azam-348144`.
 - **Player name:** the "Career averages" table doesn't name the player. The breadcrumb above the format tabs does: a link to `/ci/engine/player/<id>.html` reading "Statistics / Statsguru / <name> / <format>", for example "Statistics / Statsguru / Imran Khan / Test matches". The name is Statsguru's display name, as in results tables ("JM Anderson", "V Kohli"); the page's script variable `omniPageName` has the common name ("James Anderson") instead. Summary pages, form pages and innings lists all have the breadcrumb; for class 11 its format reads "Combined Test, ODI and T20I records".
-- **A format the player never played:** checked live on 7 Oct 2026 with curl's User-Agent. Imran Khan (ID 316363), who played Tests but no ODIs, with `class=2;template=results;type=batting` and crickey's pinned dates, returned HTTP 200 with his name in the breadcrumb and format tabs only for his own formats ("Tests (2014/15 - 2019/20)", and "Twenty20 (2009 - 2024/25)" under "other"). It had no "Career averages" table, only a "Career summary" table reading "No records available to match this query". His ODI form page (`class=2;type=batting`) has no `spanmin0` or `spanmax0`.
+- **A format the player never played**, checked live with curl's User-Agent: Imran Khan (ID 316363), who played Tests but no ODIs, with `class=2;template=results;type=batting` and crickey's pinned dates, returned HTTP 200 with his name in the breadcrumb and format tabs only for his own formats: on 7 Oct 2026, "Tests (2014/15 - 2019/20)", and "Twenty20 (2009 - 2024/25)" under "other". It had no "Career averages" table, only a "Career summary" table reading "No records available to match this query". His ODI form page (`class=2;type=batting`) has no `spanmin0` or `spanmax0`.
 
 ## 7. Player search
 - `https://stats.cricinfo.com/ci/engine/stats/analysis.html?search=babar;template=analysis` returned 15 people.
 - Each row has the player's name (with the full name in brackets when the name uses initials) and country code, then one entry per format with its span and match count. Each entry links to `/ci/engine/player/<id>.html?class=<class>;type=allround`.
 - Example row: "Babar Azam PAK", with "Test matches player (2016/17 - 2026, 66 matches)", "One-Day Internationals player (2015 - 2026, 143 matches)", "Twenty20 Internationals player (2016 - 2025/26, 145 matches)", "Combined Test, ODI and T20I player (2015 - 2026)", "Under-19s Youth One-Day Internationals player (2009/10 - 2012, 36 matches)", "Under-19s Youth Twenty20 Internationals player (2009/10, 1 match)" and "Twenty20 matches player (2012/13 - 2026, 359 matches)".
 - Results mix international, domestic-only and youth players who share a name, for example Babar Hayat (Hong Kong), Muhammad Babar (Spain) and Zulfiqar Babar (Pakistan). Country codes can be combined ("BHM/PAK"), and other searches also return women and officials. Name lookups must filter by class, and ideally by country.
-- Some players share exactly the same name and country, so only the ID tells them apart. On 6 Oct 2026 (issue #57), "Imran Khan" (PAK) returned two Test players: ID 40560 (1971 - 1991/92, 88 matches) and ID 316363 (2014/15 - 2019/20, 10 matches).
+- Some players share exactly the same name and country, so only the ID tells them apart. On 6 Oct 2026, "Imran Khan" (PAK) returned two Test players: ID 40560 (1971 - 1991/92, 88 matches) and ID 316363 (2014/15 - 2019/20, 10 matches).
 
 ## 8. Results pages
 - **Batting columns (overall view):**
@@ -394,7 +396,7 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
   - ODIs: Player, Span, Mat, Inns, Balls, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5
   - T20Is: Player, Span, Mat, Inns, Overs, Mdns, Runs, Wkts, BBI, Ave, Econ, SR, 4, 5 (overs such as "449.5", not balls)
 - **Fielding columns (Tests overall view):** Player, Span, Mat, Inns, Dis, Ct, St, Ct Wk, Ct Fi, MD, D/I. `MD` is max dismissals in an innings, for example "6 (6ct 0st)".
-  - The same columns appear for ODIs, T20Is, all T20 and combined internationals (checked 8 Oct 2026, issue #61); all T20 lists teams in a note row, as for batting.
+  - The same columns appear for ODIs, T20Is, all T20 and combined internationals; all T20 lists teams in a note row, as for batting.
   - `Dis` is `Ct` + `St`, and `Ct` is `Ct Wk` + `Ct Fi`: AB de Villiers in combined internationals has 480 = 463 + 17, and 463 = 215 + 248. Run-outs aren't counted anywhere in the table.
   - `D/I` is dismissals per innings fielded, truncated to 3 decimals (R2).
   - Combined-internationals rows include matches for composite teams such as the ICC World XI and Africa XI: JH Kallis has 338 catches as "(Afr/ICC/SA)", but 334 with `team=3`.
@@ -410,13 +412,13 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
 - **Freshness note:** each results page says "Statsguru includes the following current or recent <format> matches:", followed by match names, dates and links (`/ci/engine/match/<id>.html`, labelled like "Test # 2635").
 
 ## 9. Records section (first-class and List A)
-- Statsguru's query engine returned 503 for `class=4` and `class=5` (two requests 16 s apart), while `class=6` returned 200 at the same time. On 4 Oct a `class=4` results query returned 400 with an error page ("This page does not exist or has been moved"), so the query engine doesn't serve first-class or List A figures.
+- Statsguru's query engine doesn't serve first-class or List A figures: a `class=4` results query returned 400 with an error page ("This page does not exist or has been moved"). Queries for `class=4` and `class=5` have also returned 503 while `class=6` returned 200.
 - `https://stats.cricinfo.com/ci/engine/records/index.html` returned 200 and links classes 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 16, 20, 21 and 23 (labels in R3).
 - `records/index.html?class=4` (title "Records | First-class matches | Cricinfo.com") returned 200. It links fixed record lists at `/ci/content/records/<id>.html` and team records at `/ci/engine/records/index.html?category=2;class=4`.
-- `/ci/content/records/251072.html` returned 503 on 3 Oct but 200 on 4 Oct, so record lists are reachable. It's a table headed Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, led by JB Hobbs (1905–1934) with 199 hundreds.
+- Record lists are reachable, though `/ci/content/records/251072.html` has also returned 503. It's a table headed Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, led by JB Hobbs (1905–1934) with 199 hundreds.
 - The List A index (`records/index.html?class=5`) links 40 record lists, for example 282830 Most runs in career and 117937 Highest innings totals.
 
-First-class record lists (the page had 44 such links; these were captured):
+First-class record lists, 21 of the 44 the page links:
 
 | ID | Record |
 |---|---|
@@ -460,25 +462,25 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 - ODIs: 520 players, 3 pages of 200. `https://stats.cricinfo.com/ci/engine/stats/index.html?class=2;orderby=hundreds;qualmin1=1;qualval1=hundreds;size=200;template=results;type=batting`
 - Tests: 850 players, 5 pages of 200. The same query with `class=1`, plus `page=2` and so on for later pages. Rank 200 has 7 hundreds and rank 400 has 3, so a minimum of 4 hundreds fits in 2 pages.
 
-**Default-minimum count checks** (size=10 pages, fetched 4 Oct 2026 for issue #7):
+**Default-minimum count checks** (size=10 pages, fetched 4 Oct 2026):
 - Hundreds minimums: Tests `hundreds>=5` 292 rows; ODIs `hundreds>=5` 144; T20Is `hundreds>=1` 191; all T20 `hundreds>=3` 121; combined internationals `hundreds>=10` 207.
-- Candidate innings-per-fifty-plus innings minimums were too broad: Tests `innings>=20` 1225 rows; ODIs `innings>=20` 1060; T20Is `innings>=20` 1064; all T20 `innings>=30` 2347; combined internationals `innings>=30` 1965.
-- Candidate balls-per-dismissal outs minimums were too broad: ODIs `outs>=20` 907 rows; T20Is `outs>=15` 1114; all T20 `outs>=25` 2167; combined internationals `outs>=40` 1279.
+- Innings minimums for innings per fifty-plus innings are too broad: Tests `innings>=20` 1225 rows; ODIs `innings>=20` 1060; T20Is `innings>=20` 1064; all T20 `innings>=30` 2347; combined internationals `innings>=30` 1965.
+- Outs minimums for balls per dismissal are too broad: ODIs `outs>=20` 907 rows; T20Is `outs>=15` 1114; all T20 `outs>=25` 2167; combined internationals `outs>=40` 1279.
 
-**Bowling default-minimum count checks** (size=10 pages, fetched 5 Oct 2026 for issue #48):
+**Bowling default-minimum count checks** (size=10 pages, fetched 5 Oct 2026):
 - Wickets floors: Tests `wickets>=100` 206 rows; ODIs `wickets>=100` 178; T20Is `wickets>=50` 236 (from the T20I bowling check below); all T20 `wickets>=100` 446; combined internationals `wickets>=200` 193.
 - Filtered-floor counts, measured with only a recent 10-year span from 5 Oct 2016 to 5 Oct 2026: Tests `wickets>=30` 110 rows; ODIs `wickets>=30` 190; T20Is `wickets>=20` 681; all T20 `wickets>=30` 1188, so the filtered all T20 floor is `wickets>=50`, which gives 706 rows; combined internationals `wickets>=50` 382. Longer spans, such as a 20-year career, can return more rows than D10 allows; the tool then stops with its "too broad" message.
 
-**Filtered count and comparison floors** (fetched 6 Oct 2026 for issue #53):
+**Filtered count and comparison floors** (fetched 6 Oct 2026):
 - Test bowling in Asia for England or South Africa (`team=1;team=3;continent=2`) with `wickets>=1`: 178 rows. JM Anderson and DW Steyn are tied first with 92 wickets (golden question 6; R6 has their full records), then MJ Leach 79, and GP Swann and DL Underwood 73 each.
 - T20I batting in the UAE (`host=27`), all time: `runs>=1000` gives 4 rows. V Kohli (ID 253802) has 344 runs there in 8 innings with 3 not outs, average 68.8 and strike rate 134.9; `runs>=344` gives 43 rows.
 - In the same table, Shoaib Malik (ID 42657) has 549 runs, average 27.45 and strike rate 122; `runs>=549` gives 18 rows, and adding `batting_average>=27.45` and `batting_strike_rate>=122` gives 7: Malik and the 6 batters who beat him on both.
 
-**Fielding default-minimum count checks** (size=10 pages, fetched 8 Oct 2026 for issue #61):
+**Fielding default-minimum count checks** (size=10 pages, fetched 8 Oct 2026):
 - Unfiltered floors: Tests `dismissals>=50` 241 rows; ODIs `dismissals>=50` 201; T20Is `dismissals>=25` 301; all T20 `dismissals>=100` 206; combined internationals `dismissals>=100` 239. Every fielding count is at most a player's dismissals, so a table on any fielding count at the same floor is no bigger.
 - Filtered-floor counts, with only a recent 10-year span from 8 Oct 2016 to 8 Oct 2026: Tests `dismissals>=20` 110 rows; ODIs `dismissals>=20` 161; T20Is `dismissals>=10` 931, too broad for D10, and `dismissals>=20` 374; all T20 `dismissals>=50` 375; combined internationals `dismissals>=30` 372. Over a 24-year span, 15 Nov 1989 to 16 Nov 2013 (about SR Tendulkar's career), combined internationals `dismissals>=30` gives 339 rows, still 2 pages.
 
-**Jonty Rhodes (ID 46973), combined-internationals fielding** (golden question 7, fetched 8 Oct 2026 for issue #61): 297 matches, 338 innings and 139 catches, all as a fielder, with D/I 0.411.
+**Jonty Rhodes (ID 46973), combined-internationals fielding** (golden question 7, fetched 8 Oct 2026): 297 matches, 338 innings and 139 catches, all as a fielder, with D/I 0.411.
 - `caught_fielder>=140` gives 85 rows (Jayawardene 440, Ponting 364, Taylor 354, SPD Smith 350 and Kohli 345 lead), and `caught>=140` gives 146, counting wicketkeepers' catches.
 - With `team=3` and `caught_fielder>=100`, he is 12th of 15 South Africans.
 - `dismissals>=100` gives 239 rows (2 pages of 200); adding `dismissals_per_inns>=0.411` gives 172: Rhodes and the 171 with a higher rate.
@@ -487,30 +489,30 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 **Wasim Akram (ID 43547), Waqar Younis (ID 43543) and Imran Khan (ID 40560) bowling against India** (golden question 9, fetched 7 Oct 2026 through crickey's tools):
 - Tests: Imran Khan 23 Tests, 94 wickets, average 24.04, strike rate 54, economy 2.67, best 8/60; Wasim Akram 12 Tests, 45 wickets, average 28.86, strike rate 65, economy 2.66, best 5/96; Waqar Younis 4 Tests, 8 wickets, average 48.75, strike rate 80.2, economy 3.64, best 4/80. All three are in Pakistan's Test bowling table against India (103 bowlers), where Imran Khan has the most wickets and Wasim Akram the second most: `https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;opposition=6;orderby=wickets;size=25;spanmax1=07+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;team=7;template=results;type=bowling`
 - ODIs: Wasim Akram 48 ODIs, 60 wickets, average 25.15, strike rate 40.4, economy 3.73, best 4/35; Waqar Younis 26 ODIs, 37 wickets, average 24.48, strike rate 31.7, economy 4.62, best 5/31; Imran Khan 29 ODIs, 35 wickets, average 22.25, strike rate 34.6, economy 3.85, best 6/14. Each is the player's ODI bowling page with `opposition=6`, for example `https://stats.cricinfo.com/ci/engine/player/43547.html?class=2;opposition=6;spanmax1=07+Oct+2026;spanmin1=05+Jan+1971;spanval1=span;template=results;type=bowling`
-- The question names no format, so the answer covered Tests and ODIs. In Tests, "Imran Khan" needs his ID, because two Pakistan Test players share the name (R7). In ODIs, the name resolves to 40560 directly, because the other Imran Khan (316363) played no ODIs.
+- The golden question names no format, so the answer covers Tests and ODIs, as the eval's question asks. In Tests, "Imran Khan" needs his ID, because two Pakistan Test players share the name (R7). In ODIs, the name resolves to 40560 directly, because the other Imran Khan (316363) played no ODIs.
 
-**The eval cases' known answers** (#18, checked live on 9 Oct 2026 through crickey's tools, 26 requests with D9's spacing). [evals/golden_questions.toml](../evals/golden_questions.toml) has each case's question and the facts an answer must contain (D37); these are the checks behind them.
+**The eval cases' known answers** (checked live on 9 Oct 2026 through crickey's tools, 26 requests with D9's spacing). [evals/golden_questions.toml](../evals/golden_questions.toml) has each case's question and the facts an answer must contain (D37); these are the checks behind them.
 - **Golden question 1**, ODIs from 1 Jan 2000 to 31 Dec 2009, at least 10 hundreds (`leaderboard`, innings per hundred, 1 request): the qualifying group's figure is 13.72 innings per hundred. SR Tendulkar leads with 9.86 (21 hundreds), then RT Ponting 10, CH Gayle 10.16, ME Trescothick 10.17 and HH Gibbs 10.47.
 - **Golden question 2**, Test hundreds more often than SR Tendulkar (ID 35320) over his career span, 15 Nov 1989 to 14 Nov 2013, with the default floor of 5 hundreds (2 requests): 6 players beat his 6.45 innings per hundred: CA Pujara 4.8, KC Sangakkara 6.06, ML Hayden 6.13, HM Amla 6.15, JH Kallis 6.3 and M Azharuddin 6.44.
 - **Golden question 3**, T20I average and strike rate against BB McCullum (ID 37737) over his span, 17 Feb 2005 to 23 Jun 2015, with D29's floor of 1000 runs (3 requests): McCullum has 35.66 and 136.21, and 2 batters beat both: KP Pietersen (37.93, 141.51) and AD Hales (37.55, 137.84).
 - **Golden question 4**, R Dravid (ID 28114) in Tests over the last 3 years of his career, 24 Jan 2009 to 24 Jan 2012 (2 requests): 33 matches, 59 innings, 2779 runs, average 52.43 and 10 hundreds.
 - **Golden question 5**, SR Tendulkar in ODI World Cups (`trophy=12`, 1 request): 45 matches from 1992 to 2011, 44 innings, 2278 runs, average 56.95, 6 hundreds and 15 fifties.
-- **Golden questions 6 and 8** match R6: JM Anderson and DW Steyn (ID 47492) in Asia in Tests, and Younis Khan's 11 and Dravid's 10 host countries, each with a hundred (6 requests, with a player search). ID 46592, tried first for Steyn, is M Ntini.
+- **Golden questions 6 and 8** match R6: JM Anderson and DW Steyn (ID 47492) in Asia in Tests, and Younis Khan's 11 and Dravid's 10 host countries, each with a hundred (6 requests, with a player search).
 - **Golden question 7**, catches across all internationals against JN Rhodes over his span, 26 Feb 1992 to 12 Feb 2003, with D35's filtered floor of 30 (5 requests):
   - Counting wicketkeepers' catches, 26 players have more than his 139, led by wicketkeepers MV Boucher (417), IA Healy (379) and AC Gilchrist (369), and G Kirsten is level.
   - As a fielder, 12 have more: ME Waugh 256, SP Fleming 205, BC Lara 191, M Azharuddin 175, CL Hooper 174, MA Taylor 166, SK Warne 165, R Dravid 163, Inzamam-ul-Haq 149, and ST Jayasuriya, SR Tendulkar and SR Waugh 142 each. These 12 are on both lists, so they're the case's facts and either reading passes.
 - **Golden question 9** matches the figures above for Tests and ODIs (6 requests).
-- **Golden question 10**, ODI series of three or more teams in Pakistan from 1 Jan 1990 to 31 Dec 1999 (`series_count`, checked live on 29 Oct 2026 for #97, 2 requests: the series view and the form's series list): 3 series: the Wills Triangular Series, 1994/95, from 12 Oct 1994 (9 matches, won by Australia); the Wills World Cup, 1995/96, from 16 Feb 1996 (its 16 matches in Pakistan, won by Sri Lanka); and the Wills Quadrangular Tournament, 1997/98, from 1 Nov 1997 (7 matches, won by South Africa). All time, there were 11 by 29 Oct 2026 (R4).
+- **Golden question 10**, ODI series of three or more teams in Pakistan from 1 Jan 1990 to 31 Dec 1999 (`series_count`, checked live on 29 Oct 2026, 2 requests: the series view and the form's series list): 3 series: the Wills Triangular Series, 1994/95, from 12 Oct 1994 (9 matches, won by Australia); the Wills World Cup, 1995/96, from 16 Feb 1996 (its 16 matches in Pakistan, won by Sri Lanka); and the Wills Quadrangular Tournament, 1997/98, from 1 Nov 1997 (7 matches, won by South Africa). All time, there were 11 by 29 Oct 2026 (R4).
 
-**The held-out cases' known answers** (#99, checked live on 29 Oct 2026 through crickey's tools, 40 requests with D9's spacing). Two candidates were replaced: 15 batters beat Mohammad Yousuf, too many for a fair check, and "Champions Trophy" also names the Sharjah Champions Trophy, so the case says "ICC Champions Trophy". [evals/golden_questions.toml](../evals/golden_questions.toml) has each case (D45).
+**The held-out cases' known answers** (checked live on 29 Oct 2026 through crickey's tools, 40 requests with D9's spacing). [evals/golden_questions.toml](../evals/golden_questions.toml) has each case (D45).
 - **Held-out 1**, Tests from 1 Jan 1980 to 31 Dec 1999, at least 15 hundreds (`leaderboard`, innings per hundred, 1 request): SR Tendulkar leads with 5.23 innings per hundred (22 hundreds), then M Azharuddin 6.9 and MD Crowe 7.71. The group's figure is 8.95.
 - **Held-out 2**, ODI hundreds more often than Saeed Anwar (ID 42605) over his span, 1 Jan 1989 to 4 Mar 2003, with the default floor of 5 hundreds (3 requests): SR Tendulkar 8.82, HH Gibbs 10.25 and SC Ganguly 10.8 beat his 12.2 innings per hundred, and V Sehwag is level.
 - **Held-out 3**, ODI average and strike rate against MEK Hussey (ID 5939) over his span, 1 Feb 2004 to 3 Sep 2012, with D29's floor of 1000 runs (4 requests): Hussey has 48.15 and 87.16, and 4 batters beat both: RN ten Doeschate (67, 87.7), HM Amla (57.75, 91.76), MS Dhoni (51.17, 88.42) and AB de Villiers (48.5, 93.12).
 - **Held-out 4**, KC Sangakkara (ID 50710) in ODIs over the last 4 years of his career, 18 Mar 2011 to 18 Mar 2015 (3 requests): 117 matches, 111 innings, 5283 runs, average 52.3 and 15 hundreds.
-- **Held-out 5**, SC Ganguly (ID 28779) in the ICC Champions Trophy (`trophy=44`, 2 requests): 13 matches from 1998 to 2004, 665 runs, average 73.88 and 3 hundreds.
+- **Held-out 5**, SC Ganguly (ID 28779) in the ICC Champions Trophy (`trophy=44`, 2 requests): 13 matches from 1998 to 2004, 665 runs, average 73.88 and 3 hundreds. The case says "ICC Champions Trophy", because "Champions Trophy" alone also names the Sharjah Champions Trophy.
 - **Held-out 6**, SK Warne (ID 8166) and A Kumble (ID 30176) bowling in Tests in Africa (`continent=1`, 4 requests): Warne 13 Tests, 67 wickets, average 24.17 and strike rate 59.7; Kumble 16 Tests, 59 wickets, 31.33 and 80.3.
 - **Held-out 7**, catches across all internationals against RT Ponting (ID 7133) over his span, 15 Feb 1995 to 30 Nov 2012, with D35's filtered floor of 30 (8 requests): counting wicketkeepers' catches, 8 players have more than his 364, led by MV Boucher (953) and AC Gilchrist (813). As a fielder, only DPMD Jayawardene (397) has more, and he is on both lists.
-- **Held-out 8**, BC Lara (ID 52337) in Tests by host country (2 requests): a hundred in 8 of his 9 host countries, all but India. The question asks yes or no, so the case's facts are Lara and India: right answers gave the count as "8 of his 9" or "eight of them", or none, as in "every country except India".
+- **Held-out 8**, BC Lara (ID 52337) in Tests by host country (2 requests): a hundred in 8 of his 9 host countries, all but India. The question asks yes or no, so the case's facts are Lara and India: a right answer may give the count as "8 of his 9" or "eight of them", or none, as in "every country except India".
 - **Held-out 9**, AA Donald (ID 44716), SM Pollock (ID 46774) and M Ntini (ID 46592) bowling against the West Indies in Tests (6 requests): Donald 10 Tests, 43 wickets, average 20.79 and strike rate 43.1; Pollock 16 Tests, 70 wickets, 22.95 and 57.3; Ntini 15 Tests, 63 wickets, 27.58 and 50.7.
 - **Held-out 10**, ODI series of three or more teams in Sri Lanka from 1 Jan 2000 to 31 Dec 2009 (`series_count`, 2 requests): 8, from the Singer Triangular Series, 2000 to the Compaq Cup, 2009, including the ICC Champions Trophy, 2002/03, which India and Sri Lanka shared.
 
@@ -566,7 +568,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 - Sri Lanka v India at Colombo (SSC), 2nd Test, 23–27 Aug 2026 (Test # 2633, match 1544002)
 
 ## 11. Existing MCP servers and tools
-Searched: GitHub repositories and code, the official MCP Registry, Glama, mcp.so, LobeHub, the Apify Store and PyPI. npm search wasn't possible from the development machine, and Smithery's search page needs JavaScript.
+Searched as of 3–4 Oct 2026: GitHub repositories and code, the official MCP Registry, Glama, mcp.so, LobeHub, the Apify Store and PyPI. Not searched: npm, and Smithery, whose search page needs JavaScript.
 
 **Tools that query Statsguru directly:**
 
@@ -641,9 +643,9 @@ Searched: GitHub repositories and code, the official MCP Registry, Glama, mcp.so
 - **Configuration:** `~/.copilot/mcp-config.json`, under `mcpServers`. Each entry has `type` (local, stdio or http), `command`, `args`, `env`, `url`, `headers` and `tools`.
 - **Per project:** `.mcp.json` (anywhere from the working directory up to the repo root) and `.github/mcp.json`, loaded only in trusted folders. `.vscode/mcp.json` isn't read.
 - **Discovery:** `/mcp search` (experimental) searches the GitHub MCP Registry.
-- **Server instructions:** Copilot CLI puts an MCP server's instructions in the system prompt only for allowlisted servers, unless it's started with `--allow-all-mcp-server-instructions`, which includes every server's. No `copilot config` setting, environment variable or `copilot mcp add` option does the same (Copilot CLI 1.0.105, 31 Oct 2026).
-  - **In the system prompt:** each session's `system.message` event, in `~/.copilot/session-state/<session>/events.jsonl`, holds its system prompt. With the flag, all six lines of crickey's instructions were there word for word, in a `<crickey-*>` block among the tools' guidelines; without it, none were (#104).
-  - **Checked** for #18 with the v0.4.0 image and `gpt-6.1-sol`, which an administrator's setting forced: golden questions 1, 4, 6, 9 and 10, each in a fresh `copilot -p` session with only crickey's tools, scored with the eval's checks. With or without the flag, each question made the calls the eval expects. 19 Statsguru requests, with no blocks.
+- **Server instructions:** Copilot CLI puts an MCP server's instructions in the system prompt only for allowlisted servers, unless it's started with `--allow-all-mcp-server-instructions`, which includes every server's. No `copilot config` setting, environment variable or `copilot mcp add` option does the same (Copilot CLI 1.0.105).
+  - **In the system prompt:** each session's `system.message` event, in `~/.copilot/session-state/<session>/events.jsonl`, holds its system prompt. With the flag, all six lines of crickey's instructions were there word for word, in a `<crickey-*>` block among the tools' guidelines; without it, none were.
+  - **Checked** with the v0.4.0 image and `gpt-6.1-sol`: golden questions 1, 4, 6, 9 and 10, each in a fresh `copilot -p` session with only crickey's tools, scored with the eval's checks. With or without the flag, each question made the calls the eval expects. 19 Statsguru requests, with no blocks.
   - **By default,** 2 of the 5 passed every check. For golden questions 6 and 9, the model cited the player pages without their pinned dates, `spanmin1` and `spanmax1` (D16), so the proof check found links no tool returned. For golden question 1, it named who led instead of the group's figure the question asks for.
   - **With the flag,** all 5 passed.
 
@@ -652,7 +654,7 @@ Searched: GitHub repositories and code, the official MCP Registry, Glama, mcp.so
 - Servers can be installed from the `@mcp` gallery in the Extensions view or with "MCP: Add Server", set up in dev containers through `customizations.vscode.mcp`, and reused from Claude Desktop's configuration (`chat.mcp.discovery.enabled`).
 
 ## 14. Distribution options
-Researched before D24 was decided.
+The options D24 chose from.
 
 | Option | How users install | Notes |
 |---|---|---|
@@ -681,17 +683,17 @@ Plain git URLs can't be listed.
 - **Copilot:** loads project skills from `.github/skills`, `.claude/skills` or `.agents/skills`, and personal skills from `~/.copilot/skills` or `~/.agents/skills`. `gh skill` installs skills from GitHub repositories.
 
 ## 15. Versions and development environment
-Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md refers to this section instead of repeating them.
+crickey uses these versions (D22), each the latest stable release when it was checked. plan.md refers to this section instead of repeating them.
 
 **Runtimes, tools and images:**
 
 | Component | Version |
 |---|---|
-| Python | 3.15.0 (updated 19 Oct 2026, #70) |
-| uv | 0.13.6 (updated 28 Oct 2026, #76) |
+| Python | 3.15.0 |
+| uv | 0.13.6 |
 | MCP specification | 2026-07-28 |
 | Docker Engine | 29.8.2 |
-| Docker base image | `python:3.15.0-slim-trixie` (updated 19 Oct 2026, #70) |
+| Docker base image | `python:3.15.0-slim-trixie` |
 | GitHub Actions | `actions/checkout` v7, `astral-sh/setup-uv` v10, `docker/setup-qemu-action` v4, `docker/setup-buildx-action` v4, `docker/login-action` v4, `docker/metadata-action` v6, `docker/build-push-action` v7 |
 
 **Python packages (PyPI):** D21 says which ones crickey uses, and D39 the evals'; the rest were alternatives considered.
@@ -703,7 +705,7 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | httpx | 0.28.1 | 2024-12-06 | |
 | lxml | 6.1.3 | 2026-09-02 | |
 | selectolax | 0.4.13 | 2026-09-29 | Python below 3.15 |
-| pydantic | 2.14.1 | 2026-10-11 | 2.14.0 is the first release that supports Python 3.15; 2.13 pins pydantic-core 2.46, which has no 3.15 wheels (#70). |
+| pydantic | 2.14.1 | 2026-10-11 | 2.14.0 is the first release that supports Python 3.15; 2.13 pins pydantic-core 2.46, which has no 3.15 wheels. |
 | pandas | 3.0.6 | 2026-09-17 | Python 3.11+ |
 | polars | 1.44.2 | 2026-09-09 | |
 | duckdb | 1.5.6 | 2026-09-28 | |
@@ -713,37 +715,24 @@ Latest stable releases, checked 3 Oct 2026. crickey uses these (D22); plan.md re
 | respx | 0.23.1 | 2026-04-08 | |
 | pytest | 9.1.1 | 2026-06-19 | |
 | uvicorn | 0.54.0 | | |
-| ruff | 0.17.1 | 2026-10-15 | 0.17.0 is the first release that fully supports a `py315` target; 0.16 calls it a preview (#70). |
+| ruff | 0.17.1 | 2026-10-15 | 0.17.0 is the first release that fully supports a `py315` target; 0.16 calls it a preview. |
 | inspect-ai | 0.3.277 | 2026-10-06 | MIT; Python 3.10+. The evals' framework (R17). |
 | openai | 3.26.1 | 2026-10-08 | Inspect's `ollama` and other OpenAI-compatible providers need it. |
 
-The package index on the development machine had inspect-ai only up to 0.3.275 and openai up to 3.23.0 on 9 Oct 2026 (D39). It still lagged PyPI on 19 Oct 2026, with ijson up to 3.5.1 while PyPI had 3.6.0 from 12 Oct. It also serves a wheel's `.metadata` only after the wheel's first download through it, so uv can fail with a 404 on the metadata of a wheel nobody has fetched yet, as with the first Python 3.15 wheels; downloading the wheel once fixes it.
-
-Development machine: Windows with Python 3.15.0 from the Python install manager (`py`), uv 0.11.21, Node.js 24.21.0, Docker 29.5.2, git 2.55.0, gh 2.101.0 and curl 8.21.0.
-
-Second development machine (27 Oct 2026, for the evals in R17): a MacBook Pro with macOS 27.0.1, uv 0.13.1 from Astral's installer, Python 3.15.0 from uv, Apple clang 21.0.0, Docker 29.9.2, git 2.54.0, gh 2.97.0 and curl 8.7.1. Public PyPI's file host dropped its connections there, so uv used the package proxy that the machine's npm already uses, through `UV_DEFAULT_INDEX` (D23). That proxy had inspect-ai 0.3.285 and openai 3.35.1, and its first request for ijson 3.6.0's wheel metadata failed with a 404, as above. zstandard 0.25.0 built from source with its C extension, and PyYAML 6.0.3 without libyaml.
-
-Dockerfile frontend 1.10+ supports `env=` on secret mounts.
+**Development environment:**
+- Development and the evals run on Windows, Linux (including WSL) and macOS on Apple Silicon. On Apple Silicon, the evals in R17 ran with inspect-ai 0.3.285 and openai 3.35.1.
+- On macOS, Apple clang 21.0.0 builds the two eval dependencies that have no Python 3.15 wheels (R17): zstandard 0.25.0 with its C extension, and PyYAML 6.0.3 without libyaml.
+- uv takes another package index from `UV_DEFAULT_INDEX` (D23). An index other than PyPI may not have the newest releases yet (D27, D39), and some serve a wheel's `.metadata` only after the wheel's first download through them, so uv can fail with a 404 on the metadata of a wheel nobody has fetched yet; downloading the wheel once fixes it.
+- Dockerfile frontend 1.10+ supports `env=` on secret mounts.
 
 Dependabot's supported-ecosystems documentation lists `uv` as a Python ecosystem with version updates, and dependabot-core's uv file fetcher accepts a repository with `pyproject.toml` even when no `uv.lock` is committed ("Repo must contain a requirements.txt, uv.lock, requirements.in, or pyproject.toml").
 
 ## 16. Open questions
-To check while building:
 - Does `https://www.espncricinfo.com/ci/content/player/<id>.html` open the player's profile in a browser? Scripts get 403, so check by hand.
 - How do `player_involve` IDs relate to player-page IDs (Babar Azam: 56880 and 348144)? Until that's known, each lookup needs the form's name search (R4).
 
-**Answered on 4 Oct 2026** (details in the sections shown):
-- httpx sending curl's User-Agent string gets 200 (R1).
-- "Match involving players" and "Match involving captains" produce `player_involve` and `captain_involve`, with their own player IDs (R4).
-- `qualmin` is compared with exact values, to at least 4 decimals (R2).
-- Type-specific fields for every stat type (R4), and their minimum and sort options (R5).
-- Team and trophy lists for classes 2, 3, 6 and 11, and the ODI World Cup's `trophy` value, 12 (R4). The league IDs in www URLs are the same as `trophy` values (R9).
-- Player pages accept date ranges and `trophy` (R6).
-- The query engine still refuses first-class queries (400 on 4 Oct), but record list pages load (R9).
-- Classes 12, 13 and 16 (R3).
-
 ## 17. Evals with Inspect AI and Ollama
-Checked 8–9 Oct 2026 for the eval suite (#18, D37–D40), and on Apple Silicon on 27 Oct 2026. [evals/README.md](../evals/README.md) says how to run it.
+[evals/README.md](../evals/README.md) says how to run the evals (D37–D40). In this section, an answer passes when it passes every check in plan.md › Evals, and "the scored run" is the run of all 20 cases in "Scores".
 
 ### Framework
 - **[Inspect AI](https://inspect.aisi.org.uk)** (MIT, from the UK AI Security Institute; R15 has the version):
@@ -751,19 +740,19 @@ Checked 8–9 Oct 2026 for the eval suite (#18, D37–D40), and on Apple Silicon
   - It has model providers for Ollama (`ollama/<model>`, through Ollama's OpenAI-compatible API at `http://localhost:11434/v1`), any OpenAI-compatible API, Microsoft Foundry, OpenRouter, Anthropic and Google, so one task runs against many models.
   - Its scorers see the whole conversation, and epochs repeat each question.
   - It writes logs as `eval` or JSON (`--log-format json`). `inspect view` opens them, and `inspect view bundle` turns them into a static site, which needs a web server with HTTP range requests (Python's `http.server` has none).
-  - It installs next to crickey's dependencies on Python 3.14 with `mcp` 2.x without conflicts (about 50 packages).
-  - **On Python 3.15** (checked 19 Oct 2026, #70), two of its dependencies have no wheels yet: zstandard (latest 0.25.0) and PyYAML (latest 6.0.3), both from September 2025. So installing the `evals` group builds them from source, which needs a C compiler. In `python:3.15.0-trixie`, with gcc, both built, zstandard with its C extension and PyYAML with libyaml. On Windows, both fail without Microsoft C++ Build Tools. ijson 3.6.0 has 3.15 wheels, and ijson 3.5.1's source builds without a compiler, in pure Python.
-  - **In a Linux container instead** (19 Oct 2026, #66): on Windows without Build Tools, the eval ran in `python:3.15.0-trixie` with uv, the checkout mounted and `UV_PROJECT_ENVIRONMENT` outside it. crickey has to run inside the same container, because the SDK's Host check (D20) turns away `host.docker.internal`. Ollama on the host answers at `OLLAMA_BASE_URL=http://host.docker.internal:11434/v1`, and Statsguru answered the container's requests as it does the host's.
+  - It installs next to crickey's dependencies, `mcp` 2.x included, without conflicts: about 50 packages.
+  - **On Python 3.15**, two of its dependencies have no wheels yet: zstandard (latest 0.25.0) and PyYAML (latest 6.0.3), both from September 2025. So installing the `evals` group builds them from source, which needs a C compiler. In `python:3.15.0-trixie`, with gcc, both build, zstandard with its C extension and PyYAML with libyaml. On Windows, both fail without Microsoft C++ Build Tools. ijson 3.6.0 has 3.15 wheels, and ijson 3.5.1's source builds without a compiler, in pure Python.
+  - **In a Linux container**, the eval runs without Build Tools: in `python:3.15.0-trixie` with uv, the checkout mounted and `UV_PROJECT_ENVIRONMENT` outside it. crickey has to run inside the same container, because the SDK's Host check (D20) turns away `host.docker.internal`. Ollama on the host answers at `OLLAMA_BASE_URL=http://host.docker.internal:11434/v1`, and Statsguru answers the container's requests as it does the host's.
 - **Alternatives:** pydantic-evals with Pydantic AI (MIT) is lighter, but the agent wiring, the model matrix and a log viewer would be ours to build, and its viewer, Logfire, is hosted. DeepEval (Apache-2.0) is pytest-native, but its MCP metrics need an LLM judge and its dashboards are in Confident AI's cloud. promptfoo has strong MCP and CI support, but it's Node.js.
 - **Models in CI:** GitHub Models [was retired on 30 Jul 2026](https://github.blog/changelog/2026-07-01-github-models-is-being-fully-retired-on-july-30-2026/), and Copilot spends AI credits ([$0.01 each since June 2026](https://docs.github.com/en/billing/concepts/product-billing/github-copilot-billing)).
 
 ### Inspect 0.3.275 in detail
-Read in its source on 9 Oct 2026.
+Read in its source.
 - **`react(submit=False)`** ends when the model replies without calling a tool, as MCP clients do. Its default prompt asks the model to submit an answer, so the eval passes its own `AgentPrompt`.
 - **MCP tools (`mcp_server_http`):**
   - Results reach the model as their `content` only; `structuredContent` and `_meta` are dropped.
   - The client handles no log or progress notifications, and its HTTP `timeout` defaults to 5 s.
-  - Tool schemas go through Inspect's `ToolParams`, whose `ToolParam` keeps `type`, `format`, `description`, `default`, `enum`, `items`, `properties`, `additionalProperties`, `anyOf`, `required`, `pattern`, `minLength`, `maxLength`, `minimum`, `maximum` and `examples`. Everything else is dropped, including `$defs`, `$ref`, `oneOf` and `const`: crickey's `query_stats` schema went from 21,851 characters to 193, and the answer tools' `period` lost its variants.
+  - Tool schemas go through Inspect's `ToolParams`, whose `ToolParam` keeps `type`, `format`, `description`, `default`, `enum`, `items`, `properties`, `additionalProperties`, `anyOf`, `required`, `pattern`, `minLength`, `maxLength`, `minimum`, `maximum` and `examples`. Everything else is dropped, including `$defs`, `$ref`, `oneOf` and `const`. So `query_stats`'s `query`, whose fields are under `$defs`, keeps only its description, and the tool's schema goes from 17,980 characters of JSON to 489.
   - Every parameter needs a description; Inspect's MCP tools fall back to the parameter's name.
 - **Tool output** over 16 KiB is cut unless `max_tool_output` is raised.
 - **Tool arguments:** a tool function gets a call's arguments as they are only through a parameter declared `**kwargs: Any`; otherwise Inspect binds them to the function's named parameters.
@@ -772,107 +761,46 @@ Read in its source on 9 Oct 2026.
 - **Per sample:** `TaskState.token_usage` gives the tokens used, and `store()` is the sample's own store, also inside tools.
 - **The MCP SDK** adds its own `_meta` key, `io.modelcontextprotocol/serverInfo`, to tool results, next to crickey's (D38).
 
-### Ollama on a CPU
-Measured on the owner's laptop (i7-1370P, 14 cores, 32 GB of RAM, no discrete GPU) with Ollama 0.40.1, 9 Oct 2026.
-- **Models:**
-  - `qwen3:4b` is `qwen3:4b-thinking-2507` (the same weights), which always thinks: `think: false` or `reasoning_effort: "none"` only moves its reasoning into the answer.
-  - `qwen3:4b-instruct` is `qwen3:4b-instruct-2507`, which doesn't think.
-- **Prompt size:** crickey's five tool definitions take about 9,400 tokens (`query_stats` alone about 5,500). With the server instructions and a question, the raw schemas make an 8,441-token first prompt for `qwen3:4b` and 11,236 for `qwen3:4b-instruct`, whose chat templates differ. Through the eval's bridge, `qwen3:4b-instruct`'s first prompt is 7,927 tokens.
-- **Parameter descriptions** (#66, 19 Oct 2026) made the tool definitions about 9% bigger, measured with Ollama 0.40.6:
-  - `qwen3:4b-instruct`, with the server instructions and golden question 6, then minus the 98 tokens without tools: 9,202 tokens before, 10,093 after (+9.7%).
-  - tiktoken's `o200k_base`, on `tools/list`'s JSON: 10,156 before, 10,991 after (+8.2%).
-  - Through the bridge: the first prompt went from 7,591 to 8,162 tokens.
-- **Context:** Ollama gives machines with under 24 GiB of VRAM a 4k-token context, too small for the tools. It reserves memory for the whole context when it loads a model:
+### Ollama
+- **Starting it:** variables set in front of `ollama serve` reach its server: with `OLLAMA_CONTEXT_LENGTH=65536`, its config lists `OLLAMA_CONTEXT_LENGTH:65536`, and `/api/ps` shows the model at a 65,536-token context. In PowerShell 7, `$env:` variables reach the programs it starts. Without `OLLAMA_NUM_PARALLEL`, the server's config shows it as 1.
+- **Next to the app:** while the Ollama app runs, a second `ollama serve` on its port stops with "bind: address already in use". One on another port, such as `OLLAMA_HOST=127.0.0.1:11435`, reads the same model store as the app.
+- **Context:** `ollama serve --help` gives the default context as 4k, 32k or 256k tokens, by VRAM. Under 24 GiB of VRAM it's 4k, too small for crickey's tools, and with 28.1 GiB it's 32k. Ollama reserves memory for the whole context when it loads a model ("On a CPU" below).
+- **First prompt:** crickey's tool definitions, its server instructions and a question come to about 8,000 tokens through the eval's bridge (D40). With crickey 0.4.0 and Ollama 0.40.12, the first request for golden question 1 is 8,178 tokens for `qwen3:4b-instruct`, 8,298 for `qwen3.8:27b` and 2,386 for `gpt-oss:20b`, whose renderer leaves out object parameters' properties ("Models" below). The parameter descriptions add about 9% to the tool definitions: 9.7% as `qwen3:4b-instruct` counts them in Ollama 0.40.6, and 8.2% of `tools/list`'s JSON in tiktoken's `o200k_base`.
+- **Prompt reuse:** Ollama keeps the last prompt it read, so a call that starts the same way only reads what's new. With one question at a time, the next question's first call reads little more than the question: in the scored run, `qwen3:4b-instruct` read 28 new tokens for golden question 2 and reused 8,140.
+- **Prompt cache:** Ollama 0.40's llama-server also saves the previous conversation whenever a new one starts, up to 8 GiB or one context's worth of tokens (`--cache-ram`, default 8192 MiB). `LLAMA_ARG_CACHE_RAM=0` in Ollama's environment reaches llama-server and turns it off.
+- **Cache type:** the KV cache is f16 by default. An 8-bit cache (`OLLAMA_KV_CACHE_TYPE=q8_0`) takes less memory, but reads prompts about 4.6 times slower on a CPU ("On a CPU" below).
+- **Flash attention:** on a CPU, Ollama's default lets llama.cpp turn it on. Forcing it off (`OLLAMA_FLASH_ATTENTION=0`) needs an extra compute buffer of about 18 GB at 64k.
+- **Runaway replies:** Ollama starts llama-server with `--context-shift`, which lets a reply run on past the end of the context, so a reply that never ends stops only at Inspect's one-hour model timeout, as an error. Small models write such replies: `qwen3:4b-instruct` wrote one for 23 minutes on a laptop CPU (4,550 tokens) until the run was stopped, and one for 14 minutes and over 39,000 tokens on Apple Silicon; `phi4-mini:3.8b` wrote 22,600 tokens in one reply. `--max-tokens 2048` bounds a reply to about 10 minutes on a CPU and leaves room for any answer or tool call. `inspect ctl sample cancel … --action score`, from another terminal, ends a reply and scores it as it stands.
+- **Sleep** freezes a reply midway: llama-server timed one reply at 312 s that Ollama's handler, whose clock stops during sleep, timed at 2.4 s. On macOS, `caffeinate -i` in front of the eval's command keeps the Mac awake until the eval ends: `pmset -g assertions` lists caffeinate's `PreventUserIdleSystemSleep` while the eval runs, and not after. Closing the lid sleeps anyway. Ctrl+C stops a run and keeps the finished samples in the log, and `inspect eval-retry` asks the rest.
+
+### On a CPU
+Measured on a laptop CPU with 14 cores, 32 GB of RAM and no discrete GPU, with Ollama 0.40.1, `qwen3:4b-instruct` and an 11,236-token prompt of crickey's tools, its server instructions and a question.
+- **Memory**, which Ollama reserves for the whole context when it loads the model:
 
   | Context | Default cache | 8-bit cache (`OLLAMA_KV_CACHE_TYPE=q8_0`) |
   |---|---|---|
   | 32k | 7.6 GB | 5.3 GB |
   | 64k | 12.8 GB | 8.2 GB |
   | 128k | about 23 GB (estimated) | 13.6 GB |
-  | 256k | about 42 GB (the laptop ran out of memory) | about 24 GB (estimated) |
+  | 256k | about 42 GB (out of memory) | about 24 GB (estimated) |
 
-- **Speed:** `qwen3:4b-instruct` read its 11,236-token prompt in 5.5 minutes (34.3 tokens/s) with the default cache, and in 25 minutes (7.5 tokens/s) with the 8-bit cache. It writes 3–4 tokens a second with that prompt in context, and about 35 with a short one.
-- **Runaway replies:** with no cap on its output, `qwen3:4b-instruct` once wrote a single reply for 23 minutes (4,550 tokens, golden question 5, 19 Oct 2026) until the run was stopped, and Inspect's one-hour model timeout would have ended the call as an error. `--max-tokens 2048` bounds a reply to about 10 minutes and leaves room for any answer or tool call.
-- **Flash attention:** Ollama's default lets llama.cpp turn it on for the CPU. Forcing it off (`OLLAMA_FLASH_ATTENTION=0`) needed an extra compute buffer of about 18 GB at 64k.
-- **Prompt reuse:** Ollama keeps the last prompt it read, so a call that starts the same way only reads what's new: a repeat call read 1 new token.
-- **Prompt cache:** Ollama 0.40's llama-server saves the previous conversation whenever a new one starts, up to 8 GiB or one context's worth of tokens (`--cache-ram`, default 8192 MiB). `LLAMA_ARG_CACHE_RAM=0` in Ollama's environment reaches llama-server and turns it off.
+- **Reading:** the prompt took 5.5 minutes (34.3 tokens/s) with the default cache, and 25 minutes (7.5 tokens/s) with the 8-bit cache.
+- **Writing:** 3–4 tokens a second with that prompt in context, and about 35 with a short one.
 
-### Periods as text
-Measured on 28 Oct 2026 for #78 (D42), on the owner's MacBook Pro (Apple M5 Max, 36 GB of unified memory) with Ollama 0.40.12 at a 64k context. Each run asked the golden questions whose cases have a period (1, 2, 3, 4 and 7) for 3 epochs, as evals/README.md says.
-- **Before:** Ollama's tool renderers for `gpt-oss:20b` (its harmony format) and `gemma4:31b` dropped the period object's kinds and fields. In a run of all nine golden questions on 27 Oct 2026, with Ollama 0.40.11, gpt-oss invented fields such as `{"kind": "dates", "from": …, "to": …}`, and gemma4 wrote every period as a string, such as "2000 to 2009". Neither passed golden question 1's arguments check in any epoch, nor gemma4 question 4's. On 0.40.12 the same request read the same number of tokens, so the renderers hadn't changed.
-- **Size:** the eval's request for golden question 4, with the tools as Inspect sends them:
-
-  | Model | Without tools | main | #78 | The tools |
-  |---|---|---|---|---|
-  | `gpt-oss:20b` | 199 | 1,642 | 1,522 | −8.3% |
-  | `gemma4:31b` | 156 | 3,059 | 3,112 | +1.8% |
-  | `qwen3.8:27b` | 149 | 7,992 | 7,220 | −9.8% |
-
-  gemma4's grows because its renderer used to drop `period` altogether, and now shows its forms. tiktoken's `o200k_base`, on `tools/list`'s JSON: 11,109 before, 9,503 after (−14.5%).
-- **Scores**, epochs out of 3 that passed, on 27 Oct (main) and then 28 Oct (#78):
-
-  | Model | Check | Q1 | Q2 | Q3 | Q4 | Q7 |
-  |---|---|---|---|---|---|---|
-  | `gpt-oss:20b` | arguments | 0 → 3 | 1 → 1 | 2 → 2 | 2 → 3 | 0 → 1 |
-  | | all checks | 0 → 0 | 0 → 1 | 1 → 1 | 0 → 1 | 0 → 1 |
-  | `gemma4:31b` | arguments | 0 → 3 | 3 → 3 | 3 → 3 | 0 → 3 | 3 → 3 |
-  | | all checks | 0 → 2 | 0 → 0 | 2 → 2 | 0 → 0 | 2 → 2 |
-  | `qwen3.8:27b` | arguments | 3 → 3 | 3 → 3 | 3 → 3 | 3 → 3 | 3 → 2 |
-  | | all checks | 3 → 2 | 1 → 1 | 2 → 3 | 3 → 3 | 0 → 1 |
-
-  Calls per question fell from 7.1 to 2.7 for gpt-oss, with 1.1 errors instead of 4.9, and from 7.4 to 1.1 for gemma4, with 0.1 errors instead of 5.5. Most of gemma4's remaining failures are answers without the proof link (#80). qwen3.8's two lower cells are a figure it wrote (question 1) and extra metrics (question 7), with the periods right.
-- **Guessed spans:** with a first wording, "The player's career span by default; or …", `gpt-oss:20b` gave its own guess of McCullum's span for golden question 3 in all 3 epochs ("2005 to 2013", "2006 to 2009" and "2004 to 2016"), where it had passed the arguments check in 2 of 3 before. Saying to leave the period out or give "career" for the span the player played, since crickey reads its dates from Statsguru, brought question 3 back to 2 of 3. Over the five questions, gpt-oss then gave "career" 11 times and its own span 3 times (question 7, one epoch); gemma4 and qwen3.8 never guessed one.
-
-### Keeping the proof link
-Measured on 28 and 29 Oct 2026 for #80 (D16), on the MacBook Pro below with Ollama 0.40.12 at a 64k context, and 32k for `granite4.1:30b`. Each run asked all nine golden questions for 3 epochs.
-- **Before:** the server instructions said to show `answer_markdown` as-is, a key of the result's structured content. Models read the result's text: the same markdown, where an answer's link is labelled "Answer proof", or "Input/method link" for a derived rate (D13).
-- **Wording:** "Show each answer tool's answer as it is, or keep at least its Answer proof or Input/method link." Two lines on citing were tried with it:
-  - "Cite only links that came from crickey tools, copied exactly.", because `qwen3.8:27b` had retyped an answer's links and given Hayden's profile as player 13395, where the tool said 5616 (golden question 1). With it, `nemotron-3.5-lightning:30b` passed proof in 22 and then 21 of 27, and `lfm2.5:24b` in 11 and 11, under their 23 and 13 on 27 Oct. 6 of nemotron's 11 misses pointed to a tool or a label instead of giving the link, such as "【better_than_player proof link】" or "see the “Answer proof” link in the tool output", and one cited the right link inside 【…】, which the proof check misreads (#82). 18 of lfm2.5's 32 cut fields off a query link, swapped its `;` for `&`, or built one from a profile ID.
-  - "Cite only links that came from crickey tools, as full URLs copied exactly.": nemotron then passed 25 and lfm2.5 13. crickey uses this line.
-- **Scores** on 27 Oct (#18) and with the final instructions, which also have #78's periods and #85's `query` description. Proof and all checks are the share of the 27 answers that passed; questions 5 and 6 count the epochs, of 3, that passed proof:
-
-  | Model | Proof | All checks | Proof on Q5, Q6 |
-  |---|---|---|---|
-  | `gemma4:31b` | 0.19 → 1.00 | 0.15 → 0.81 | 0, 0 → 3, 3 |
-  | `qwen3.8:27b` | 1.00 → 1.00 | 0.63 → 0.78 | 3, 3 → 3, 3 |
-  | `muse-glimmer:30b` | 0.74 → 1.00 | 0.52 → 0.70 | 3, 1 → 3, 3 |
-  | `granite4.1:30b` | 0.89 → 1.00 | 0.37 → 0.44 | 3, 3 → 3, 3 |
-  | `nemotron-3.5-lightning:30b` | 0.85 → 0.93 | 0.52 → 0.48 | 3, 2 → 3, 3 |
-  | `gpt-oss:20b` | 0.63 → 0.89 | 0.15 → 0.19 | 2, 2 → 2, 2 |
-  | `glm-4.7-flash` | 0.44 → 0.52 | 0.15 → 0.33 | 1, 1 → 1, 3 |
-  | `lfm2.5:24b` | 0.48 → 0.48 | 0.11 → 0.15 | 1, 2 → 1, 1 |
-  | `mistral-small3.2:24b` | 0.22 → 0.22 | 0.15 → 0.11 | 0, 0 → 0, 0 |
-  | `olmo-3.1:32b-instruct` | 0.15 → 0.22 | 0.07 → 0.11 | 0, 1 → 0, 1 |
-
-  `deepseek-r1:8b` and `phi4-mini:3.8b`, which made no tool calls on 27 Oct, weren't run again. As the first wording's two runs show, a difference of 1 or 2 answers in 27 can be chance.
-- **Still failing**, with the final instructions:
-  - **No link:** answers in the model's own words, without the link an answer tool had returned: `glm-4.7-flash` 12, `lfm2.5:24b` 8, `mistral-small3.2:24b` 8, `olmo-3.1:32b-instruct` 7, `nemotron-3.5-lightning:30b` 2 and `gpt-oss:20b` 1. Five of them named the label or a tool instead, such as `glm-4.7-flash`'s "Answer proof: Test player batting for 28114, 24 Jan 2009 to 24 Jan 2012", without the URL.
-  - **Altered links:** `lfm2.5:24b` 6, `gpt-oss:20b` 2 and `olmo-3.1:32b-instruct` 1.
-  - **No tool calls:** `olmo-3.1:32b-instruct` 12 and `mistral-small3.2:24b` 6, as in "What the models get wrong" below.
-  - **Other:** 7 answers had no answer tool's link to keep (`mistral-small3.2:24b` 6, `olmo-3.1:32b-instruct` 1); `mistral-small3.2:24b` once cited an invented crickey.ai link; and `glm-4.7-flash` once stopped without an answer after 19 calls.
-- **Size:** tiktoken's `o200k_base`, on the instructions: 85 tokens before, 103 after. As Ollama counts the eval's first request for golden question 5:
-
-  | Model | Without the tools | With the tools |
-  |---|---|---|
-  | `gpt-oss:20b` | 195 → 213 | 1,529 → 1,547 |
-  | `qwen3.8:27b` | 146 → 164 | 7,234 → 7,252 |
-  | `gemma4:31b` | 148 → 167 | 3,122 → 3,141 |
-
-### GitHub's runners
-Measured on 9 Oct 2026 with Ollama 0.40.2 ([run](https://github.com/syedhassaanahmed/crickey/actions/runs/37889876851)). The largest free runners for a public repo have 4 CPUs and 16 GB; bigger runners and GPUs are paid, and the M1 macOS runner has 7 GB. `qwen3:4b-instruct` read the 11,236-token prompt at 32k:
+### On GitHub's runners
+The largest free runners for a public repo have 4 CPUs and 16 GB; bigger runners and GPUs are paid, and the M1 macOS runner has 7 GB. A job on them can run for at most 6 hours. With Ollama 0.40.2 ([run](https://github.com/syedhassaanahmed/crickey/actions/runs/37889876851)), `qwen3:4b-instruct` read the 11,236-token prompt at 32k:
 
 | Runner | CPU | Reading | Writing | Memory at 32k / 48k / 64k (left free) |
 |---|---|---|---|---|
 | `ubuntu-24.04` | AMD EPYC 7763: 2 cores, 2 threads each, AVX2 | 15 min (12.2 tokens/s) | 1.7 tokens/s | 7.6 / 10.3 / 12.8 GB (7.5 / 5.4 / 3.2 GiB) |
 | `ubuntu-24.04-arm` | Neoverse-N2: 4 cores | 45 min (4.2 tokens/s) | 3.8 tokens/s | 7.9 / 10.6 / 13.1 GB (7.3 / 5.2 / 2.9 GiB) |
 
-### Ollama on Apple Silicon
-Measured on 27 Oct 2026 on the owner's MacBook Pro: Apple M5 Max (18-core CPU, 32-core GPU) with 36 GB of unified memory, macOS 27.0.1 and the Ollama app 0.40.11. #18 has the run's scores.
-- **Memory:** Metal lets the GPU use 28.1 GiB, so Ollama's default context there is 32k. The app's context slider was at 256k, for cloud models, so the eval used a second `ollama serve` on another port, with `OLLAMA_CONTEXT_LENGTH=65536` and `LLAMA_ARG_CACHE_RAM=0`, reached through `OLLAMA_BASE_URL`. Both servers read the same model store.
+### On Apple Silicon
+Measured on an Apple Silicon laptop with 36 GB of unified memory, where Metal lets the GPU use 28.1 GiB, so Ollama's default context there is 32k.
 - **Two engines:**
-  - GGUF models run in llama-server, as on Windows.
-  - Where a model's default tag has an MLX build, `ollama pull` fetches that on Apple Silicon, and Ollama runs it in its MLX engine (MLX 0.32): here `qwen3.8:27b`, `gemma4:31b` and `nemotron-3.5-lightning:30b`, all nvfp4. The engine drafts tokens ahead (`qwen3.8:27b` kept about 80% of its drafts) and keeps earlier prompts in a prefix cache that grows during a run. `LLAMA_ARG_CACHE_RAM` doesn't apply to it.
-- **Per model**, at 64k:
+  - GGUF models run in llama-server, as on a CPU.
+  - Where a model's default tag has an MLX build, `ollama pull` fetches that on Apple Silicon, and Ollama runs it in its MLX engine (MLX 0.32): `qwen3.8:27b`, `gemma4:31b` and `nemotron-3.5-lightning:30b`, all nvfp4. The engine drafts tokens ahead (`qwen3.8:27b` keeps about 80% of its drafts) and keeps earlier prompts in a prefix cache that grows during a run. `LLAMA_ARG_CACHE_RAM` doesn't apply to it.
+- **Per model**, with Ollama 0.40.11 at 64k, over golden questions 1–9 at 3 epochs:
 
   | Model | Engine, weights | GPU memory | Writing (tokens/s) | Seconds per question |
   |---|---|---|---|---|
@@ -890,77 +818,59 @@ Measured on 27 Oct 2026 on the owner's MacBook Pro: Apple M5 Max (18-core CPU, 3
   | `olmo-3.1:32b-instruct` | llama-server, Q4_K_M | 23.1 GiB | 17 | 15 |
 
   Writing is the median over replies of at least 200 tokens, from Inspect's logs. Seconds include Statsguru's 15 s between requests: `gpt-oss:20b`, the first model, sent 62 and `muse-glimmer:30b` 44; the rest found most pages in crickey's cache.
-- **Too big for 64k:** `granite4.1:30b` needs 32.7 GiB at 64k, 16 GiB of it cache. llama.cpp kept the context and put 11 of its 65 layers on the CPU, and with macOS swapping it wrote 2.4 tokens/s, so it ran at 32k.
-- **Memory pressure:** `gemma4:31b` peaked at 30.9 GiB, above Metal's 28.1 GiB. With the owner's usual apps open, macOS compressed and swapped about 5 GB, and its questions took 78 s each, against 19 s for `qwen3.8:27b`.
-- **Sleep:** this Mac's idle sleep is 1 minute (`pmset -g`), and sleeping froze replies mid-run: llama-server timed one reply at 312 s that Ollama's handler, whose clock stops during sleep, timed at 2.4 s. `caffeinate -i -s -m` in another terminal kept it awake. A closed lid sleeps anyway, so the run was stopped with Ctrl+C, which keeps the finished samples in the log, and finished later with `inspect eval-retry`.
-- **Runaway replies:** Ollama starts llama-server with `--context-shift`, which lets a reply run on past the end of the context, so one that never ends stops only at Inspect's one-hour timeout. `phi4-mini:3.8b` wrote 22,600 tokens in one reply (golden question 8), which `inspect ctl sample cancel … --action score` ended and scored as it stood.
-- **What renderers drop** (#78): Ollama turns tool schemas into each model's own format, and two of these drop `period`'s kinds:
-  - gpt-oss's harmony format shows an object parameter as a bare `object`, without its properties. Its first prompt with crickey's tools is 1,642 tokens, against 6,300–9,200 for most models. Removing `query_stats.query`, 13,273 characters of schema, takes off 25 tokens, and `leaderboard.period` costs the same as a bare object whether or not its fields are listed.
-    - The description still reaches it. Asked 5 times on 28 Oct 2026 to list the leading ODI wicket-takers against Australia with `query_stats`, `gpt-oss:20b` gave a valid `class` and `type` once with the old `query` description, and all 5 times once it named the two (#85). All 10 queries still failed on other fields, such as an opposition given by name rather than ID.
-  - gemma4's keeps an object's properties, and `query`'s, but drops `period`'s `anyOf` of kinds: its first prompt is 3,059 tokens, and `period` as sent costs less than a bare object.
+- **Too big for 64k:** `granite4.1:30b` needs 32.7 GiB at 64k, 16 GiB of it cache. llama.cpp keeps the context and puts 11 of its 65 layers on the CPU, and with macOS swapping it writes 2.4 tokens/s, so it runs at 32k.
+- **Memory pressure:** `gemma4:31b` peaks at 30.9 GiB, above Metal's 28.1 GiB: macOS compressed and swapped about 5 GB, and its questions took 78 s each, against 19 s for `qwen3.8:27b`.
+- **`qwen3.8:27b`**, with Ollama 0.40.12 over all 20 cases at 1 epoch: macOS's `footprint` gives its runner 20 GB once the model has loaded, 26 GB by the end, and a peak of 29 GB.
 
-### What a small model gets wrong
-Single-epoch runs with `qwen3:4b-instruct`, 19 Oct 2026; the scores are in #66 and #72.
-- **Golden question 5:** parameter descriptions (#66) fixed both of its mistakes. The World Cup moved from a season `period` to `trophy`, and the call names the player.
-- **Golden question 6:** it calls `better_than_player` for each bowler, instead of `player_record`. Three changes for #72 didn't move it, each run once:
-  - `better_than_player`'s description saying that a comparison of named players goes to `player_record`;
-  - then also removing that description's bowling example about Dale Steyn in Asia;
-  - then also a server instruction saying the same.
+### Models
+- **Thinking:**
+  - `qwen3:4b` is `qwen3:4b-thinking-2507` (the same weights), which always thinks: `think: false` or `reasoning_effort: "none"` only moves its reasoning into the answer. `qwen3:4b-instruct` is `qwen3:4b-instruct-2507`, which doesn't think.
+  - `qwen3.8:27b` thinks before every reply, but briefly: in the scored run, all 126 of its replies began with reasoning, a median of 253 characters and at most 1,709.
+- **Renderers:** Ollama turns tool schemas into each model's own format, and two of these drop parts of an object parameter (Ollama 0.40.11 and 0.40.12):
+  - gpt-oss's harmony format shows an object parameter as a bare `object`, without its properties. Removing `query_stats`'s `query`, 13,273 characters of schema, takes 25 tokens off its prompt.
+  - gemma4's keeps an object's properties, `query`'s included, but dropped the `anyOf` of a period object's kinds.
+  - Descriptions reach every model, these two included ("Why the tools and instructions are as they are" below).
+- **Tool calls:** `deepseek-r1:8b`'s chat template in Ollama never shows the tool list, and `phi4-mini:3.8b` and often `olmo-3.1:32b-instruct` write tool calls as text that Ollama doesn't parse. `mistral-small3.2:24b` answers some questions from memory, with invented figures and links.
 
-  The tool's name matches the question's "performed better".
+### What models get wrong
+Counts are of the 27 answers each model gave to golden questions 1–9 at 3 epochs, in Ollama 0.40.11 or 0.40.12 at 64k, unless they come from the scored run.
+- **No link:** answers in the model's own words, without the link an answer tool returned: `glm-4.7-flash` 12, `lfm2.5:24b` 8, `mistral-small3.2:24b` 8, `olmo-3.1:32b-instruct` 7, `nemotron-3.5-lightning:30b` 2 and `gpt-oss:20b` 1. Some name the label or the tool instead of giving the URL, such as `glm-4.7-flash`'s "Answer proof: Test player batting for 28114, 24 Jan 2009 to 24 Jan 2012". In the scored run, `qwen3:4b-instruct` left the link out of 20 of its 60 answers; in 14 of them the tool had answered, and the model restated the first line without its link.
+- **Altered links**, such as a query link with fields cut off or its `;` swapped for `&`, or a link built from a profile ID: `lfm2.5:24b` 6, `gpt-oss:20b` 2 and `olmo-3.1:32b-instruct` 1.
+- **No tool calls:** `olmo-3.1:32b-instruct` 12 and `mistral-small3.2:24b` 6, for the reasons in "Models" above. `glm-4.7-flash` once stopped without an answer after 19 calls.
+- **Figures of their own:** answers add figures they worked out, such as differences, ratios, totals and rounded rates, which fail the grounding check (D13). In the scored run, all 6 of `qwen3.8:27b`'s misses failed only this check.
+- **Named players:** most models compare named players, as golden question 6 asks, with one `player_record` call each, as the server instructions and `better_than_player`'s description say. `qwen3:4b-instruct` calls `better_than_player` for each instead, in every epoch of golden question 6 and its held-out case in the scored run: the tool's name matches the questions' "better". `glm-4.7-flash` (2 of 3 epochs) and `gpt-oss:20b` (1 of 3) also called only `better_than_player` for golden question 6.
+- **Places:** in the one-epoch run in "Scores", `qwen3.8:27b` gave Asia, then three Asian countries, as `host_country` for golden question 6, instead of the continent.
+- **Periods:** in the scored run, `gpt-oss:20b` guessed year ranges for golden question 4 and its held-out case, about a player's last 3 and 4 years, in 4 of 6 epochs; `qwen3:4b-instruct` and `qwen3.8:27b` gave "last 3 years" and "last 4 years" in all 6.
+- **Minimums:** some models give `better_than_player` a minimum of 0, which makes the query too broad for D10; the error says to leave the minimum out.
 
-### What the models get wrong
-The run on Apple Silicon above: all nine questions, 3 epochs, 12 models; #18 has the scores.
-- **Proof links:** answers drop the answer tool's Statsguru link more than anything else, 65 times across 8 models (`gemma4:31b` in 22 of 27). The server instructions named `answer_markdown`, which models never see; "Keeping the proof link" above has what naming the links' labels changed (#80).
-- **Periods:** `gpt-oss:20b` can't see the kinds' fields (above) and invents them, and `gemma4:31b` writes periods as strings, such as `"2000 to 2009"` and `"last 3 years"` (#78). A known kind with other fields, such as `dates` with `from` and `to`, gets an empty error (#79).
-- **`minimum: 0`** makes `better_than_player` too broad for D10, and the error didn't say to leave it out; since #81 it does.
-- **Arithmetic:** answers add figures they worked out, such as differences, ratios and rounded rates, which fail grounding (D13).
-- **Golden question 6:** with #74's instruction, most models call `player_record` for each bowler; `glm-4.7-flash` (2 of 3 epochs) and `gpt-oss:20b` (1 of 3) still called only `better_than_player`.
-- **No tool calls:** `mistral-small3.2:24b` answered 7 of 27 from memory, with invented figures and links. `deepseek-r1:8b`'s chat template in Ollama never shows the tool list, and `phi4-mini:3.8b` and often `olmo-3.1:32b-instruct` write tool calls as text that Ollama doesn't parse.
-- **The eval's checks** missed some right answers, and golden question 9 named no format. Since #82 the checks accept those answers, and the question names Tests and ODIs: scored again, 13 more of this run's 324 answers pass every check, and 29 more of #80's 567.
+### Why the tools and instructions are as they are
+- **Periods are text (D42).** With `period` as an object of kinds, models went wrong where a renderer dropped the kinds ("Models" above): `gpt-oss:20b` invented fields, such as `{"kind": "dates", "from": …, "to": …}`, and `gemma4:31b` wrote every period as a string, such as "2000 to 2009" or "last 3 years". Models that saw the kinds also wrote strings: `lfm2.5:24b` "all_time" 9 times, and `nemotron-3.5-lightning:30b` and `olmo-3.1:32b-instruct` "career" once each. A string is a parameter every renderer shows.
+- **Descriptions carry what a renderer may hide**, because they reach every model: `query_stats`'s `query` names `class` and `type` and lists their values, and `series_count`'s `number_of_teams` lists the values crickey reads (D44). With that `query` description, `gpt-oss:20b`, which sees none of `query`'s fields, gave a valid `class` and `type` in all 5 tries at listing the leading ODI wicket-takers against Australia with `query_stats`. All 5 queries failed on other fields, though, such as an opposition given by name rather than ID: models struggle to write `query_stats`'s queries even with its fields named.
+- **Career spans:** `better_than_player`'s period description says to leave the period out, or give "career", for the span the player played, because crickey reads its dates from Statsguru. A model that can write the period otherwise guesses the years: `gpt-oss:20b` gave McCullum's T20I span as "2005 to 2013", "2006 to 2009" and "2004 to 2016" for golden question 3. With the description, over golden questions 1, 2, 3, 4 and 7 at 3 epochs, it gave "career" 11 times and its own span 3 times, and `gemma4:31b` and `qwen3.8:27b` never guessed one.
+- **Link labels (D16):** models read a tool result's text, the same markdown as `answer_markdown`, where an answer's link is labelled "Answer proof", or "Input/method link" for a derived rate (D13). They never see the key's name, so the server instructions name the labels.
+- **Full URLs (D16):** models retype links, and some point to a link instead of giving it. `qwen3.8:27b` once gave Hayden's profile as player 13395, where the tool said 5616 (golden question 1), and `nemotron-3.5-lightning:30b` wrote "【better_than_player proof link】" or "see the “Answer proof” link in the tool output". So the instructions say to cite only links that came from the tools, as full URLs copied exactly.
+- **The first line** of each answer ends with its main link, the answer proof or else the input/method link, because small models often keep only that line, restated ("No link" above).
+- **No fixed number of years:** small models copy a description's number of years instead of the question's. With "last 5 years" as the period example, `qwen3:4b-instruct` gave a question about a player's final four years "last 5 years" in all 3 epochs, and guessed year ranges such as "2013 to 2016" for one about the last 3 years. So the period descriptions show "first N years" and "last N years" and say that N is the number of years. With them, it gave golden question 4 "last 3 years" and its held-out case "last 4 years" in all 6 epochs of the scored run, and no call used the "first 5 years" of `player_record`'s example question.
+- **Examples never quote an eval case (D45):**
+  - Small models copy other values from examples too: `qwen3:4b-instruct` gave the opposition "Australia", an example's value, for questions that name no opposition. No call named an example's player.
+  - So an example that shares a value with an eval case can make it pass by copying: golden question 4 asks about the last 3 years, and with "last 3 years" as the period example, `qwen3:4b-instruct` passed it in all 3 epochs.
+  - Examples teach a kind of question: with a per-fifty rate but no per-hundred one among `leaderboard`'s examples, `gpt-oss:20b` sent golden question 1, about innings per hundred, to `query_stats` in 2 of 3 epochs. So the examples include "Who scored T20I hundreds most often, with at least 3 hundreds?".
+  - Quoting the golden questions bought little: removing every quote from the descriptions lowered the passes of the scored run's three models by 3 of 90 golden answers and 4 of 90 held-out ones, within the variation between runs ("Scores" below).
+- **Series (D44):** `series_count` names each series from the advanced form's series list (R4) and links only its proof, because models given each series' page as a link cited those pages instead. Over ten models, 4 of 30 answers to golden question 10 cited only series pages and left out the proof, and 2 made up what the series were.
+- **Host country:** `series_count`'s description says that the country the series were played in goes in `host_country`, and a team that played in them in `team`. With examples that named golden question 10's host as a team, `lfm2.5:24b` put "played in Pakistan" in `team` in all 3 epochs; with that line, and another country as the example team, it put Pakistan in `host_country` in all 6 epochs, once in `team` as well.
+- **Class numbers:** small models give a format as Statsguru's class number in text, such as "2" for ODIs, so crickey reads "2" as it reads 2. `qwen3:4b-instruct` wrote "2" in all 6 epochs of golden question 10 and its held-out case in the scored run, and `mistral-small3.2:24b` in 2 of 6 epochs of golden question 10.
 
-### Series answers
-Golden question 10 alone, 3 epochs, 29 Oct 2026 (#97), with the 10 models above that run at 64k, all but `granite4.1:30b`:
-- **Series pages:** while `series_count`'s table linked each series' page, 4 of the 30 answers cited only those links and left out the proof, and 2 made up what the series were. With each series' name from the form's series list (R4) and the proof as the only link, no answer left out the proof for a series page.
-- **Host or team:** `lfm2.5:24b` put "played in Pakistan" in `team` in all 3 epochs, when the description's team example was "How many Test series has Pakistan played in England?" and `team`'s was "Pakistan". With India as the team in both, and the description saying the country the series were played in goes in `host_country`, it put Pakistan in `host_country` in all 6 epochs since, once in `team` as well.
-- **Class numbers as text:** `qwen3:4b-instruct` gave the format as "2", Statsguru's ODI class, in 3 of its first 6 epochs, and `mistral-small3.2:24b` in 2 of 6; crickey refused it, and mistral gave up once. crickey now reads "2" as it reads 2, and `qwen3:4b-instruct` passed with it twice.
-- **Scores:** 16 of the 30 answers passed every check with the series pages, and 22 with the final tool. `qwen3:4b-instruct`, `gpt-oss:20b`, `glm-4.7-flash`, `qwen3.8:27b`, `gemma4:31b` and `muse-glimmer:30b` passed all 3 epochs. The rest: no tool call (`mistral-small3.2:24b` once, `olmo-3.1:32b-instruct` twice); an extra `team` and made-up names (`mistral-small3.2:24b`); no proof link (`lfm2.5:24b` twice, `olmo-3.1:32b-instruct` once); and "Number of ODI series … 1999: 3" (`nemotron-3.5-lightning:30b`), right, but none of the case's phrasings.
+### Scores
+The scored run: all 20 cases, the 10 golden and the 10 held-out, for 3 epochs per model, with crickey 0.4.0 and Ollama 0.40.12 at a 64k context, on the Apple Silicon laptop above. Answers that passed every check, of 30 per model and set:
 
-### Examples that quote the eval
-Measured on 29 and 30 Oct 2026 for #99 (D45), with Ollama 0.40.12 at a 64k context: 3 epochs of all 20 cases, the 10 golden and the 10 held-out ones, first with the descriptions that quoted every golden question, then with examples that quote no case. Answers that passed every check, of 30 per model and set:
+| Model | Golden | Held-out |
+|---|---|---|
+| `qwen3.8:27b` | 27 | 27 |
+| `qwen3:4b-instruct` | 15 | 8 |
+| `gpt-oss:20b` | 13 | 15 |
+| All three, of 90 | 55 | 50 |
 
-| Model | Golden before | Golden after | Held-out before | Held-out after |
-|---|---|---|---|---|
-| `qwen3:4b-instruct` | 12 | 12 | 8 | 5 |
-| `gpt-oss:20b` | 10 | 10 | 15 | 11 |
-| `qwen3.8:27b` | 27 | 24 | 24 | 27 |
-| All three, of 90 | 49 | 46 | 47 | 43 |
-
-- **Quoting the golden questions hardly raised their scores:** before, the golden cases passed 49 of 90 and the held-out ones 47, and both passed the tool check 80 times; after, 78 times each. Between two runs whose descriptions differed by one example, which could only help, `gpt-oss:20b`'s held-out score fell by 5, so differences of that size are within the noise of 3 epochs.
-- **Copied values:** where quoting helped, it was through a value. Golden question 4 asks about the last 3 years, the period example's own value, and `qwen3:4b-instruct` passed it in all 3 epochs; with "last 5 years" as the example, it guessed year ranges such as "2013 to 2016" instead. Calls used a value from a description's example that the question didn't have in 2 of the 180 answers before: "last 3 years" for held-out 4, which asks about four years, and the trophy "World Cup" for held-out 10. After, in 4: "last 5 years" for held-out 4 in all 3 epochs, and the opposition "Australia" for held-out 6, all from `qwen3:4b-instruct`. No call named an example's player.
-- **Examples teach a kind of question:** a first rewrite showed a per-fifty rate but no per-hundred one, and `gpt-oss:20b` sent golden question 1 to `query_stats` in 2 of 3 epochs, and held-out 1 once. Golden and held-out questions 1 and 2, which are about hundreds, passed 8 of their 36 answers, against 15 before. With "Who scored T20I hundreds most often, with at least 3 hundreds?" among the examples, they passed 17 of 36, and the run above has that example.
-- 671 Statsguru requests, with no blocks: 40 to check the held-out answers (R10), and 631 for the runs.
-
-### The first line and "last N years"
-Measured on 31 Oct 2026 for #101, as in "Examples that quote the eval" above: 3 epochs of all 20 cases. Before is that section's run after, and for `qwen3:4b-instruct` also the owner's run on 30 Oct with the same code. After, each answer's first line ends with its main link, and the period descriptions show the career forms as "first N years" and "last N years". Answers that passed every check, of 30:
-
-| Model | Golden before | Golden after | Held-out before | Held-out after |
-|---|---|---|---|---|
-| `qwen3:4b-instruct` | 12 and 11 | 15 | 5 and 2 | 8 |
-| `gpt-oss:20b` | 10 | 13 | 11 | 15 |
-| `qwen3.8:27b` | 24 | 27 | 27 | 27 |
-| All three, of 90 | 46 | 55 | 43 | 50 |
-
-- **Periods:** `qwen3:4b-instruct` gave golden question 4 "last 3 years" and held-out 4 "last 4 years" in all 6 epochs. Before, it was right in 0 of 6, and 2 of 6 in the owner's run, giving held-out 4 "last 5 years" or guessing year ranges such as "2013 to 2016". `gpt-oss:20b` still guessed year ranges in 4 of 6, as before, and `qwen3.8:27b` was right in all 6 both times. No call used the "first 5 years" of `player_record`'s example question.
-- **Proof links:** answers citing the proof rose from 71 to 79 of 90 golden and from 68 to 73 held-out. `qwen3:4b-instruct` still left the link out of 20 answers, against 27 and 33 before. In 14 of them the tool had answered, and the model restated the first line without its link, as before (17 and 20).
-- **Runaway reply:** one `qwen3:4b-instruct` reply, to golden question 9, ran for 14 minutes and over 39,000 tokens; it was cancelled and scored as it stood.
-- 190 Statsguru requests, with no blocks.
-
-### Starting Ollama with one command
-Checked on 31 Oct 2026 for #105, on the MacBook Pro above with Ollama 0.40.12, by following evals/README.md with `qwen3.8:27b`: all 20 cases, 1 epoch.
-- **Settings:** variables set in front of `ollama serve` reach its server: its config listed `OLLAMA_CONTEXT_LENGTH:65536`, and `/api/ps` showed the model at a 65,536-token context. While the Ollama app runs, a second `ollama serve` on its port stops with "bind: address already in use", so this check ran on port 11435. In PowerShell 7, `$env:` variables reach the programs it starts.
-- **Defaults:** `ollama serve --help` gives the default context as 4k, 32k or 256k, by VRAM. Without `OLLAMA_NUM_PARALLEL`, the server's config shows it as 1.
-- **Thinking:** `qwen3.8:27b` thinks before every reply. In #101's run above, all 126 of its replies began with reasoning, a median of 253 characters and at most 1,709.
-- **Sleep:** with `caffeinate -i` in front of the eval's command, `pmset -g assertions` listed caffeinate's `PreventUserIdleSystemSleep` until the eval ended, and not after.
-- **Memory:** macOS's `footprint` gave the runner 20 GB once the model had loaded, 26 GB by the end of the run, and a peak of 29 GB, as in "Ollama on Apple Silicon" above.
-- **Run:** 9 of the 10 golden and 9 of the 10 held-out answers passed every check, in 18 minutes from an empty cache, with 68 Statsguru requests and no blocks. Golden question 6 gave Asia, then three Asian countries, as `host_country` instead of the continent, and held-out 9 added a total no tool returned.
+- 79 of the 90 golden answers and 73 of the 90 held-out ones cite the proof.
+- One `qwen3:4b-instruct` reply ran away, and was cancelled and scored as it stood. The run sent 190 Statsguru requests, with no blocks.
+- **Variation:** two runs of `qwen3:4b-instruct` with the same tools differed by 1 golden and 3 held-out answers, and two runs of `gpt-oss:20b` whose descriptions differed by one example, which could only help, by 5 held-out answers. So a difference of up to 5 in 30 is within the noise of 3 epochs.
+- **One epoch:** `qwen3.8:27b` answered all 20 cases at 1 epoch in 18 minutes from an empty cache, with 68 Statsguru requests and no blocks; 9 of the 10 golden and 9 of the 10 held-out answers passed.
