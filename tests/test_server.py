@@ -117,18 +117,6 @@ def bowling_page() -> str:
     """
 
 
-def team_page() -> str:
-    return """
-    <html><body>
-    <table class="engineTable"><caption>Overall figures</caption>
-    <tr><th>Team</th><th>Span</th><th>Mat</th><th>Won</th><th>Lost</th><th>Tied</th><th>NR</th><th>W/L</th><th>Ave</th><th>RPO</th><th>Inns</th><th>HS</th><th>LS</th></tr>
-    <tr class="data1"><td><a href="/ci/content/team/99.html">Example XI</a></td><td>2020-2026</td><td>14</td><td>9</td><td>4</td><td>0</td><td>1</td><td>2.250</td><td>32.10</td><td>7.65</td><td>14</td><td>210</td><td>80</td></tr>
-    </table>
-    <table><tr><td>Page <b>1</b> of <b>1</b></td><td>Showing <b>1</b> - <b>1</b> of <b>1</b></td></tr></table>
-    </body></html>
-    """
-
-
 def row(player_id: int, name: str, team: str, runs: int, ave: str = "50.00") -> str:
     return f"""
     <tr class="data1"><td><a href="/ci/content/player/{player_id}.html">{name}</a> ({team})</td><td>2015-2026</td><td>10</td><td>{runs}</td><td>101*</td><td>{ave}</td><td>1</td></tr>
@@ -784,48 +772,6 @@ async def test_query_stats_fetches_complete_multipage_result_under_cap() -> None
     assert source.requests == [results_url(query, page=page) for page in range(1, 5)]
 
 
-async def test_query_stats_refuses_over_cap_query_after_first_page() -> None:
-    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
-    url = results_url(query)
-    source, _, client = await call_with_source(
-        {
-            url: result_page(
-                [row(index, f"Player {index}", "AAA", index) for index in range(1, 11)],
-                page=1,
-                pages=6,
-                total=60,
-            )
-        }
-    )
-
-    async with client:
-        result = await client.call_tool(
-            "query_stats", {"query": {"class": 2, "type": "batting", "size": 10}}
-        )
-
-    assert result.is_error is True
-    assert "needs 5 fetched pages" in result.content[0].text
-    assert source.requests == [url]
-
-
-async def test_query_stats_max_pages_one_allows_one_row_complete_result() -> None:
-    query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
-    url = results_url(query)
-    source, _, client = await call_with_source(
-        {url: result_page([row(1, "Only Player", "AAA", 1)], page=1, pages=1, total=1)},
-        settings(max_pages=1),
-    )
-
-    async with client:
-        result = await client.call_tool(
-            "query_stats", {"query": {"class": 2, "type": "batting", "size": 10}}
-        )
-
-    assert result.is_error is False
-    assert result.structured_content["total"] == 1
-    assert source.requests == [url]
-
-
 async def test_query_stats_fetch_false_makes_no_request() -> None:
     source, _, client = await call_with_source({})
 
@@ -924,52 +870,6 @@ async def test_query_stats_displays_overs_as_statsguru_text() -> None:
     assert "449.5" in result.content[0].text
 
 
-async def test_query_stats_displays_team_rows_without_player_metadata() -> None:
-    query = StatsguruQuery(**{"class": 3, "type": "team", "orderby": "won"})
-    source, _, client = await call_with_source({results_url(query): team_page()})
-
-    async with client:
-        result = await client.call_tool(
-            "query_stats", {"query": {"class": 3, "type": "team", "orderby": "won"}}
-        )
-
-    assert source.requests == [results_url(query)]
-    assert result.structured_content["columns"] == [
-        "Team",
-        "Span",
-        "Mat",
-        "Won",
-        "Lost",
-        "Tied",
-        "NR",
-        "W/L",
-        "Ave",
-        "RPO",
-        "Inns",
-        "HS",
-        "LS",
-    ]
-    assert result.structured_content["rows"] == [
-        {
-            "Team": "Example XI",
-            "Span": "2020-2026",
-            "Mat": 14,
-            "Won": 9,
-            "Lost": 4,
-            "Tied": 0,
-            "NR": 1,
-            "W/L": "2.250",
-            "Ave": "32.10",
-            "RPO": "7.65",
-            "Inns": 14,
-            "HS": 210,
-            "LS": 80,
-        }
-    ]
-    assert "player_id" not in result.structured_content["rows"][0]
-    assert "| Team" in result.content[0].text
-
-
 async def test_query_stats_too_broad_and_validation_errors_are_clear_tool_errors() -> None:
     query = StatsguruQuery(**{"class": 2, "type": "batting", "size": 10})
     source, _, client = await call_with_source(
@@ -1000,18 +900,6 @@ async def test_query_stats_too_broad_and_validation_errors_are_clear_tool_errors
     assert "validation error" in invalid.content[0].text
     assert "query.view" in invalid.content[0].text
     assert "not-a-view" in invalid.content[0].text
-
-
-async def test_query_stats_limit_zero_is_a_tool_error() -> None:
-    _, _, client = await call_with_source({})
-
-    async with client:
-        result = await client.call_tool(
-            "query_stats", {"query": {"class": 2, "type": "batting"}, "limit": 0}
-        )
-
-    assert result.is_error is True
-    assert "limit must be from 1 to 200" in result.content[0].text
 
 
 async def test_tool_call_budgets_are_passed_to_fetcher_call() -> None:

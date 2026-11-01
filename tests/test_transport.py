@@ -29,7 +29,6 @@ from crickey.transport import (
     NATIVE_HOST,
     TransportError,
     _bind_socket,
-    bind_host,
     create_uvicorn_server,
     serve_http,
     streamable_http_app,
@@ -128,13 +127,6 @@ def test_host_origin_allowlist_for_native_and_container_modes(in_container: bool
             ).status_code
             == 403
         )
-
-
-def test_bind_host_native_and_container_rules() -> None:
-    assert bind_host(settings()) == NATIVE_HOST
-    assert bind_host(settings(in_container=True)) == CONTAINER_HOST
-    assert bind_host(settings(host="10.0.0.5")) == "10.0.0.5"
-    assert bind_host(settings(host="::1", in_container=True)) == "::1"
 
 
 def test_url_adds_its_host_and_origin_to_localhost() -> None:

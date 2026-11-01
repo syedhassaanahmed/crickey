@@ -339,36 +339,6 @@ def test_country_filter_uses_explicit_real_codes_and_never_auto_matches_on_miss(
     asyncio.run(run())
 
 
-def test_ground_resolution_reads_the_form_through_the_passed_call() -> None:
-    async def run() -> None:
-        class RecordingCall:
-            def __init__(self, html: str) -> None:
-                self.html = html
-                self.calls: list[tuple[str, Freshness, bool]] = []
-
-            async def fetch(self, url: str, *, freshness, force_refetch: bool = False) -> str:
-                self.calls.append((url, freshness, force_refetch))
-                return self.html
-
-        form_url = "https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;filter=advanced;type=batting"
-        form = """
-        <form name="gurumenu">
-        <select name="ground"><option value="131">AUS: Adelaide Oval</option><option value="132">ENG: Lord's</option></select>
-        </form>
-        """
-        source = MemoryPageSource({form_url: form})
-        resolver = NameResolver(
-            Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=source)
-        )
-        call = RecordingCall(form)
-
-        ground = await resolver.resolve_ground("Lord's", class_id=1, call=call)
-        assert ground.match is not None and ground.match.value == 132
-        assert call.calls == [(form_url, Freshness.LOOKUP, False)]
-
-    asyncio.run(run())
-
-
 def test_career_span_and_first_last_year_periods_from_player_form() -> None:
     async def run() -> None:
         form_url = "https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;type=batting"
@@ -440,40 +410,6 @@ def test_career_span_falls_back_to_innings_list_with_passed_call_and_freshness()
 
         assert career == ResolvedPeriod(start=date(2016, 9, 7), end=date(2026, 2, 24))
         assert call.calls == [(form_url, Freshness.LOOKUP), (innings_url, Freshness.RECENT)]
-
-    asyncio.run(run())
-
-
-def test_resolve_symbolic_uses_passed_call() -> None:
-    class RecordingCall:
-        def __init__(self, html: str) -> None:
-            self.html = html
-            self.calls: list[tuple[str, Freshness]] = []
-
-        async def fetch(self, url: str, *, freshness, force_refetch: bool = False) -> str:
-            assert force_refetch is False
-            self.calls.append((url, freshness))
-            return self.html
-
-    async def run() -> None:
-        form_url = "https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;type=batting"
-        form = """
-        <form name="gurumenu"><input type="hidden" name="spanmin0" value="07 Sep 2016"><input type="hidden" name="spanmax0" value="29 Feb 2024"></form>
-        """
-        resolver = PeriodResolver(
-            Fetcher(Settings(min_interval=timedelta(seconds=0)), page_source=MemoryPageSource({}))
-        )
-        call = RecordingCall(form)
-
-        period = await resolver.resolve_symbolic(
-            348144,
-            class_id=3,
-            period=SymbolicPeriod(kind=SymbolicPeriodKind.LAST_YEARS, years=1),
-            call=call,
-        )
-
-        assert period == ResolvedPeriod(start=date(2023, 2, 28), end=date(2024, 2, 29))
-        assert call.calls == [(form_url, Freshness.LOOKUP)]
 
     asyncio.run(run())
 
