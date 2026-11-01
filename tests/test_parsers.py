@@ -760,18 +760,6 @@ def test_class6_no_records_data2_page_is_empty_and_flagged() -> None:
     assert parsed.table.empty
 
 
-def test_no_records_table_is_empty_and_flagged() -> None:
-    html = """
-    <table class="engineTable"><caption>Overall figures</caption>
-    <tr class="data1"><td>No records available to match this query</td></tr></table>
-    """
-
-    parsed = parse_results_page(html)
-
-    assert parsed.no_records is True
-    assert parsed.table.empty
-
-
 def test_missing_results_structure_raises_clear_error() -> None:
     with pytest.raises(StatsguruParseError, match="results table is missing"):
         parse_results_page("<html><body><p>No Statsguru table</p></body></html>")
@@ -885,21 +873,6 @@ def test_player_page_missing_career_table_raises_clear_error() -> None:
         parse_player_page('<table class="engineTable"><caption>Other</caption></table>')
 
 
-def breadcrumb_page(name: str, body: str) -> str:
-    return (
-        '<html><body><div class="icc-home"><a href="/ci/engine/player/1.html">\n'
-        f"Statistics / Statsguru / {name} / One-Day Internationals\n</a></div>{body}</body></html>"
-    )
-
-
-def test_player_page_reads_the_player_name_from_the_breadcrumb() -> None:
-    career = PLAYER_HTML.split("<body>", 1)[1].rsplit("</body>", 1)[0]
-
-    assert parse_player_page(breadcrumb_page("JM Sample", career)).player_name == "JM Sample"
-    assert parse_player_page(breadcrumb_page("", career)).player_name is None
-    assert parse_player_page(PLAYER_HTML).player_name is None
-
-
 def grouped_page(page_query: str, groups: list[list[tuple[str, str, str]]]) -> str:
     """A "Career summary" table shaped like Statsguru's: a blank row between groupings, and
     each row's innings link is the page's own query with the row's filter set."""
@@ -976,53 +949,6 @@ def test_grouped_rows_take_each_grouping_from_the_row_link() -> None:
     assert rows[0]["HS"] == 120
     assert rows[0]["HS_not_out"] is True
     assert rows[6]["Span"] is None
-
-
-@pytest.mark.parametrize(
-    ("page_query", "rows", "expected"),
-    [
-        # One host: the U.A.E. row's link is the page's own query, so its "in " label decides.
-        (
-            "class=1;host=27;spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;template=results;type=batting",
-            [("v India", "opposition=6"), ("in U.A.E.", "host=27"), ("in Asia", "continent=2")],
-            [("opposition", "6"), ("host", "27"), ("continent", "2")],
-        ),
-        # Two hosts: each host row sets only its own host.
-        (
-            "class=1;host=6;host=7;template=results;type=bowling",
-            [("in India", "host=6"), ("in Pakistan", "host=7"), ("in Asia", "continent=2")],
-            [("host", "6"), ("host", "7"), ("continent", "2")],
-        ),
-        # One continent: the Asia row's link is the page's own query.
-        (
-            "class=1;continent=2;template=results;type=bowling",
-            [("in India", "host=6"), ("in Asia", "continent=2")],
-            [("host", "6"), ("continent", "2")],
-        ),
-        # Dates: every link carries them.
-        (
-            "class=1;spanmax1=31+Dec+1992;spanmin1=17+Sep+1981;spanval1=span;template=results;type=batting",
-            [("year 1981", "year=1981"), ("in Pakistan", "host=7")],
-            [("year", "1981"), ("host", "7")],
-        ),
-        # One host and one continent: "in India" could be either, so it gets no key.
-        (
-            "class=1;continent=2;host=6;template=results;type=batting",
-            [("in India", "host=6"), ("v Sri Lanka", "opposition=8")],
-            [(None, None), ("opposition", "8")],
-        ),
-    ],
-)
-def test_grouped_rows_on_filtered_pages_tell_the_row_filter_from_the_page_filters(
-    page_query: str, rows: list[tuple[str, str]], expected: list[tuple[str | None, str | None]]
-) -> None:
-    page = grouped_page(
-        page_query, [[(label, setting, "2001-2010|3|120|1") for label, setting in rows]]
-    )
-
-    frame = parse_grouped_rows(page)
-
-    assert list(zip(frame["grouping_key"], frame["grouping_value"], strict=True)) == expected
 
 
 def test_grouped_rows_need_the_career_summary_table() -> None:

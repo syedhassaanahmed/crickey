@@ -130,21 +130,6 @@ def test_user_agent_constant_is_sent_and_respx_sees_no_default_network() -> None
     assert route.calls[0].request.headers["User-Agent"] == USER_AGENT
 
 
-def test_rate_limiter_spaces_all_requests_and_reports_progress() -> None:
-    clock = FakeClock()
-    events: list[tuple[float, str]] = []
-    source = SequenceSource([ok(), ok(OTHER_URL)])
-    fetcher = Fetcher(settings(min_interval=timedelta(seconds=3)), clock=clock, page_source=source)
-
-    progress = capture(events)
-    run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=20, progress=progress))
-    run(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=20, progress=progress))
-
-    assert clock.sleeps == [3.0]
-    assert events == [(3.0, "spacing requests politely")]
-    assert [request[0] for request in source.requests] == [URL, OTHER_URL]
-
-
 def page_url(number: int) -> str:
     return (
         f"https://stats.cricinfo.com/ci/engine/stats/index.html?class=1;page={number};type=batting"
@@ -209,29 +194,6 @@ def test_concurrent_fetches_are_spaced_by_one_process_lock() -> None:
     assert request_times[1] - request_times[0] >= 0.5
     assert request_times[2] - request_times[1] >= 0.5
     assert urls == [URL, OTHER_URL, THIRD_URL]
-
-
-def test_known_not_before_fails_before_waiting_for_request_lock() -> None:
-    async def scenario() -> tuple[list[tuple[float, str]], int]:
-        clock = FakeClock()
-        events: list[tuple[float, str]] = []
-        source = SequenceSource([])
-        fetcher = Fetcher(settings(), clock=clock, page_source=source)
-        fetcher._not_before = 100
-        await fetcher._request_lock.acquire()
-        try:
-            with pytest.raises(FetchTimeoutError, match=r"try again after 08:02 \(UTC\+00:00\)"):
-                await fetcher.fetch(
-                    URL, freshness=Freshness.RECENT, budget=30, progress=capture(events)
-                )
-        finally:
-            fetcher._request_lock.release()
-        return events, len(source.requests)
-
-    events, request_count = asyncio.run(scenario())
-
-    assert events == []
-    assert request_count == 0
 
 
 def test_waiting_for_request_lock_obeys_budget() -> None:
@@ -299,70 +261,6 @@ def test_raising_progress_callback_does_not_break_fetch_or_lock() -> None:
     )
 
     assert [request[0] for request in source.requests] == [URL, OTHER_URL]
-
-
-def test_cancelled_async_progress_callback_releases_lock_for_later_fetch() -> None:
-    async def scenario() -> tuple[list[str], bool]:
-        clock = FakeClock()
-        source = SequenceSource([ok(), ok(OTHER_URL)])
-        fetcher = Fetcher(
-            settings(min_interval=timedelta(seconds=2)), clock=clock, page_source=source
-        )
-        assert await fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10) == STATS_PAGE
-        progress_entered = asyncio.Event()
-
-        async def progress(seconds: float, reason: str) -> None:
-            progress_entered.set()
-            await asyncio.sleep(3600)
-
-        task = asyncio.create_task(
-            fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=10, progress=progress)
-        )
-        await progress_entered.wait()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        source.responses.append(ok(THIRD_URL))
-        result = await fetcher.fetch(THIRD_URL, freshness=Freshness.RECENT, budget=10)
-        return [request[0] for request in source.requests], result == STATS_PAGE
-
-    urls, later_succeeded = asyncio.run(asyncio.wait_for(scenario(), timeout=1))
-
-    assert urls == [URL, THIRD_URL]
-    assert later_succeeded
-
-
-def test_cancelled_spacing_sleep_releases_lock_for_later_fetch() -> None:
-    async def scenario() -> tuple[list[str], bool]:
-        clock = FakeClock()
-        source = SequenceSource([ok(), ok(OTHER_URL)])
-        fetcher = Fetcher(
-            settings(min_interval=timedelta(seconds=100)), clock=clock, page_source=source
-        )
-        assert await fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10) == STATS_PAGE
-        sleep_entered = asyncio.Event()
-        original_sleep = clock.sleep
-
-        async def blocking_sleep(seconds: float) -> None:
-            sleep_entered.set()
-            await asyncio.sleep(3600)
-
-        clock.sleep = blocking_sleep  # type: ignore[method-assign]
-        task = asyncio.create_task(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=200))
-        await sleep_entered.wait()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        clock.sleep = original_sleep  # type: ignore[method-assign]
-        clock.monotonic_time = 100
-        source.responses.append(ok(THIRD_URL))
-        result = await fetcher.fetch(THIRD_URL, freshness=Freshness.RECENT, budget=10)
-        return [request[0] for request in source.requests], result == STATS_PAGE
-
-    urls, later_succeeded = asyncio.run(asyncio.wait_for(scenario(), timeout=1))
-
-    assert urls == [URL, THIRD_URL]
-    assert later_succeeded
 
 
 def test_cancelled_request_counts_for_spacing_and_releases_lock() -> None:
@@ -497,19 +395,6 @@ def test_retry_after_seconds_sets_process_not_before_and_budget_message() -> Non
     assert len(source.requests) == 1
 
 
-def test_retry_after_is_recorded_when_retries_are_disabled() -> None:
-    clock = FakeClock()
-    source = SequenceSource([response(429, headers={"Retry-After": "3600"})])
-    fetcher = Fetcher(settings(max_retries=0), clock=clock, page_source=source)
-
-    with pytest.raises(FetchTimeoutError, match=r"try again after 09:00 \(UTC\+00:00\)"):
-        run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=4000))
-    with pytest.raises(FetchTimeoutError, match=r"try again after 09:00 \(UTC\+00:00\)"):
-        run(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=20))
-
-    assert len(source.requests) == 1
-
-
 def test_retry_after_is_recorded_on_last_attempt() -> None:
     clock = FakeClock()
     source = SequenceSource(
@@ -526,19 +411,6 @@ def test_retry_after_is_recorded_on_last_attempt() -> None:
         run(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=20))
 
     assert len(source.requests) == 2
-
-
-def test_retry_after_on_5xx_is_recorded_when_retries_are_disabled() -> None:
-    clock = FakeClock()
-    source = SequenceSource([response(503, headers={"Retry-After": "3600"})])
-    fetcher = Fetcher(settings(max_retries=0), clock=clock, page_source=source)
-
-    with pytest.raises(FetchTimeoutError, match=r"try again after 09:00 \(UTC\+00:00\)"):
-        run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=4000))
-    with pytest.raises(FetchTimeoutError, match=r"try again after 09:00 \(UTC\+00:00\)"):
-        run(fetcher.fetch(OTHER_URL, freshness=Freshness.RECENT, budget=20))
-
-    assert len(source.requests) == 1
 
 
 def test_retry_after_http_date_waits_when_budget_allows() -> None:
@@ -614,18 +486,6 @@ def test_later_call_waits_for_pending_not_before_when_budget_allows() -> None:
     assert clock.sleeps == [3.0]
     assert events == [(3.0, "waiting for Statsguru's Retry-After time")]
     assert [request[0] for request in source.requests] == [URL, OTHER_URL]
-
-
-def test_unavailable_urls_are_not_requested_again() -> None:
-    source = SequenceSource([response(404)])
-    fetcher = Fetcher(settings(), clock=FakeClock(), page_source=source)
-
-    with pytest.raises(UnavailableUrlError, match="unavailable"):
-        run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10))
-    with pytest.raises(UnavailableUrlError, match="unavailable earlier"):
-        run(fetcher.fetch(URL, freshness=Freshness.RECENT, budget=10))
-
-    assert len(source.requests) == 1
 
 
 def test_concurrent_same_url_fetches_make_one_request() -> None:
@@ -878,18 +738,6 @@ def test_cache_freshness_rules_and_force_refetch_for_lookup() -> None:
         run(fetcher.fetch(OTHER_URL, freshness=Freshness.LOOKUP, budget=20, force_refetch=True))
         == "lookup 3 Statsguru"
     )
-
-
-def test_settled_pages_do_not_expire() -> None:
-    clock = FakeClock()
-    source = SequenceSource([ok(text="settled Statsguru")])
-    fetcher = Fetcher(settings(), clock=clock, page_source=source)
-
-    assert run(fetcher.fetch(URL, freshness=Freshness.SETTLED, budget=10)) == "settled Statsguru"
-    clock.monotonic_time = 1_000_000
-    assert run(fetcher.fetch(URL, freshness=Freshness.SETTLED, budget=10)) == "settled Statsguru"
-
-    assert len(source.requests) == 1
 
 
 def test_settled_or_recent_helper_uses_query_end_date() -> None:

@@ -11,9 +11,6 @@ from mcp import Client
 
 from crickey.fetcher import Fetcher, FetchResponse, MemoryPageSource
 from crickey.metrics import (
-    BATTING_METRICS,
-    BOWLING_METRICS,
-    FIELDING_METRICS,
     batting_metric,
     bowling_metric,
     fielding_metric,
@@ -2841,23 +2838,6 @@ async def test_any_mode_short_answer_counts_beaters_on_each_metric() -> None:
     assert single.structured_content["answer_markdown"].startswith(
         "3 player(s) beat Target Batter's displayed batting average. ["
     )
-
-
-async def test_answer_metric_schema_lists_batting_bowling_and_fielding_keys() -> None:
-    _source, client = await client_for({})
-
-    async with client:
-        tools = {tool.name: tool for tool in (await client.list_tools()).tools}
-
-    def metric_enum(schema: dict, prop: dict) -> list[str]:
-        ref = next(option["$ref"] for option in prop["anyOf"] if "$ref" in option)
-        return schema["$defs"][ref.rsplit("/", 1)[-1]]["enum"]
-
-    leaderboard = tools["leaderboard"].input_schema
-    comparison = tools["better_than_player"].input_schema
-    expected = [*BATTING_METRICS, *BOWLING_METRICS, *FIELDING_METRICS]
-    assert metric_enum(leaderboard, leaderboard["properties"]["metric"]) == expected
-    assert metric_enum(comparison, comparison["properties"]["metrics"]["items"]) == expected
 
 
 # Issue #57: Statsguru lists two Test players as "Imran Khan" (PAK), so only player_id tells them

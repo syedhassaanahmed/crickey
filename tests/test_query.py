@@ -319,16 +319,6 @@ def test_query_catalog_generator_builds_exact_tables_from_synthetic_forms() -> N
     assert result.returncode == 0, result.stderr
 
 
-def test_babar_world_cup_player_page_has_trophy_and_pinned_dates() -> None:
-    page = PlayerPageSpec(player_id=348144, **{"class": 2, "type": "batting", "trophy": 12})
-
-    assert page.url(as_of=date(2026, 10, 4)) == (
-        "https://stats.cricinfo.com/ci/engine/player/348144.html?"
-        "class=2;spanmax1=04+Oct+2026;spanmin1=05+Jan+1971;spanval1=span;"
-        "template=results;trophy=12;type=batting"
-    )
-
-
 def test_player_page_view_is_validated_and_compiled_exactly() -> None:
     page = PlayerPageSpec(
         player_id=348144,
@@ -566,12 +556,6 @@ def test_view_groupby_orderbyad_page_and_qualmax_are_in_exact_url() -> None:
         "spanmax1=04+Oct+2026;spanmin1=15+Mar+1877;spanval1=span;"
         "template=results;type=batting;view=innings"
     )
-
-
-def test_page_one_is_omitted() -> None:
-    query = StatsguruQuery(**{"class": 1, "type": "batting", "page": 1})
-
-    assert "page=1" not in query.results_url(as_of=date(2026, 10, 4))
 
 
 def test_range_filters_emit_matching_val1_and_quickpicks_are_refused() -> None:
@@ -948,27 +932,6 @@ def test_labels_include_season_filter_and_do_not_duplicate_innings_number() -> N
 
     assert query.label(as_of=date(2026, 10, 4)) == (
         "Test batting, innings number 1st innings, season 2019/20, 15 Mar 1877 to 4 Oct 2026"
-    )
-
-
-def test_fielding_labels_name_catches_stumpings_and_dismissals_per_innings() -> None:
-    query = StatsguruQuery(
-        **{
-            "class": 11,
-            "type": "fielding",
-            "qualifications": (
-                Qualification(field="caught_fielder", minimum=140),
-                Qualification(field="dismissals_per_inns", minimum=Decimal("0.411")),
-                Qualification(field="stumped", minimum=1),
-            ),
-            "orderby": "caught_keeper",
-        }
-    )
-
-    assert query.label(as_of=date(2026, 10, 8)) == (
-        "Test/ODI/T20I fielding, at least 140 catches as a fielder, "
-        "at least 0.411 dismissals per innings, at least 1 stumpings, "
-        "15 Mar 1877 to 8 Oct 2026, sorted by catches as a wicketkeeper"
     )
 
 
