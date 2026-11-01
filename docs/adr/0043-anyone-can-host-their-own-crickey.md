@@ -26,8 +26,8 @@ crickey runs on localhost by default ([ADR 0020](0020-http-by-default-stdio-for-
 
 Chosen option: "Settings for a self-hosted instance: bind address, public URL and a token, with the platform's TLS", because a static token is enough for one person's instance, and container platforms already provide TLS.
 
-* `CRICKEY_HOST` (`--host`) sets the bind address.
-* `CRICKEY_URL` (`--url`) names the instance's public URLs, which the Host and Origin checks then accept as well as localhost; otherwise they'd answer a cloud hostname with 421. One setting covers both checks, because without CORS no other web page can call crickey anyway.
+* `CRICKEY_HOST` sets the bind address.
+* `CRICKEY_URL` names the instance's public URLs, which the Host and Origin checks then accept as well as localhost; otherwise they'd answer a cloud hostname with 421. One setting covers both checks, because without CORS no other web page can call crickey anyway.
 * With `CRICKEY_TOKEN` set, every request but `/health` needs `Authorization: Bearer <token>`. The token comes only from the environment, so it stays out of process lists, and needs at least 32 characters.
 * crickey refuses to start without a token when another machine could reach it: a bind address other than loopback, or a URL other than localhost. The image's 0.0.0.0 doesn't count, because Docker publishes it on the host's loopback.
 * `/health` stays open for the platform's health checks.

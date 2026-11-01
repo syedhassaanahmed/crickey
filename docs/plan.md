@@ -139,12 +139,12 @@ Implements D7–D12 and D17.
 - **Challenge pages:** detected only when a response has no Statsguru markers (`Statsguru`, `engineTable` or `/ci/engine/`) and does have challenge markers such as `captcha`, `challenge`, `cf-challenge`, `access denied` or `enable javascript`.
 - **Requests:** the page cap (D10), checked against the total on the first page (R2), and progress notifications while waiting.
 - **Tests:** a test-only hook serves synthetic pages instead of the network.
-- **Settings** (environment variables, or matching flags; flags win): `CRICKEY_MIN_INTERVAL`, `CRICKEY_MAX_RETRIES`, `CRICKEY_BLOCK_PAUSES`, `CRICKEY_MAX_PAGES`, `CRICKEY_CACHE_MAX_MB`, `CRICKEY_RECENT_TTL`, `CRICKEY_PORT` and `CRICKEY_IN_CONTAINER`. `CRICKEY_MAX_RETRIES` counts retries after the first attempt, and `0` turns them off. Durations use seconds by default or an `s`, `m` or `h` suffix; block pauses are a comma-separated list of durations.
+- **Settings** (environment variables only, D19): `CRICKEY_MIN_INTERVAL`, `CRICKEY_PORT` and `CRICKEY_IN_CONTAINER`, plus the hosting settings below. Durations use seconds by default or an `s`, `m` or `h` suffix. Retries, block pauses, the page cap, the cache size and the recent-page TTL keep the values of D10, D11 and D17; only tests change them.
 
 ## HTTP transport
-- **Serving:** `crickey serve`, which plain `crickey` also runs, serves `mcp.streamable_http_app()` with uvicorn on port 8765 (`--port` or `CRICKEY_PORT`), as one process. This is the default mode (D20).
-- **Binding:** natively it binds 127.0.0.1. With `CRICKEY_IN_CONTAINER=1`, which the image sets, it binds 0.0.0.0 inside the container (D20). `CRICKEY_HOST` (`--host`) sets another address (D43).
-- **Host/Origin checks:** an allowlist through `TransportSecuritySettings` with `127.0.0.1:*`, `localhost:*` and `[::1]:*` (R12; D20). `CRICKEY_URL` (`--url`) adds the instance's public URLs, as both Host and Origin (D43). No CORS.
+- **Serving:** `crickey serve`, which plain `crickey` also runs, serves `mcp.streamable_http_app()` with uvicorn on port 8765 (`CRICKEY_PORT`), as one process. This is the default mode (D20).
+- **Binding:** natively it binds 127.0.0.1. With `CRICKEY_IN_CONTAINER=1`, which the image sets, it binds 0.0.0.0 inside the container (D20). `CRICKEY_HOST` sets another address (D43).
+- **Host/Origin checks:** an allowlist through `TransportSecuritySettings` with `127.0.0.1:*`, `localhost:*` and `[::1]:*` (R12; D20). `CRICKEY_URL` adds the instance's public URLs, as both Host and Origin (D43). No CORS.
 - **Token (D43):** with `CRICKEY_TOKEN` set, every request but `/health` needs `Authorization: Bearer <token>`, or gets 401. crickey refuses to start without one when another machine could reach it: a bind address other than loopback, or a URL other than localhost; the image's 0.0.0.0 doesn't count (D20). TLS is the hosting platform's.
 - **Other:** responses stream as SSE, the SDK default, so progress notifications arrive (R12); `/health` returns only `{"status": "ok"}`; startup checks that the port is free.
 - **stdio (debugging only, D20):** `crickey stdio` runs the same server over stdio for the MCP Inspector (`mcp dev`, R12) and tests.

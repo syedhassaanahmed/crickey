@@ -165,8 +165,8 @@ def _bind_socket(host: str, port: int) -> socket.socket:
     except OSError as error:
         if error.errno in _ADDRESS_IN_USE:
             raise TransportError(
-                f"Port {port} is already in use; choose another port with --port or CRICKEY_PORT."
+                f"Port {port} is already in use; choose another port with CRICKEY_PORT."
             ) from error
         raise TransportError(
-            f"crickey can't listen on {host}: {error.strerror}; check --host or CRICKEY_HOST."
+            f"crickey can't listen on {host}: {error.strerror}; check CRICKEY_HOST."
         ) from error

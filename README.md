@@ -66,11 +66,6 @@ crickey's instructions tell the model to show each answer as crickey gives it an
 | Variable | Default | Meaning |
 |---|---:|---|
 | `CRICKEY_MIN_INTERVAL` | `15s` | Average time between Cricinfo requests; valid `2s` through `168h`, with a warning below `15s`. |
-| `CRICKEY_MAX_RETRIES` | `3` | Retries after the first request; use `0` to turn retries off. |
-| `CRICKEY_BLOCK_PAUSES` | `5m,15m,1h,4h,24h` | Pause schedule after a block; comma-separated durations, each up to `168h`. |
-| `CRICKEY_MAX_PAGES` | `4` | Maximum Statsguru result pages per tool call. |
-| `CRICKEY_CACHE_MAX_MB` | `64` | In-memory page cache size in MB. |
-| `CRICKEY_RECENT_TTL` | `1h` | Cache time for pages that include recent matches; up to `168h`. |
 | `CRICKEY_PORT` | `8765` | HTTP port inside the container; changing it needs a matching `-p` mapping. |
 | `CRICKEY_HOST` | `127.0.0.1`; `0.0.0.0` in the image | Address to listen on. |
 | `CRICKEY_URL` | none | Your instance's public URL, such as `https://crickey.example.com`, which crickey then answers to as well as localhost; a comma-separated list for more than one. |
