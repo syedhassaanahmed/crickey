@@ -151,22 +151,13 @@ def page_url(number: int) -> str:
     )
 
 
-@pytest.mark.parametrize(
-    ("burst", "request_times"),
-    [
-        (4, [0.0, 3.0, 6.0, 9.0, 15.0, 30.0, 90.0, 93.0]),
-        (1, [0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 105.0]),
-    ],
-)
-def test_burst_goes_gap_apart_then_one_request_per_interval(
-    burst: int, request_times: list[float]
-) -> None:
+def test_burst_goes_gap_apart_then_one_request_per_interval() -> None:
     async def scenario() -> list[float]:
         clock = FakeClock()
         urls = [page_url(number) for number in range(1, 9)]
         source = YieldingSequenceSource([ok(url) for url in urls], clock)
         fetcher = Fetcher(
-            settings(min_interval=timedelta(seconds=15), burst=burst),
+            settings(min_interval=timedelta(seconds=15)),
             clock=clock,
             page_source=source,
         )
@@ -177,7 +168,7 @@ def test_burst_goes_gap_apart_then_one_request_per_interval(
             await fetcher.fetch(url, freshness=Freshness.RECENT, budget=200)
         return source.request_times
 
-    assert run(scenario()) == request_times
+    assert run(scenario()) == [0.0, 3.0, 6.0, 9.0, 15.0, 30.0, 90.0, 93.0]
 
 
 def test_429_empties_the_burst_allowance() -> None:

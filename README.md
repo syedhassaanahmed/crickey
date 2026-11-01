@@ -66,7 +66,6 @@ crickey's instructions tell the model to show each answer as crickey gives it an
 | Variable | Default | Meaning |
 |---|---:|---|
 | `CRICKEY_MIN_INTERVAL` | `15s` | Average time between Cricinfo requests; valid `2s` through `168h`, with a warning below `15s`. |
-| `CRICKEY_BURST` | `4` | Requests that may go 3 seconds apart after a quiet spell, `1` through `4`; `1` spaces every request. |
 | `CRICKEY_MAX_RETRIES` | `3` | Retries after the first request; use `0` to turn retries off. |
 | `CRICKEY_BLOCK_PAUSES` | `5m,15m,1h,4h,24h` | Pause schedule after a block; comma-separated durations, each up to `168h`. |
 | `CRICKEY_MAX_PAGES` | `4` | Maximum Statsguru result pages per tool call. |

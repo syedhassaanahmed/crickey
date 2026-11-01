@@ -31,6 +31,9 @@ _PAGE_COUNT_RE = re.compile(r"Page\s+\d+\s+of\s+(?P<count>\d+)", re.IGNORECASE)
 _REQUEST_TIMEOUT_MARGIN = 0.5
 _MIN_REQUEST_TIMEOUT = 1.0
 _LOCK_WAIT_PROGRESS_INTERVAL = 10.0
+# After a quiet spell, this many requests may go closer together than min_interval. Statsguru
+# answered a 429 after a dozen requests 2.5 s apart, so bursts stay this small.
+BURST_REQUESTS = 4
 # Requests in a burst still go at least this far apart.
 BURST_GAP_SECONDS = 3.0
 _STATS_MARKERS = ("engineTable", "Statsguru", "/ci/engine/")
@@ -429,9 +432,9 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
             return
         interval = self._interval_seconds()
         now = self._fetcher.clock.monotonic()
-        # A unit of the allowance is left while it would be full again within burst - 1
+        # A unit of the allowance is left while it would be full again within BURST_REQUESTS - 1
         # intervals; while one is, only the gap after the last request applies.
-        refill_room = (self._fetcher.settings.burst - 1) * interval
+        refill_room = (BURST_REQUESTS - 1) * interval
         wait = max(
             last + min(BURST_GAP_SECONDS, interval) - now,
             self._fetcher._allowance_full_at - refill_room - now,
@@ -445,7 +448,7 @@ class _FetchCall(AbstractAsyncContextManager["_FetchCall"]):
         last = self._fetcher._last_request_at
         if last is None:
             return
-        full_after = self._fetcher.settings.burst * self._interval_seconds()
+        full_after = BURST_REQUESTS * self._interval_seconds()
         self._fetcher._allowance_full_at = max(self._fetcher._allowance_full_at, last + full_after)
 
     def _interval_seconds(self) -> float:

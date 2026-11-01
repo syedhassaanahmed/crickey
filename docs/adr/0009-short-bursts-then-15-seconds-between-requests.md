@@ -27,9 +27,8 @@ Statsguru's robots.txt asks for 15 seconds between requests, and Statsguru answe
 
 Chosen option: "Short bursts at the crawl delay's average", because it makes most answers fast while the long-run rate stays one request per 15 s.
 
-* After a quiet spell, up to 4 requests go 3 s apart. Each request uses one unit of an allowance that refills one unit per `CRICKEY_MIN_INTERVAL`, up to 4, so any stretch of time holds at most 3 requests more than strict spacing would.
+* After a quiet spell, up to 4 requests go 3 s apart. Each request uses one unit of an allowance that refills one unit per `CRICKEY_MIN_INTERVAL`, up to 4, so any stretch of time holds at most 3 requests more than strict spacing would. The burst stays far from the dozen fast requests that drew a 429, and it's fixed rather than a setting, because the spacing already is one.
 * A 429, a server error or a timeout empties the allowance, so the requests after it go `CRICKEY_MIN_INTERVAL` apart until it refills.
-* `CRICKEY_BURST` (`--burst`) sets the burst, from 1 to 4; 1 spaces every request `CRICKEY_MIN_INTERVAL` apart. The cap keeps bursts far from the dozen fast requests that drew a 429.
 
 ### Consequences
 
