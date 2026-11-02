@@ -177,7 +177,7 @@ Implements D7–D12 and D17.
   - build and push both architectures with `docker/build-push-action`, with provenance and SBOM attestations;
   - smoke-test the pushed image by digest;
   - create a GitHub Release with notes and the `docker run` command.
-- **`live.yml`** (daily, on demand, and pull requests that change fetching, parsing, URL building, the live tests or `uv.lock`): `pytest -m live` on `ubuntu-latest`, one run at a time, with each request's time and status in the log (D46). It isn't a required check, so Cricinfo being down never blocks a merge.
+- **`live.yml`** (daily, on demand, and pull requests that change fetching, parsing, URL building, the live tests or `pyproject.toml`): `pytest -m live` on `ubuntu-latest`, one run at a time, with each request's time and status in the log (D46). It isn't a required check, so Cricinfo being down never blocks a merge.
 - **Hygiene:** actions pinned to commit SHAs, least-privilege `permissions`, and Dependabot for actions, Python dependencies and the base image.
 - **One-time step:** GHCR creates new packages as private, so after the first push the package is switched to public in its settings. The `org.opencontainers.image.source` label links it to the repo.
 

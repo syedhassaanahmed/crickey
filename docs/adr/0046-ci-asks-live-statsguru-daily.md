@@ -27,7 +27,7 @@ crickey's tests use synthetic pages (D25). They check crickey's own code, but th
 
 Chosen option: "A daily live workflow that also runs on pull requests changing fetching or parsing", because it notices a change within a day for about 15 requests, and checks the changes most likely to break on real pages before they merge.
 
-* `live.yml` runs `pytest -m live` every day, on demand, and on pull requests that change the fetcher, the parsers, URL building, name resolution, the ID tables, the live tests or `uv.lock`. One run at a time, and it isn't a required check.
+* `live.yml` runs `pytest -m live` every day, on demand, and on pull requests that change the fetcher, the parsers, URL building, name resolution, the ID tables, the live tests or `pyproject.toml`. With no lockfile (D23), the daily run also meets each new release of a dependency, such as the HTML parser. One run at a time, and it isn't a required check.
 * The live tests share one `Fetcher` with default settings, so D9's spacing and D11's block pause cover them all. The log lists each request with its time and status.
 * Besides a results page of each stat type, they ask `find_player` and each answer tool a question whose answer can't change (D37), which reads the player search, player pages with a split, a filter form and results pages through the tools that use them. A known answer also notices a column that keeps its name but changes its meaning.
 

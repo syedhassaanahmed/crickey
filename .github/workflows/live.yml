@@ -17,7 +17,7 @@ on:
       - 'src/crickey/resolve.py'
       - 'tests/test_live_statsguru.py'
       - 'tests/stat_type_cases.py'
-      - 'uv.lock'
+      - 'pyproject.toml'
       - '.github/workflows/live.yml'
 
 permissions:
