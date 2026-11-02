@@ -763,7 +763,7 @@ Read in its source.
 - **Timeouts:** Inspect's HTTP clients give up on a request after 600 s, unless `INSPECT_HTTP_REQUEST_TIMEOUT` says otherwise; the `ollama` provider doesn't take the `client_timeout` model argument that some others do. The clients are created before Inspect loads the task file, so a task can't change that. `GenerateConfig.timeout` only bounds a model call with its retries.
 - **Concurrency:** with `max_connections` set in the task's config and no `max_samples`, samples run `max_connections` at a time.
 - **Per sample:** `TaskState.token_usage` gives the tokens used, and `store()` is the sample's own store, also inside tools.
-- **The MCP SDK** adds its own `_meta` key, `io.modelcontextprotocol/serverInfo`, to tool results, next to crickey's (D38).
+- **The MCP SDK** adds its own `_meta` key, `io.modelcontextprotocol/serverInfo`, with the server's name and version, to tool results, next to crickey's (D38).
 
 ### Ollama
 - **Starting it:** variables set in front of `ollama serve` reach its server: with `OLLAMA_CONTEXT_LENGTH=65536`, its config lists `OLLAMA_CONTEXT_LENGTH:65536`, and `/api/ps` shows the model at a 65,536-token context. In PowerShell 7, `$env:` variables reach the programs it starts. Without `OLLAMA_NUM_PARALLEL`, the server's config shows it as 1.
