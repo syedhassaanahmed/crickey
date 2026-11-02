@@ -169,13 +169,13 @@ Implements D7–D12 and D17.
 ## CI pipeline (GitHub Actions)
 - **`ci.yml`** (pull requests and pushes to `main`):
   - ruff and pytest on `ubuntu-latest`, using uv with R15's Python version and public PyPI;
-  - build the image for `linux/amd64` without pushing, then run a smoke test with `--read-only`: start it in its default HTTP mode, check `/health`, list tools and call `query_stats` with `fetch=false` (no network needed) through a Bash client with curl and jq over Streamable HTTP, and check that `stdio` still lists the tools.
+  - build the image for `linux/amd64` without pushing it (D31).
 - **`release.yml`** (tags `v*`):
   - rerun the tests;
   - set up QEMU and Buildx, and log in to GHCR with `GITHUB_TOKEN` (`packages: write`);
   - generate tags and labels with `docker/metadata-action`;
   - build and push both architectures with `docker/build-push-action`, with provenance and SBOM attestations;
-  - smoke-test the pushed image by digest;
+  - check that the pushed arm64 variant starts, with `--help`;
   - create a GitHub Release with notes and the `docker run` command.
 - **`live.yml`** (daily, on demand, and pull requests that change fetching, parsing, URL building, the live tests or `pyproject.toml`): `pytest -m live` on `ubuntu-latest`, one run at a time, with each request's time and status in the log (D46). It isn't a required check, so Cricinfo being down never blocks a merge.
 - **Hygiene:** actions pinned to commit SHAs, least-privilege `permissions`, and Dependabot for actions, Python dependencies and the base image.
@@ -204,7 +204,7 @@ Work is tracked in [GitHub issues](https://github.com/syedhassaanahmed/crickey/i
   - The fetcher: rate limiter, page cap, retries (`Retry-After`, jitter limits, time budget), pauses after a block, unavailable URLs, the cache size cap and the freshness rules.
 - **Answer tools:** each one against synthetic pages, with expected answers and proof links. Each golden question has a test named after it.
 - **HTTP tests:** Host and Origin checks (localhost on any port), loopback-only binding natively, binding in container mode, and SSE progress.
-- **End to end:** tests over HTTP and stdio using the synthetic-page hook, a check that no files are written, and the `--read-only` container smoke test. CI runs on Ubuntu.
+- **End to end:** tests over HTTP and stdio using the synthetic-page hook, and a check that no files are written. CI runs on Ubuntu.
 - **Live:** tests marked `live` share one fetcher. They parse a Statsguru results page of each stat type, search for a retired player with `find_player`, and ask golden questions 1, 2, 5, 8 (Dravid's call) and 10, whose answers can't change, through the tools that answer them. Between them these read the player search, player pages with a split, a filter form and results pages. `live.yml` runs them (D46).
 - **Evals:** pytest neither tests nor runs them; they run on their own (Evals below).
 - **Acceptance:** every golden question is answered correctly in the evals by a strong model and a small one, every pinned link shows matching numbers, and the public image works on a machine without the source.

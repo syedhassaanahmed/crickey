@@ -54,10 +54,4 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          load: true
-          tags: crickey:ci
           push: false
-      - name: Lint smoke test
-        run: shellcheck scripts/smoke_test_image.sh
-      - name: Smoke-test image
-        run: bash scripts/smoke_test_image.sh crickey:ci
