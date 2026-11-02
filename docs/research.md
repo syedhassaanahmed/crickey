@@ -393,7 +393,7 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
 
 ## 8. Results pages
 - **Batting columns (overall view):**
-  - ODIs: Player, Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0
+  - ODIs: Player, Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0, plus 4s and 6s for some periods. On 2 Nov 2026, ODIs from 2013 to 2019 had 4s and 6s, with or without minimums on fours and sixes; ODIs over all time had neither, even with those minimums.
   - T20Is: the ODI columns plus 4s and 6s
   - All T20: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
   - All Test/ODI/T20I combined: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
@@ -487,6 +487,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
   - As a fielder, 12 have more: ME Waugh 256, SP Fleming 205, BC Lara 191, M Azharuddin 175, CL Hooper 174, MA Taylor 166, SK Warne 165, R Dravid 163, Inzamam-ul-Haq 149, and ST Jayasuriya, SR Tendulkar and SR Waugh 142 each. These 12 are on both lists, so they're the case's facts and either reading passes.
 - **Golden question 9** matches the figures above for Tests and ODIs (6 requests).
 - **Golden question 10**, ODI series of three or more teams in Pakistan from 1 Jan 1990 to 31 Dec 1999 (`series_count`, checked live on 29 Oct 2026, 2 requests: the series view and the form's series list): 3 series: the Wills Triangular Series, 1994/95, from 12 Oct 1994 (9 matches, won by Australia); the Wills World Cup, 1995/96, from 16 Feb 1996 (its 16 matches in Pakistan, won by Sri Lanka); and the Wills Quadrangular Tournament, 1997/98, from 1 Nov 1997 (7 matches, won by South Africa). All time, there were 11 by 29 Oct 2026 (R4).
+- **Golden question 11**, non-boundary runs in ODIs and T20Is from 1 Jan 2013 to 31 Dec 2019 (`leaderboard`, checked live on 2 Nov 2026, 1 request each): in ODIs V Kohli leads with 4213 (7723 runs, 729 fours and 99 sixes), then JE Root 3698, KS Williamson 3052, RG Sharma 3020 and LRPL Taylor 2996; in T20Is V Kohli leads with 989 (2075 runs, 177 fours and 63 sixes), then RG Sharma 734, Babar Azam 729, Shoaib Malik 666 and KS Williamson 605.
 
 **The held-out cases' known answers** (checked live on 29 Oct 2026 through crickey's tools, 40 requests 15 s apart). [evals/golden_questions.toml](../evals/golden_questions.toml) has each case (D45).
 - **Held-out 1**, Tests from 1 Jan 1980 to 31 Dec 1999, at least 15 hundreds (`leaderboard`, innings per hundred, 1 request): SR Tendulkar leads with 5.23 innings per hundred (22 hundreds), then M Azharuddin 6.9 and MD Crowe 7.71. The group's figure is 8.95.
@@ -499,6 +500,7 @@ For golden question 1, his innings per hundred are 140 ÷ 20 = 7.
 - **Held-out 8**, BC Lara (ID 52337) in Tests by host country (2 requests): a hundred in 8 of his 9 host countries, all but India. The question asks yes or no, so the case's facts are Lara and India: a right answer may give the count as "8 of his 9" or "eight of them", or none, as in "every country except India".
 - **Held-out 9**, AA Donald (ID 44716), SM Pollock (ID 46774) and M Ntini (ID 46592) bowling against the West Indies in Tests (6 requests): Donald 10 Tests, 43 wickets, average 20.79 and strike rate 43.1; Pollock 16 Tests, 70 wickets, 22.95 and 57.3; Ntini 15 Tests, 63 wickets, 27.58 and 50.7.
 - **Held-out 10**, ODI series of three or more teams in Sri Lanka from 1 Jan 2000 to 31 Dec 2009 (`series_count`, 2 requests): 8, from the Singer Triangular Series, 2000 to the Compaq Cup, 2009, including the ICC Champions Trophy, 2002/03, which India and Sri Lanka shared.
+- **Held-out 11**, non-boundary runs in T20Is from 1 Jan 2020 to 31 Dec 2023 (`leaderboard`, checked live on 2 Nov 2026, 1 request): Mohammad Rizwan leads with 1269 (2617 runs, 229 fours and 72 sixes), then Babar Azam 954, S Ssesazi 724, V Kohli 663 and SA Yadav 635.
 
 **Babar Azam (ID 348144), T20I batting career:** 2016–2026, 145 matches, 136 innings, 18 not outs, 4596 runs, highest 122, average 38.94, 3590 balls, strike rate 128.02, 3 hundreds, 39 fifties, 10 ducks, 477 fours and 80 sixes. His innings list has 145 rows, from 07 Sep 2016 (v England, Manchester) to 24 Feb 2026 (v England, Pallekele).
 - Career: `https://stats.cricinfo.com/ci/engine/player/348144.html?class=3;template=results;type=batting`

@@ -3,7 +3,7 @@ from __future__ import annotations
 # ruff: noqa: E501
 import asyncio
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -312,6 +312,139 @@ async def test_golden_question_1_odi_innings_per_hundred_leaderboard_requests_an
     assert "orderbyad" not in proof["url"]
     assert "reverse" not in proof["label"]
     assert warm.structured_content["answer_markdown"] == cold.structured_content["answer_markdown"]
+
+
+NON_BOUNDARY_QUERY = StatsguruQuery(
+    **{
+        "class": 2,
+        "type": "batting",
+        "period": ResolvedPeriod(start=date(2013, 1, 1), end=date(2019, 12, 31)),
+        "qualifications": (Qualification(field="runs", minimum=1),),
+        "orderby": "runs",
+        "size": 200,
+    }
+)
+
+
+def boundary_page(rows: list[tuple[int, str, int, int, int]], *, page: int, pages: int) -> str:
+    cells = "".join(
+        f'<tr class="data1"><td><a href="/ci/content/player/{player_id}.html">{name}</a> (AAA)'
+        f"</td><td>2013-2019</td><td>50</td><td>48</td><td>4</td><td>{runs}</td><td>120</td>"
+        f"<td>40.00</td><td>1200</td><td>80.00</td><td>1</td><td>5</td><td>1</td>"
+        f"<td>{fours}</td><td>{sixes}</td></tr>"
+        for player_id, name, runs, fours, sixes in rows
+    )
+    first = (page - 1) * 200 + 1
+    return f"""
+    <html><body>
+    <table class="engineTable"><caption>Overall figures</caption>
+    <tr><th>Player</th><th>Span</th><th>Mat</th><th>Inns</th><th>NO</th><th>Runs</th><th>HS</th><th>Ave</th><th>BF</th><th>SR</th><th>100</th><th>50</th><th>0</th><th>4s</th><th>6s</th></tr>
+    {cells}
+    </table>
+    <table><tr><td>Page <b>{page}</b> of <b>{pages}</b></td><td>Showing <b>{first}</b> - <b>{first + len(rows) - 1}</b> of <b>{pages * 200}</b></td></tr></table>
+    </body></html>
+    """
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "top_n", "leaders", "pages_read"),
+    [
+        # The first page ends at 300 runs, below the 2nd-best 710, so the second can't rank.
+        (
+            [(1, "Alpha", 1000, 120, 5), (2, "Beta", 900, 40, 5), (3, "Gamma", 800, 20, 0)]
+            + [(4, "Delta", 300, 10, 2)],
+            [(5, "Epsilon", 290, 0, 0)],
+            2,
+            [("Gamma", 720), ("Beta", 710)],
+            1,
+        ),
+        # It ends at 500 runs, below the best 900 but equal to the 2nd-best 500, so a player on
+        # the second page can still tie. The second page is the last, though it ends at 500 too.
+        (
+            [(1, "Alpha", 1000, 25, 0), (2, "Beta", 800, 125, 0), (3, "Gamma", 500, 0, 0)],
+            [(4, "Delta", 500, 0, 0), (5, "Epsilon", 500, 25, 0)],
+            2,
+            [("Alpha", 900), ("Gamma", 500), ("Delta", 500)],
+            2,
+        ),
+    ],
+)
+async def test_golden_question_11_non_boundary_runs_rank_by_formula_and_read_pages_that_can_rank(
+    first: list[tuple[int, str, int, int, int]],
+    second: list[tuple[int, str, int, int, int]],
+    top_n: int,
+    leaders: list[tuple[str, int]],
+    pages_read: int,
+) -> None:
+    page_two = NON_BOUNDARY_QUERY.model_copy(update={"page": 2})
+    source, client = await client_for(
+        {
+            url(NON_BOUNDARY_QUERY): boundary_page(first, page=1, pages=2),
+            url(page_two): boundary_page(second, page=2, pages=2),
+        }
+    )
+
+    async with client:
+        result = await client.call_tool(
+            "leaderboard",
+            {
+                "format": "ODI",
+                "metric": "non_boundary_runs",
+                "period": "2013 to 2019",
+                "top_n": top_n,
+            },
+        )
+
+    rows = result.structured_content["rows"]
+    assert [(row["player"], int(row["value"])) for row in rows] == leaders
+    leader = next(entry for entry in first + second if entry[1] == leaders[0][0])
+    assert markdown_rows(result.content[0].text)[:2] == [
+        ["Rank", "Player", "non-boundary runs", "Runs", "4s", "6s"],
+        ["1", leader[1], str(leaders[0][1]), *map(str, leader[2:])],
+    ]
+    assert source.requests == [url(NON_BOUNDARY_QUERY), url(page_two)][:pages_read]
+
+
+async def test_non_boundary_runs_refuse_missing_4s_and_6s_the_page_limit_and_other_tools() -> None:
+    query = StatsguruQuery(
+        **{
+            "class": 2,
+            "type": "batting",
+            "qualifications": (Qualification(field="runs", minimum=1),),
+            "orderby": "runs",
+            "size": 200,
+        }
+    )
+    source, client = await client_for(
+        {
+            url(query): result_page(
+                [row(1, "Alpha", "AAA", "1975-2019", 80, 4000, "50.00", 4500, "88.88", 12, 20)]
+            ),
+            url(NON_BOUNDARY_QUERY): boundary_page([(1, "Alpha", 1000, 100, 0)], page=1, pages=2),
+        },
+        settings(max_pages=1),
+    )
+
+    async with client:
+        all_time = await client.call_tool(
+            "leaderboard", {"format": "ODI", "metric": "non_boundary_runs"}
+        )
+        broad = await client.call_tool(
+            "leaderboard",
+            {"format": "ODI", "metric": "non_boundary_runs", "period": "2013 to 2019"},
+        )
+        comparison = await client.call_tool(
+            "better_than_player",
+            {"player_id": 1, "format": "ODI", "metrics": ["non_boundary_runs"]},
+        )
+
+    assert all_time.is_error
+    assert "have no 4s or 6s" in all_time.content[0].text
+    assert broad.is_error
+    assert "too broad" in broad.content[0].text
+    assert comparison.is_error
+    assert "only in leaderboard" in comparison.content[0].text
+    assert source.requests == [url(query), url(NON_BOUNDARY_QUERY)]
 
 
 async def test_golden_questions_2_and_3_babar_t20i_comparison_requests_and_cache() -> None:
