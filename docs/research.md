@@ -73,7 +73,7 @@ All on the same results page: `https://stats.cricinfo.com/ci/engine/stats/index.
 - The same day, after 40 quiet minutes, crickey's default spacing (D9) sent 4 requests 3 s apart and a 5th at 15 s, and all 5 got 200. The largest burst Statsguru allows isn't known.
 
 ### From GitHub's runners
-- On 2 Nov 2026, the live workflow's first run (D46, [run](https://github.com/syedhassaanahmed/crickey/actions/runs/41489318863)) on `ubuntu-latest`, image `ubuntu-26.04` version 20261025.179.1, sent 15 requests with crickey's default spacing, from 17:15:10 to 17:17:53 UTC: 7 results pages, then the player search, results pages, player pages and a filter form through the tools.
+- On 2 Nov 2026, a run of the live workflow (D46, [run](https://github.com/syedhassaanahmed/crickey/actions/runs/41489318863)) on `ubuntu-latest`, image `ubuntu-26.04` version 20261025.179.1, sent 15 requests with crickey's default spacing, from 17:15:10 to 17:17:53 UTC: 7 results pages, then the player search, results pages, player pages and a filter form through the tools.
 - All 15 got 200, with no challenge, and the 7 live tests passed in 166 s.
 
 ## 2. Statsguru URL model

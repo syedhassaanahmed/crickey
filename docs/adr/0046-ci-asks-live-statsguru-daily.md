@@ -7,7 +7,7 @@ date: 2026-11-02
 
 ## Context and Problem Statement
 
-crickey's tests use synthetic pages (D25). They check crickey's own code, but they keep passing when Cricinfo changes its HTML, renames a column or stops accepting a link, and crickey's answers then break until someone notices. The one live test parsed a results page of each stat type, ran only by hand and covered neither player pages, the player search nor the filter forms. How does the owner learn soon that Cricinfo changed something crickey relies on?
+crickey's tests use synthetic pages (D25). They check crickey's own code, but they keep passing when Cricinfo changes its HTML, renames a column or stops accepting a link, and crickey's answers then break until someone notices. How does the owner learn soon that Cricinfo changed something crickey relies on?
 
 ## Decision Drivers
 
@@ -61,5 +61,5 @@ Chosen option: "A daily live workflow that also runs on pull requests changing f
 
 ## More Information
 
-* R1 has what GitHub's runner got from Statsguru on the first run.
+* R1 has what GitHub's runner got from Statsguru.
 * research.md's example data has the known answers the live tests check.
