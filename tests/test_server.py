@@ -295,6 +295,8 @@ async def test_find_player_unique_ambiguous_and_unknown() -> None:
     }
     assert "348144" in unique.content[0].text
     assert "539305" in ambiguous.content[0].text
+    assert "first-class" in unknown.content[0].text
+    assert "first-class" not in ambiguous.content[0].text
     assert len(source.requests) == 3
 
 
@@ -361,6 +363,8 @@ async def test_find_player_country_fallback_needs_clarification_not_match() -> N
 
     assert result.structured_content["status"] == "needs_clarification"
     assert "No candidate matched country 'India'" in result.structured_content["note"]
+    assert "No candidate matched country 'India'" in result.content[0].text
+    assert "first-class" in result.content[0].text
     assert [candidate["id"] for candidate in result.structured_content["candidates"]] == [
         348144,
         539305,

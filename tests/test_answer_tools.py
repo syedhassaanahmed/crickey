@@ -2904,6 +2904,9 @@ async def test_same_name_clarification_then_player_id_returns_that_players_recor
     )
 
     async with client:
+        no_odis = await client.call_tool(
+            "player_record", {"player_name": "Imran Khan", "format": "ODI"}
+        )
         clarify = await client.call_tool(
             "player_record", {"player_name": "Imran Khan", "format": "Test", "period": KHAN_DATES}
         )
@@ -2917,6 +2920,13 @@ async def test_same_name_clarification_then_player_id_returns_that_players_recor
             "player_record", {"player_id": 40560, "format": "Test", "period": KHAN_DATES}
         )
 
+    assert no_odis.structured_content == {
+        "status": "not_found",
+        "query": "Imran Khan",
+        "candidates": [],
+    }
+    assert "please choose" not in no_odis.content[0].text
+    assert "first-class" in no_odis.content[0].text
     assert clarify.structured_content["status"] == "needs_clarification"
     assert clarify.structured_content["query"] == "Imran Khan"
     assert clarify.structured_content["candidates"] == [
@@ -3262,6 +3272,8 @@ async def test_player_id_without_a_record_in_the_format_is_a_clear_error() -> No
     assert no_odi_record in record.content[0].text
     assert "Player ID 999999999 has no Test batting record on Statsguru." in unknown.content[0].text
     assert "Player ID 999999998 has no Test bowling record on Statsguru." in gone.content[0].text
+    assert "https://stats.cricinfo.com/ci/content/player/316363.html" in record.content[0].text
+    assert "https://stats.cricinfo.com/ci/content/player/999999998.html" in gone.content[0].text
     # Career-based periods read the form page (no spanmin0 for ODIs), then the innings list.
     assert no_odi_record in career_record.content[0].text
     assert no_odi_record in career.content[0].text
