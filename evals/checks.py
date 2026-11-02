@@ -240,7 +240,7 @@ def _assign(actual: list[str | None], slots: list[set[str | None]]) -> bool:
 
 def _metric_key(discipline: str, value: Any) -> str | None:
     try:
-        return _answer_metric(discipline, str(value)).key
+        return _answer_metric(discipline, str(value), leaderboard=True).key
     except Exception:
         return None
 

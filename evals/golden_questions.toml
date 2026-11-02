@@ -213,6 +213,25 @@ filters = { host_country = "Pakistan" }
 # formats or periods. Nothing in crickey quotes them, and the eval reports them apart.
 
 [[case]]
+number = 11
+golden_question = "Which players had the highest runs in terms of non-boundaries, over a period, in each format asked?"
+id = "q11-non-boundary-runs-odi-and-t20i-2013-to-2019"
+question = "Which players had the highest runs from 2013 to 2019 in terms of non-boundaries? Answer for ODIs and T20Is separately."
+tool = "leaderboard"
+fixed_because = "The period ended in 2019."
+facts = [["Kohli"], ["4213"], ["Root"], ["3698"], ["989"], ["Sharma"], ["734"]]
+
+[[case.calls]]
+format = "ODI"
+metrics = [["non_boundary_runs"]]
+period = { kind = "dates", start = 2013-01-01, end = 2019-12-31 }
+
+[[case.calls]]
+format = "T20I"
+metrics = [["non_boundary_runs"]]
+period = { kind = "dates", start = 2013-01-01, end = 2019-12-31 }
+
+[[case]]
 number = 1
 held_out = true
 id = "h1-test-innings-per-hundred-1980-to-1999"
@@ -377,3 +396,17 @@ format = "ODI"
 number_of_teams = "3+"
 period = { kind = "dates", start = 2000-01-01, end = 2009-12-31 }
 filters = { host_country = "Sri Lanka" }
+
+[[case]]
+number = 11
+held_out = true
+id = "h11-t20i-non-boundary-runs-2020-to-2023"
+question = "In T20 internationals from 2020 to 2023, which batters scored the most runs that weren't fours or sixes?"
+tool = "leaderboard"
+fixed_because = "The period ended in 2023."
+facts = [["Rizwan"], ["1269"], ["Babar"], ["954"]]
+
+[[case.calls]]
+format = "T20I"
+metrics = [["non_boundary_runs"]]
+period = { kind = "dates", start = 2020-01-01, end = 2023-12-31 }

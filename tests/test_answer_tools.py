@@ -368,7 +368,7 @@ def boundary_page(rows: list[tuple[int, str, int, int, int]], *, page: int, page
         ),
     ],
 )
-async def test_non_boundary_runs_rank_by_the_formula_and_read_pages_until_none_can_rank(
+async def test_golden_question_11_non_boundary_runs_rank_by_formula_and_read_pages_that_can_rank(
     first: list[tuple[int, str, int, int, int]],
     second: list[tuple[int, str, int, int, int]],
     top_n: int,

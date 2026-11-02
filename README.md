@@ -2,6 +2,8 @@
 
 crickey is an MCP server that answers cricket statistics questions from Cricinfo Statsguru with proof links.
 
+The [golden questions](evals/golden_questions.toml) show the kinds of questions it answers: leaderboards, the players who beat one player, a player's record under filters, and counts of series.
+
 crickey is for personal use at the user's own risk, Cricinfo's terms ban data-extraction tools, and crickey isn't affiliated with Cricinfo, ESPNcricinfo or ESPN.
 
 ## Start it
