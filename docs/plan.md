@@ -169,7 +169,7 @@ Implements D7–D12 and D17.
 ## CI pipeline (GitHub Actions)
 - **`ci.yml`** (pull requests and pushes to `main`):
   - ruff and pytest on `ubuntu-latest`, using uv with R15's Python version and public PyPI;
-  - build the image for `linux/amd64` without pushing or running it (D31).
+  - build the image for `linux/amd64` without pushing it (D31).
 - **`release.yml`** (tags `v*`):
   - rerun the tests;
   - set up QEMU and Buildx, and log in to GHCR with `GITHUB_TOKEN` (`packages: write`);
