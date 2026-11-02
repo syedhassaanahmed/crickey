@@ -77,7 +77,13 @@ from crickey.render import (
     freshness_line,
     render_answer,
 )
-from crickey.resolve import NameResolver, PeriodResolver, PlayerCandidate, names_agree
+from crickey.resolve import (
+    NameResolver,
+    PeriodResolver,
+    PlayerCandidate,
+    names_agree,
+    profile_url,
+)
 from crickey.resolve import _country_codes as country_codes
 from crickey.resolve import _normalize as normalize_country
 from crickey.resolve import _player_resolution_from_html as player_resolution_from_html
@@ -2636,15 +2642,27 @@ def _leaderboard_fetch_method(
     )
 
 
+# Statsguru's player search lists only players with records in these formats; first-class and
+# List A careers aren't on Statsguru at all.
+_SEARCH_COVERAGE = (
+    "Statsguru lists only players with Test, ODI, T20I or Twenty20 records, so a player who "
+    "played only first-class or List A cricket can't be found."
+)
+
+
 def _clarification_result(name: str, resolution, *, class_id: int, tool: str) -> CallToolResult:
+    if not resolution.candidates:
+        summary = (
+            f"No Statsguru player named {name!r} has {CLASS_LABELS[class_id]} records. "
+            f"{_SEARCH_COVERAGE}"
+        )
+        return _tool_result(summary, {"status": "not_found", "query": name, "candidates": []})
     summary = f"Found possible player candidates for {name!r}; please choose one."
     payload: dict[str, Any] = {
         "status": "needs_clarification",
         "query": name,
         "candidates": [_candidate_payload(candidate) for candidate in resolution.candidates],
     }
-    if not payload["candidates"]:
-        return _tool_result(summary, payload)
     payload["hint"] = f"Call {tool} again with player_id set to the chosen candidate's ID."
     label = CLASS_LABELS[class_id]
     rows = []
@@ -2696,7 +2714,11 @@ def _target_page_errors(
 
 def _no_record_message(player_id: int, name: str | None, class_id: int, discipline: str) -> str:
     who = f"Player ID {player_id}" + (f" ({name})" if name else "")
-    return f"{who} has no {CLASS_LABELS[class_id]} {discipline} record on Statsguru."
+    return (
+        f"{who} has no {CLASS_LABELS[class_id]} {discipline} record on Statsguru. First-class "
+        "and List A careers aren't on Statsguru; the player's Cricinfo profile has them: "
+        f"{profile_url(player_id)}"
+    )
 
 
 def _name_mismatch_note(
@@ -2792,11 +2814,14 @@ def _format_payload(fmt: PlayerFormat) -> dict[str, Any]:
 def _find_player_summary(payload: Mapping[str, Any]) -> str:
     candidates = payload["candidates"]
     if not candidates:
-        return f"No Statsguru player candidates found for {payload['query']!r}."
+        return f"No Statsguru player candidates found for {payload['query']!r}. {_SEARCH_COVERAGE}"
     if payload["status"] == "match":
         candidate = candidates[0]
         return f"Found {candidate['name']} ({candidate['id']})."
-    return f"Found {len(candidates)} possible player candidates for {payload['query']!r}."
+    summary = f"Found {len(candidates)} possible player candidates for {payload['query']!r}."
+    if "note" in payload:
+        return f"{summary} {payload['note']} {_SEARCH_COVERAGE}"
+    return summary
 
 
 def _freshness_for_query(query: StatsguruQuery, as_of: date) -> Freshness:

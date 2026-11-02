@@ -385,6 +385,7 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
 - Example row: "Babar Azam PAK", with "Test matches player (2016/17 - 2026, 66 matches)", "One-Day Internationals player (2015 - 2026, 143 matches)", "Twenty20 Internationals player (2016 - 2025/26, 145 matches)", "Combined Test, ODI and T20I player (2015 - 2026)", "Under-19s Youth One-Day Internationals player (2009/10 - 2012, 36 matches)", "Under-19s Youth Twenty20 Internationals player (2009/10, 1 match)" and "Twenty20 matches player (2012/13 - 2026, 359 matches)".
 - Results mix international, domestic-only and youth players who share a name, for example Babar Hayat (Hong Kong), Muhammad Babar (Spain) and Zulfiqar Babar (Pakistan). Country codes can be combined ("BHM/PAK"), and other searches also return women and officials. Name lookups must filter by class, and ideally by country.
 - Some players share exactly the same name and country, so only the ID tells them apart. On 6 Oct 2026, "Imran Khan" (PAK) returned two Test players: ID 40560 (1971 - 1991/92, 88 matches) and ID 316363 (2014/15 - 2019/20, 10 matches).
+- A player with no records in the formats Statsguru serves (R3) isn't listed. On 2 Nov 2026, "Amjad Khan" returned 663413 (UAE, T20Is) and 23911 (DEN/ENG, a Test and T20Is), but not 25664, whose Statsguru pages have no records (R9).
 
 ## 8. Results pages
 - **Batting columns (overall view):**
@@ -417,6 +418,7 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
 
 ## 9. Records section (first-class and List A)
 - Statsguru's query engine doesn't serve first-class or List A figures: a `class=4` results query returned 400 with an error page ("This page does not exist or has been moved"). Queries for `class=4` and `class=5` have also returned 503 while `class=6` returned 200.
+- Player pages don't serve them either. On 2 Nov 2026, player 25664's pages for classes 4, 12 and 13 returned 400, and his class 11 page named him ("A Khan") but had no "Career averages" table and no tabs for other formats.
 - `https://stats.cricinfo.com/ci/engine/records/index.html` returned 200 and links classes 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 16, 20, 21 and 23 (labels in R3).
 - `records/index.html?class=4` (title "Records | First-class matches | Cricinfo.com") returned 200. It links fixed record lists at `/ci/content/records/<id>.html` and team records at `/ci/engine/records/index.html?category=2;class=4`.
 - Record lists are reachable, though `/ci/content/records/251072.html` has also returned 503. It's a table headed Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, led by JB Hobbs (1905–1934) with 199 hundreds.
