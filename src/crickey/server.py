@@ -2218,8 +2218,8 @@ async def _fetch_bounded_pages(
     while _later_rows_can_rank(pages, metric, class_id, top_n):
         if len(pages) >= settings.max_pages:
             raise TooBroadError(
-                f"That query is too broad: its top {top_n} by {metric.label} needs more than "
-                f"{settings.max_pages} pages. Ask for fewer players, or set a minimum."
+                f"That query is too broad: its top {top_n} by {metric.label} needs more than the "
+                f"{settings.max_pages}-page limit. Ask for fewer players, or set a minimum."
             )
         page_query = query.model_copy(update={"page": (pages[-1].totals.page or len(pages)) + 1})
         pages.append(
