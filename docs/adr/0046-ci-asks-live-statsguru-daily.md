@@ -25,7 +25,7 @@ crickey's tests use synthetic pages (D25). They check crickey's own code, but th
 
 ## Decision Outcome
 
-Chosen option: "A daily live workflow that also runs on pull requests changing fetching or parsing", because it notices a change within a day for about 15 requests, and checks the changes most likely to break on real pages before they merge.
+Chosen option: "A daily live workflow that also runs on pull requests changing fetching or parsing", because it notices a change within a day for about 17 requests, and checks the changes most likely to break on real pages before they merge.
 
 * `live.yml` runs `pytest -m live` every day, on demand, and on pull requests that change the fetcher, the parsers, URL building, name resolution, the ID tables, the live tests or `pyproject.toml`. With no lockfile (D23), the daily run also meets each new release of a dependency, such as the HTML parser. One run at a time, and it isn't a required check.
 * The live tests share one `Fetcher` with default settings, so D9's spacing and D11's block pause cover them all. The log lists each request with its time and status.
@@ -35,7 +35,7 @@ Chosen option: "A daily live workflow that also runs on pull requests changing f
 
 * Good, because a change to Cricinfo's pages or links fails a run within a day, naming the tool and the missing fact or the parse error.
 * Good, because pull requests that change fetching or parsing are checked against real pages before they merge.
-* Bad, because about 15 requests a day reach results pages that robots.txt disallows, with no user's question behind them. They are the owner's own, at the owner's risk (D6).
+* Bad, because about 17 requests a day reach results pages that robots.txt disallows, with no user's question behind them. They are the owner's own, at the owner's risk (D6).
 * Bad, because Cricinfo may challenge GitHub's datacenter IPs more often than a home one (ADR 0043). A challenged run fails without saying anything about the pages, and isn't retried (D11).
 * Bad, because Statsguru could correct an old figure, and the known answer then needs updating.
 * Neutral, because GitHub turns off scheduled workflows in a repository with no activity for 60 days.

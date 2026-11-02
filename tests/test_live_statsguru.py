@@ -16,8 +16,9 @@ from crickey.settings import Settings
 pytestmark = [pytest.mark.live, pytest.mark.anyio]
 
 # Answers that can't change, from research.md's example data: a player search, then golden
-# questions 1, 2, 5, 8 (Dravid) and 10. Between them they read the player search, player pages
-# with a split, a filter form and results pages, each through the tool that uses it.
+# questions 1, 2, 5, 8 (Dravid), 10 and 11. Between them they read the player search, player pages
+# with a split, a filter form and results pages, including the 4s and 6s that non-boundary runs
+# need, each through the tool that uses it.
 KNOWN_ANSWERS = (
     pytest.param("find_player", {"name": "Dravid", "format": "Test"}, ("28114",), id="search"),
     pytest.param(
@@ -54,6 +55,18 @@ KNOWN_ANSWERS = (
         },
         ("3 ODI series of 3+ teams were played in Pakistan", "Wills Triangular Series, 1994/95"),
         id="golden-10",
+    ),
+    pytest.param(
+        "leaderboard",
+        {"format": "ODI", "metric": "non_boundary_runs", "period": "2013 to 2019"},
+        ("Kohli", "4213"),
+        id="golden-11-odi",
+    ),
+    pytest.param(
+        "leaderboard",
+        {"format": "T20I", "metric": "non_boundary_runs", "period": "2013 to 2019"},
+        ("Kohli", "989"),
+        id="golden-11-t20i",
     ),
 )
 
