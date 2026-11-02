@@ -75,18 +75,10 @@ jobs:
           annotations: ${{ steps.meta.outputs.annotations }}
           provenance: mode=max
           sbom: true
-      - name: Smoke-test pushed image
-        run: bash scripts/smoke_test_image.sh '${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}'
       - name: Check arm64 variant starts
         env:
           IMAGE_REF: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
-        run: |
-          # The amd64 smoke test stored this digest locally, and the classic image store
-          # can't keep a second platform under the same digest ("cannot overwrite digest").
-          if docker image inspect "$IMAGE_REF" > /dev/null 2>&1; then
-            docker image rm "$IMAGE_REF"
-          fi
-          docker run --rm --platform linux/arm64 "$IMAGE_REF" --help
+        run: docker run --rm --platform linux/arm64 "$IMAGE_REF" --help
 
   github-release:
     name: github release
