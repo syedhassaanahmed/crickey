@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from mcp import Client
 
+from crickey import __version__
 from crickey.fetcher import Fetcher, FetchResponse, MemoryPageSource
 from crickey.query import Qualification, StatsguruQuery
 from crickey.server import SERVER_INSTRUCTIONS, STATSGURU_META_KEY, create_server
@@ -162,7 +163,7 @@ async def call_with_source(pages: dict[str, str], settings_: Settings | None = N
     return source, clock, client
 
 
-async def test_tool_listing_has_read_only_annotations_and_instructions() -> None:
+async def test_server_reports_its_version_instructions_and_read_only_tools() -> None:
     _, _, client = await call_with_source({})
 
     async with client:
@@ -185,6 +186,7 @@ async def test_tool_listing_has_read_only_annotations_and_instructions() -> None
         assert by_name["player_record"].annotations.read_only_hint is True
         assert by_name["series_count"].annotations.read_only_hint is True
         assert client.instructions == SERVER_INSTRUCTIONS
+        assert client.server_info.version == __version__
         query_schema = str(by_name["query_stats"].input_schema)
         assert "'class'" in query_schema
         assert "'type'" in query_schema

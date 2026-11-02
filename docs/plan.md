@@ -88,6 +88,8 @@ Server instructions tell the agent to:
 - cite only links that came from the tools, as full URLs copied exactly (D16, R17);
 - read "T20" as D3 says.
 
+The server's `serverInfo` gives crickey's version, which `pyproject.toml` sets, so MCP clients can show which release is running.
+
 ## Calculations (inside the answer tools)
 - **Metric registry (batting, bowling and fielding):** for each metric it records:
   - the label;

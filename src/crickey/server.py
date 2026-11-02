@@ -18,7 +18,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, PositiveInt, ValidationError
 
-from crickey import id_tables
+from crickey import __version__, id_tables
 from crickey.fetcher import (
     Fetcher,
     FetcherError,
@@ -337,7 +337,7 @@ def create_server(
 ) -> MCPServer:
     settings = Settings() if settings is None else settings
     fetcher = Fetcher(settings, clock=clock) if fetcher is None else fetcher
-    mcp = MCPServer("crickey", instructions=SERVER_INSTRUCTIONS)
+    mcp = MCPServer("crickey", instructions=SERVER_INSTRUCTIONS, version=__version__)
 
     @mcp.tool(
         annotations=_READ_ONLY_ANNOTATIONS,
