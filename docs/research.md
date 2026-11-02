@@ -130,7 +130,7 @@ Not checked: `view`, `groupby`, `orderby`, `orderbyad`, `size` and `page` are ou
 | 9 | Women's ODIs | Index tabs |
 | 10 | Women's T20Is | Index tabs |
 | 11 | All Test/ODI/T20I combined | Index tabs |
-| 12 | Combined First-class, List A and Twenty20 | Records index |
+| 12 | Combined First-class, List A and Twenty20 | Records index; the query engine refuses it (R9) |
 | 13 | All cricket records (including minor cricket) | Records index |
 | 16 | Minor cricket (Twenty20) | Records index |
 | 20 | Youth Tests | Index "other" menu |
@@ -419,34 +419,8 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
 - Statsguru's query engine doesn't serve first-class or List A figures: a `class=4` results query returned 400 with an error page ("This page does not exist or has been moved"). Queries for `class=4` and `class=5` have also returned 503 while `class=6` returned 200.
 - `https://stats.cricinfo.com/ci/engine/records/index.html` returned 200 and links classes 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 16, 20, 21 and 23 (labels in R3).
 - `records/index.html?class=4` (title "Records | First-class matches | Cricinfo.com") returned 200. It links fixed record lists at `/ci/content/records/<id>.html` and team records at `/ci/engine/records/index.html?category=2;class=4`.
-- Record lists are reachable, though `/ci/content/records/251072.html` has also returned 503. It's a table headed Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, led by JB Hobbs (1905–1934) with 199 hundreds.
-- The List A index (`records/index.html?class=5`) links 40 record lists, for example 282830 Most runs in career and 117937 Highest innings totals.
-
-First-class record lists, 21 of the 44 the page links:
-
-| ID | Record |
-|---|---|
-| 135790 | Highest innings totals |
-| 283975 | Highest fourth innings totals |
-| 283989 | Lowest innings totals |
-| 283998 | Shortest completed innings (by balls) |
-| 284268 | Most runs in career |
-| 94177 | Most runs in an innings |
-| 146057 | Most runs scored off one over |
-| 284199 | Highest career batting average |
-| 282925 | Double hundred on debut |
-| 251072 | Most hundreds in a career |
-| 282971 | Hundreds in consecutive innings |
-| 283002 | Fastest innings |
-| 1510652 | Fastest fifties (by balls) |
-| 283145 | Longest individual innings (by minutes) |
-| 283986 | Unusual dismissals |
-| 283196 | Most wickets in career |
-| 209288 | Best figures in an innings |
-| 283212 | Best figures in a match |
-| 283259 | Best career bowling average |
-| 283308 | Worst career bowling average |
-| 283847 | Worst career bowling average (without qualification) |
+- The record lists themselves are on www.cricinfo.com, which scripts can't fetch (R1). On 2 Nov 2026, all 10 first-class and List A lists sampled redirected off stats.cricinfo.com: `/ci/content/records/284268.html` (first-class, most runs in career) returned 301 to `https://www.cricinfo.com/records/most-runs-in-career-284268`. The same day, a `class=12` results query returned 400.
+- The List A index (`records/index.html?class=5`) links 40 record lists, and the first-class index 45.
 
 The Statsguru header links league record pages on www.cricinfo.com (blocked to scripts) with numeric IDs in the path, for example IPL 117, PSL 205 and World Cup 12. For the men's competitions checked against the class 2, 3 and 6 forms, these are the same as Statsguru's `trophy` values (R4).
 
