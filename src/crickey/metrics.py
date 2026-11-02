@@ -33,10 +33,15 @@ class Metric:
     display_precision: int | None = None
     proof_precision: int | None = None
     supported_classes: tuple[int, ...] = (1, 2, 3, 6, 11)
+    # A sum of weighted columns, such as runs - 4 x fours - 6 x sixes.
+    terms: tuple[tuple[str, int], ...] = ()
+    # A column whose value the metric never exceeds, so rows read in that column's order can stop
+    # once the rest can't reach the leaders.
+    upper_bound_column: str | None = None
 
     @property
     def is_derived(self) -> bool:
-        return self.numerator_column is not None
+        return self.numerator_column is not None or bool(self.terms)
 
     @property
     def is_count(self) -> bool:
@@ -70,6 +75,14 @@ class Metric:
             if self.column is None:
                 raise ValueError(f"metric {self.key!r} has no column")
             return _decimal_or_none(row.get(self.column))
+        if self.terms:
+            parts = [_decimal_or_none(row.get(column)) for column, _weight in self.terms]
+            if any(part is None for part in parts):
+                return None
+            return sum(
+                (weight * part for (_column, weight), part in zip(self.terms, parts, strict=True)),
+                Decimal(0),
+            )
         assert self.numerator_column is not None
         denominator_columns = self.denominator_columns or (self.denominator_column,)
         if None in denominator_columns:
@@ -218,6 +231,20 @@ BATTING_METRICS: dict[str, Metric] = {
         denominator_column="Outs",
         formula_label="balls faced ÷ dismissals",
         display_precision=2,
+        supported_classes=(2, 3),
+    ),
+    # Statsguru shows fours and sixes only for ODIs and T20Is, and not for every period.
+    "non_boundary_runs": Metric(
+        "non_boundary_runs",
+        "non-boundary runs",
+        None,
+        "runs",
+        None,
+        BetterDirection.HIGHER,
+        _mins("runs", {2: 1, 3: 1}),
+        formula_label="runs − 4 × fours − 6 × sixes",
+        terms=(("Runs", 1), ("4s", -4), ("6s", -6)),
+        upper_bound_column="Runs",
         supported_classes=(2, 3),
     ),
 }

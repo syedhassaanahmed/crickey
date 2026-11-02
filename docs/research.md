@@ -389,7 +389,7 @@ Each type also has per-view lists, read the same way from its form. Fielding, al
 
 ## 8. Results pages
 - **Batting columns (overall view):**
-  - ODIs: Player, Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0
+  - ODIs: Player, Span, Mat, Inns, NO, Runs, HS, Ave, BF, SR, 100, 50, 0, plus 4s and 6s for some periods. On 2 Nov 2026, ODIs from 2013 to 2019 had 4s and 6s, with or without minimums on fours and sixes; ODIs over all time had neither, even with those minimums.
   - T20Is: the ODI columns plus 4s and 6s
   - All T20: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)
   - All Test/ODI/T20I combined: Player, Span, Mat, Inns, NO, Runs, HS, Ave, 100, 50, 0 (no balls faced or strike rate)

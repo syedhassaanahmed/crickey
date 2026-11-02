@@ -187,6 +187,18 @@ class AnswerMetric(StrEnum):
     DISMISSALS_PER_INNINGS = "dismissals_per_innings"
 
 
+# Totals only a leaderboard ranks: comparing one player's total would need a floor that could
+# leave out players who beat it.
+_LEADERBOARD_ONLY_METRICS = {"batting": ("non_boundary_runs",)}
+LeaderboardMetric = StrEnum(
+    "LeaderboardMetric",
+    {
+        **{member.name: member.value for member in AnswerMetric},
+        **{key.upper(): key for keys in _LEADERBOARD_ONLY_METRICS.values() for key in keys},
+    },
+)
+
+
 class AnswerDiscipline(StrEnum):
     BATTING = "batting"
     BOWLING = "bowling"
@@ -513,7 +525,7 @@ def create_server(
     async def leaderboard(
         format: FormatParam,
         metric: Annotated[
-            AnswerMetric | str,
+            LeaderboardMetric | str,
             Field(description='What to rank by, e.g. "innings_per_hundred" or "wickets".'),
         ],
         discipline: AnswerDisciplineParam = AnswerDiscipline.BATTING,
@@ -729,7 +741,7 @@ async def _leaderboard_tool(
     try:
         class_id = _format_class(format)
         discipline_value = _answer_discipline(discipline)
-        metric = _answer_metric(discipline_value, metric_key)
+        metric = _answer_metric(discipline_value, metric_key, leaderboard=True)
         metric.require_supported(class_id)
         resolved_period = _parse_period(period, without_player="leaderboard ranks every player")
     except (ValueError, QuerySpecError) as error:
@@ -797,7 +809,12 @@ async def _leaderboard_tool(
     payload_rows = [
         _metric_row_payload(row, metric, class_id, rank) for row, rank in ranked_with_ranks
     ]
-    floor_columns = () if minimum_field == metric.qualval else (minimum_field,)
+    if metric.terms:
+        floor_columns = tuple(column for column, _weight in metric.terms)
+    elif minimum_field == metric.qualval:
+        floor_columns = ()
+    else:
+        floor_columns = (minimum_field,)
     answer = render_answer(
         AnswerRenderInput(
             short_answer=_leaderboard_short_answer(metric, payload_rows, group_value),
@@ -1580,8 +1597,8 @@ def _record_discipline(value: RecordDiscipline | str) -> str:
     return _answer_discipline(value, allowed=_RECORD_DISCIPLINES)
 
 
-def _answer_metric(discipline: str, value: AnswerMetric | str) -> Metric:
-    normalized = str(value.value if isinstance(value, AnswerMetric) else value)
+def _answer_metric(discipline: str, value: StrEnum | str, *, leaderboard: bool = False) -> Metric:
+    normalized = str(value.value if isinstance(value, StrEnum) else value)
     normalized = " ".join(normalized.casefold().replace("_", " ").replace("-", " ").split())
     registry = {
         "batting": (
@@ -1654,6 +1671,11 @@ def _answer_metric(discipline: str, value: AnswerMetric | str) -> Metric:
         }
         if normalized in labels:
             return metric
+    for metric in (getter(key) for key in _LEADERBOARD_ONLY_METRICS.get(discipline, ())):
+        if normalized in {metric.key.replace("_", " "), metric.label.casefold()}:
+            if leaderboard:
+                return metric
+            raise ValueError(f"{metric.label} works only in leaderboard, which ranks every player.")
     labels = ", ".join(getter(key).label for key in registry)
     raise ValueError(
         f"unknown {discipline} metric {value!r}; valid keys: {', '.join(registry)}; "
@@ -2134,6 +2156,8 @@ async def _fetch_leaderboard_pages(
     class_id: int,
     top_n: int,
 ) -> tuple[ResultsPage, ...]:
+    if metric.upper_bound_column is not None:
+        return await _fetch_bounded_pages(call, query, fetcher, settings, metric, class_id, top_n)
     if metric.is_derived:
         return await _fetch_all_result_pages(call, query, fetcher, settings)
     as_of = _today(fetcher)
@@ -2163,6 +2187,65 @@ async def _fetch_leaderboard_pages(
             f"the {settings.max_pages}-page limit."
         )
     return tuple(pages)
+
+
+async def _fetch_bounded_pages(
+    call,
+    query: StatsguruQuery,
+    fetcher: Fetcher,
+    settings: Settings,
+    metric: Metric,
+    class_id: int,
+    top_n: int,
+) -> tuple[ResultsPage, ...]:
+    """Pages in the order of a column the metric never exceeds, until no later row can rank."""
+    as_of = _today(fetcher)
+    freshness = _freshness_for_query(query, as_of)
+    pages = [
+        parse_results_page(await call.fetch(query.results_url(as_of=as_of), freshness=freshness))
+    ]
+    missing = [
+        column
+        for column, _weight in metric.terms
+        if not pages[0].no_records and column not in pages[0].table.columns
+    ]
+    if missing:
+        raise ValueError(
+            f"Statsguru's results for this query have no {' or '.join(missing)}, so crickey can't "
+            f"work out {metric.label}. Statsguru shows them for recent periods, such as ODIs from "
+            "2013 to 2019, but not for ODIs over all time."
+        )
+    while _later_rows_can_rank(pages, metric, class_id, top_n):
+        if len(pages) >= settings.max_pages:
+            raise TooBroadError(
+                f"That query is too broad: its top {top_n} by {metric.label} needs more than "
+                f"{settings.max_pages} pages. Ask for fewer players, or set a minimum."
+            )
+        page_query = query.model_copy(update={"page": (pages[-1].totals.page or len(pages)) + 1})
+        pages.append(
+            parse_results_page(
+                await call.fetch(page_query.results_url(as_of=as_of), freshness=freshness)
+            )
+        )
+    return tuple(pages)
+
+
+def _later_rows_can_rank(
+    pages: list[ResultsPage], metric: Metric, class_id: int, top_n: int
+) -> bool:
+    current_page = pages[-1].totals.page or len(pages)
+    if current_page >= (pages[-1].totals.pages or current_page):
+        return False
+    ranked = _ranked_rows(tuple(pages), metric, class_id)
+    nth = (
+        metric.value_from_row(ranked[top_n - 1], class_id=class_id)
+        if len(ranked) >= top_n
+        else None
+    )
+    rows = pages[-1].table.to_dict("records")
+    last_bound = _decimal(rows[-1].get(metric.upper_bound_column)) if rows else None
+    # A later row is at most the last row's bound, so it can still tie or pass the Nth value.
+    return nth is None or last_bound is None or last_bound >= nth
 
 
 def _needs_boundary_tie_page(
@@ -2292,6 +2375,8 @@ def _metric_row_payload(
         "Ct Wk",
         "Ct Fi",
         "D/I",
+        "4s",
+        "6s",
     ):
         if field in row:
             payload[field] = _display_value(row, field)
@@ -2633,6 +2718,13 @@ def _leaderboard_short_answer(
 def _leaderboard_fetch_method(
     metric: Metric, pages: tuple[ResultsPage, ...], settings: Settings
 ) -> str:
+    if metric.upper_bound_column is not None:
+        bound = metric.upper_bound_column.casefold()
+        page_text = "page" if len(pages) == 1 else "pages"
+        return (
+            f"Read {len(pages)} Statsguru result {page_text} sorted by {bound}; {metric.label} "
+            f"can't exceed {bound}, so the players after them can't rank higher."
+        )
     if metric.is_derived:
         return f"Fetched every qualifying Statsguru row within the {settings.max_pages}-page limit."
     page_text = "page" if len(pages) == 1 else "pages"
