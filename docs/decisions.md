@@ -11,7 +11,7 @@ The decisions behind crickey, as they stand now. Each says what holds and why, a
 1. **An MCP server.** Not an Agent Skill, and not a standalone agent. Code, rather than instructions, controls how Cricinfo is accessed and how links are built, and any MCP client can use it. An agent can bypass a Skill's instructions, and Skills need a host that runs code.
 2. **Build our own.** Paid tools are ruled out, and no free project covers filtered Statsguru queries (R11). `cricguru` (MIT) is useful as reference code.
 3. **Formats.** Full Statsguru queries for men's Tests, ODIs, T20Is, all internationals combined and all Twenty20 (domestic and franchise leagues plus T20Is); R3 has their class numbers. "T20" means T20I unless a league is named. Women's and youth cricket are excluded.
-4. **First-class and List A.** Statsguru's query engine doesn't serve them (R9). They can only be supported through Cricinfo's fixed record lists, and only once a real question needs them.
+4. **No first-class or List A.** Statsguru's query engine and player pages refuse them, and Cricinfo's record lists for them are on www.cricinfo.com, which crickey never fetches (R9, D7).
 5. **Stat types.** Batting, bowling, fielding, all-round, partnerships, team and aggregates. No umpires or referees.
 
 ## Data access
@@ -106,5 +106,6 @@ Options that no ADR covers; each ADR lists its own.
 | Inspect's own MCP tools for the eval | They drop crickey's `$defs` and `_meta` (D40). |
 | An 8-bit KV cache for local models | It reads prompts about 4.6 times slower on a CPU (R17). |
 | Asking golden question 8 "in how many countries" | It tells the model what to count; the answer check reads the count in more forms instead. |
+| A tool for Cricinfo's first-class and List A record lists | The lists are on www.cricinfo.com, which crickey never fetches (D4, D7). |
 | Command-line flags for settings | The README, the image and hosting use environment variables, and a second source needs precedence rules (D19). |
 | Settings for retries, block pauses, the page cap, the cache size and the recent-page TTL | Their values are decisions (D10, D11, D17), so changing them would only weaken what those promise. |
