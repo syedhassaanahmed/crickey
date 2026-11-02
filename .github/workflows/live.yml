@@ -1,0 +1,51 @@
+name: Live Statsguru
+
+# Asks real Statsguru, to catch changes to Cricinfo's pages and links that tests on synthetic
+# pages can't see (D46).
+on:
+  schedule:
+    - cron: '41 21 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/crickey/fetcher.py'
+      - 'src/crickey/parsers/**'
+      - 'src/crickey/query.py'
+      - 'src/crickey/query_catalog.py'
+      - 'src/crickey/ids.py'
+      - 'src/crickey/id_tables.py'
+      - 'src/crickey/resolve.py'
+      - 'tests/test_live_statsguru.py'
+      - 'tests/stat_type_cases.py'
+      - 'pyproject.toml'
+      - '.github/workflows/live.yml'
+
+permissions:
+  contents: read
+
+# One run at a time across the repository, so two runs never fetch at once.
+concurrency:
+  group: live-statsguru
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: live Statsguru
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.6
+          python-version: '3.15.0'
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      # The log lists each request with its time and status.
+      - name: Ask live Statsguru
+        run: >-
+          uv run pytest -m live -o log_cli=true --log-cli-level=INFO
+          --log-cli-format="%(asctime)s %(name)s %(message)s"

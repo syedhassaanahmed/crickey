@@ -177,6 +177,7 @@ Implements D7–D12 and D17.
   - build and push both architectures with `docker/build-push-action`, with provenance and SBOM attestations;
   - check that the pushed arm64 variant starts, with `--help`;
   - create a GitHub Release with notes and the `docker run` command.
+- **`live.yml`** (daily, on demand, and pull requests that change fetching, parsing, URL building, the live tests or `pyproject.toml`): `pytest -m live` on `ubuntu-latest`, one run at a time, with each request's time and status in the log (D46). It isn't a required check, so Cricinfo being down never blocks a merge.
 - **Hygiene:** actions pinned to commit SHAs, least-privilege `permissions`, and Dependabot for actions, Python dependencies and the base image.
 - **One-time step:** GHCR creates new packages as private, so after the first push the package is switched to public in its settings. The `org.opencontainers.image.source` label links it to the repo.
 
@@ -203,7 +204,8 @@ Work is tracked in [GitHub issues](https://github.com/syedhassaanahmed/crickey/i
   - The fetcher: rate limiter, page cap, retries (`Retry-After`, jitter limits, time budget), pauses after a block, unavailable URLs, the cache size cap and the freshness rules.
 - **Answer tools:** each one against synthetic pages, with expected answers and proof links. Each golden question has a test named after it.
 - **HTTP tests:** Host and Origin checks (localhost on any port), loopback-only binding natively, binding in container mode, and SSE progress.
-- **End to end:** tests over HTTP and stdio using the synthetic-page hook, and a check that no files are written. CI runs on Ubuntu. A live test, which parses a Statsguru page of each stat type, runs only when explicitly enabled.
+- **End to end:** tests over HTTP and stdio using the synthetic-page hook, and a check that no files are written. CI runs on Ubuntu.
+- **Live:** tests marked `live` share one fetcher. They parse a Statsguru results page of each stat type, search for a retired player with `find_player`, and ask golden questions 1, 2, 5, 8 (Dravid's call) and 10, whose answers can't change, through the tools that answer them. Between them these read the player search, player pages with a split, a filter form and results pages. `live.yml` runs them (D46).
 - **Evals:** pytest neither tests nor runs them; they run on their own (Evals below).
 - **Acceptance:** every golden question is answered correctly in the evals by a strong model and a small one, every pinned link shows matching numbers, and the public image works on a machine without the source.
 
