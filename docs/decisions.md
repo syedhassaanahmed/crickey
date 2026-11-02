@@ -76,6 +76,7 @@ The decisions behind crickey, as they stand now. Each says what holds and why, a
 43. **Anyone can host their own crickey in the cloud.** `CRICKEY_HOST`, `CRICKEY_URL` and `CRICKEY_TOKEN` let a user run their own instance on a cloud platform. crickey won't start without a token once other machines can reach it, and TLS is the platform's. [ADR 0043](adr/0043-anyone-can-host-their-own-crickey.md)
 44. **Series questions have their own answer tool.** `series_count` counts series from Statsguru's series view, with plain parameters and one request, so that small models can answer them. [ADR 0044](adr/0044-series-questions-have-their-own-answer-tool.md)
 45. **Tool descriptions never quote an eval case, and held-out cases check each change.** Descriptions and the server instructions share no wording, players or values with any eval case. Each golden question has held-out cases, and a change made for a failing case is checked on them too. [ADR 0045](adr/0045-tool-descriptions-never-quote-an-eval-case.md)
+46. **CI asks live Statsguru daily.** The live workflow runs the `live` tests every day, on demand, and on pull requests that change fetching, parsing, URL building, the live tests or the locked dependencies, one run at a time. They read a results page of each stat type and ask `find_player` and each answer tool a question whose answer can't change, about 15 requests through one `Fetcher` with default settings, so D7, D9, D11 and D12 hold and a block fails the run without a retry. A failed run is how the owner learns that Cricinfo changed a page or a link, which tests on synthetic pages (D25) can't show. D8 is about the server; these requests are the owner's own, at the owner's risk (D6). [ADR 0046](adr/0046-ci-asks-live-statsguru-daily.md)
 
 ## Considered and dropped
 Options that no ADR covers; each ADR lists its own.
@@ -97,7 +98,7 @@ Options that no ADR covers; each ADR lists its own.
 | A stored filter catalogue | Built-in ID tables, with lookups when needed, cover the filters (D18). |
 | Fetching player profile pages from www.cricinfo.com | Blocked to scripts (R1), so getting through would mean working around bot protection. Their statistics match Statsguru's, so answers link to them instead. |
 | Linking or fetching the new Statsguru on www.cricinfo.com/statsguru | crickey can't fetch or confirm it (D7, R1), the classic engine serves the same data, and repeated keys cover multi-value queries (R2). |
-| A separate access-check step | Research checked access (R1, R9), and the live test re-checks it. |
+| A separate access-check step | Research checked access (R1, R9), and the live tests re-check it daily (D46). |
 | uvx, PyPI, MCP Bundles, a Copilot plugin, one-click install links, MCP Registry or directory listings (R14) | Docker only (D24). |
 | A private container image | Public, so friends don't need to log in. |
 | Running CI on `windows-latest` | crickey ships as a Linux image (D24), which Ubuntu CI and the image job cover. |
