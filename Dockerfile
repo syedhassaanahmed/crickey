@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.10
 
-FROM ghcr.io/astral-sh/uv:0.13.6 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
 
-FROM python:3.15.0-slim-trixie AS build
+FROM python:3.15.2-slim-trixie AS build
 COPY --from=uv /uv /uvx /bin/
 
 WORKDIR /app
@@ -18,7 +18,7 @@ RUN --mount=type=secret,id=uv_index_url,env=UV_DEFAULT_INDEX,required=false \
     && rm -f /app/.venv/.lock \
     && rm -f uv.lock
 
-FROM python:3.15.0-slim-trixie AS final
+FROM python:3.15.2-slim-trixie AS final
 
 LABEL org.opencontainers.image.source="https://github.com/syedhassaanahmed/crickey" \
       org.opencontainers.image.description="crickey is an MCP server that answers cricket statistics questions from Cricinfo Statsguru." \
